@@ -49,8 +49,8 @@ public sealed class SimConfig
     public float KinPenalty { get; init; } = 2f;
 
     // 5. 식량과 땅
-    public float PlotYield { get; init; } = 14f;
-    public float PlotsPerWorker { get; init; } = 3.5f;
+    public float PlotYield { get; init; } = 28f;              // 필지를 크게 잡아 밭 면적을 줄였다(14 × 2)
+    public float PlotsPerWorker { get; init; } = 1.75f;
     public float LandReserve { get; init; } = 1.6f;          // 일손보다 넉넉히 잡는 땅 배수
     public float LandRelease { get; init; } = 2.2f;          // 이 배수를 넘는 땅은 내놓는다
     public float FertilityDeclinePerYear { get; init; } = 0.08f;
