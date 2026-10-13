@@ -10,3 +10,9 @@ export_credentials.cfg
 Thumbs.db
 .vscode/
 *.tmp
+
+# .NET
+bin/
+obj/
+TestResults/
+*.user

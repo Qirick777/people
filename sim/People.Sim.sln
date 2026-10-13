@@ -1,0 +1,34 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "People.Sim", "People.Sim\People.Sim.csproj", "{7F060D06-779C-4F7D-B806-39DD4F4FC4EA}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "People.Sim.Tests", "People.Sim.Tests\People.Sim.Tests.csproj", "{6169956A-FF2D-4752-8EB5-CC8B23B6EEF4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "People.Sim.Cli", "People.Sim.Cli\People.Sim.Cli.csproj", "{F5BE87E3-C5E7-4666-BB05-55D9D9B8D59A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{7F060D06-779C-4F7D-B806-39DD4F4FC4EA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7F060D06-779C-4F7D-B806-39DD4F4FC4EA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7F060D06-779C-4F7D-B806-39DD4F4FC4EA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7F060D06-779C-4F7D-B806-39DD4F4FC4EA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6169956A-FF2D-4752-8EB5-CC8B23B6EEF4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6169956A-FF2D-4752-8EB5-CC8B23B6EEF4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6169956A-FF2D-4752-8EB5-CC8B23B6EEF4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6169956A-FF2D-4752-8EB5-CC8B23B6EEF4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F5BE87E3-C5E7-4666-BB05-55D9D9B8D59A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F5BE87E3-C5E7-4666-BB05-55D9D9B8D59A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F5BE87E3-C5E7-4666-BB05-55D9D9B8D59A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F5BE87E3-C5E7-4666-BB05-55D9D9B8D59A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

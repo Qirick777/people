@@ -1,0 +1,14 @@
+<Project Sdk="Godot.NET.Sdk/4.7.2">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>People</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- 시뮬레이션은 별도 라이브러리로 참조한다. 하위 폴더 소스를 중복 컴파일하지 않는다. -->
+    <Compile Remove="sim/**" />
+    <ProjectReference Include="sim/People.Sim/People.Sim.csproj" />
+  </ItemGroup>
+</Project>
