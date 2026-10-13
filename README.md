@@ -20,3 +20,12 @@
 ## 미리 잡아 둔 입력
 
 WASD 이동, Shift 달리기, E 상호작용, 좌클릭 공격, 우클릭 조준, Tab 인벤토리.
+
+## 사람 외형 시안 다시 렌더링
+
+```
+xvfb-run godot --path . --rendering-method gl_compatibility --resolution 1800x800 \
+  --script prototypes/human_look/render_preview.gd
+```
+
+결과는 `docs/images/human_*.png`에 저장된다. 화면이 있는 환경이면 `xvfb-run` 없이 실행한다.
