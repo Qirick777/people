@@ -133,21 +133,11 @@ static func tex(img: Image) -> ImageTexture:
 	return ImageTexture.create_from_image(img)
 
 
-static func face(skin: Color, hair: Color, female: bool, seed_v: int) -> ImageTexture:
-	var img := fabric(skin, seed_v, 128, 128, 0.0)
-	var eye := Color(0.12, 0.09, 0.08)
-	var brow := hair.darkened(0.25)
-	for s in [-1.0, 1.0]:
-		var u: float = 0.5 + s * 0.058
-		dot(img, u, 0.52, 0.02, 0.026, Color(0.93, 0.91, 0.88))
-		dot(img, u + s * 0.002, 0.525, 0.011, 0.022, eye)
-		band(img, 0.435, 0.455 if not female else 0.448, brow, u - 0.026, u + 0.026)
-		dot(img, 0.5 + s * 0.085, 0.66, 0.025, 0.03, skin.lerp(Color(0.85, 0.45, 0.4), 0.18))
-	band(img, 0.79, 0.805, skin.darkened(0.35), 0.465, 0.535)
-	if female:
-		band(img, 0.79, 0.81, Color(0.62, 0.33, 0.32), 0.47, 0.53)
-	tint(img, 0.3, 0.75, 0.9, 0.0, 0.22)
-	tint(img, 0.3, 0.75, 0.9, 0.78, 1.0)
+## 얼굴은 이목구비 없이 피부만 칠한다. 옆면을 살짝 어둡게 해 입체감만 준다.
+static func face(skin: Color, seed_v: int) -> ImageTexture:
+	var img := fabric(skin, seed_v, 64, 64, 0.0)
+	tint(img, 0.3, 0.75, 0.92, 0.0, 0.22)
+	tint(img, 0.3, 0.75, 0.92, 0.78, 1.0)
 	return tex(img)
 
 
@@ -185,7 +175,7 @@ static func build(d: Dictionary) -> Node3D:
 		H.call(-0.075, 0.015), H.call(-0.105, 0.03), H.call(-0.115, 0.035)]
 	var head_rad := [HR.call(0.02, 0.025), HR.call(0.06, 0.07), HR.call(0.083, 0.098), HR.call(0.088, 0.102),
 		HR.call(0.083, 0.098), HR.call(0.068, 0.082), HR.call(0.042, 0.052), HR.call(0.02, 0.025)]
-	part(root, loft(head_pts, head_rad, Vector3.BACK), face(skin, hair_c, female, seed_v))
+	part(root, loft(head_pts, head_rad, Vector3.BACK), face(skin, seed_v))
 	part(root, loft([H.call(-0.002, 0.098), H.call(-0.032, 0.114)], [HR.call(0.007, 0.007), HR.call(0.012, 0.011)], Vector3.UP), skin_tex)
 	# 팔
 	for sx in [-1.0, 1.0]:
