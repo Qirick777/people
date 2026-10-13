@@ -1,6 +1,6 @@
 namespace People.Sim;
 
-public enum TileType : byte { Sea, Lake, River, Grass, Forest, Marsh, Hills, Mountain }
+public enum TileType : byte { Sea, Lake, River, Grass, Forest, Marsh, Hills, Mountain, Road }
 
 /// <summary>
 /// 대략 지도: 한 칸 = 청크 하나 (spec world.md "두 단계 생성").

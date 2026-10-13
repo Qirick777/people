@@ -95,6 +95,7 @@ public sealed class HouseholdStore
 public sealed class VillageStore
 {
     public readonly List<int> CenterX = new(), CenterY = new(), Founded = new(), Households = new();
+    public readonly List<int> DirX = new(), DirY = new();   // 큰길 방향(축 방향 단위 벡터)
     public readonly List<bool> Alive = new();
     public int Count => CenterX.Count;
     public int AliveCount { get; private set; }
@@ -102,6 +103,7 @@ public sealed class VillageStore
     public int Add(int x, int y, int day)
     {
         CenterX.Add(x); CenterY.Add(y); Founded.Add(day); Households.Add(0); Alive.Add(true);
+        DirX.Add(1); DirY.Add(0);
         AliveCount++;
         return CenterX.Count - 1;
     }

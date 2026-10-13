@@ -261,17 +261,16 @@ public sealed class World
     /// <summary>시작 상황: 젊은 부부 couples 쌍, 가구마다 필지와 한 계절 식량.</summary>
     public void SeedCouples(int couples, int plotsEach = 3)
     {
-        int v = VillageList.Add(SpawnX, SpawnY, Day);
+        int v = FoundVillage(SpawnX, SpawnY, -1);
         for (int k = 0; k < couples; k++)
         {
-            var (x, y) = NearestBuildable(SpawnX + _rng.NextInt(13) - 6, SpawnY + _rng.NextInt(13) - 6, 20);
+            var (x, y) = Layout ? HouseSpotOnRoad(v) : NearestBuildable(SpawnX + _rng.NextInt(13) - 6, SpawnY + _rng.NextInt(13) - 6, 20);
             int h = NewHousehold(x, y, 6f * 2 * Config.DaysPerSeason, Config.HutCapacity, v);
             var man = CreateFounder(true, 18 + _rng.NextInt(8), h);
             var woman = CreateFounder(false, 16 + _rng.NextInt(8), h);
             Households.Head[h] = man;
             Marry(man.Index, woman.Index, 0.5f);
-            var (cx, cy) = ClaimCenter(h);
-            Map.Claim(h, plotsEach, Households, cx, cy, FarmRadiusOf(v));
+            ClaimFields(h, plotsEach);
         }
     }
 
@@ -396,6 +395,7 @@ public sealed class World
         RecountHouseholds();
         Splits();
         ClaimLand();
+        if (Layout) Stats.Swaps += Map.Consolidate(Households, Households.HighWater, Config.SwapTolerance);
         UpgradeHouses();
     }
 
@@ -542,11 +542,7 @@ public sealed class World
         {
             // 일할 수 있는 양보다 넉넉히 잡는다. 남는 땅은 쉬게 되어 비옥도가 돌아온다(돌려짓기가 저절로 생긴다).
             int want = (int)MathF.Ceiling(hh.Labor[h] * Config.PlotsPerWorker * Config.LandReserve);
-            if (hh.PlotCount[h] < want)
-            {
-                var (cx, cy) = ClaimCenter(h);
-                Map.Claim(h, want - hh.PlotCount[h], hh, cx, cy, FarmRadiusOf(hh.Village[h]));
-            }
+            if (hh.PlotCount[h] < want) ClaimFields(h, want - hh.PlotCount[h]);
             // 일손이 줄어 부칠 수 없는 땅이 너무 많으면 덜 비옥한 것부터 내놓는다.
             int keep = (int)MathF.Ceiling(hh.Labor[h] * Config.PlotsPerWorker * Config.LandRelease);
             if (hh.PlotCount[h] > keep) Map.ReleaseWorst(h, hh.PlotCount[h] - keep, hh);
@@ -611,6 +607,104 @@ public sealed class World
         RecountHouseholds();
     }
 
+    // ------------------------------------------------------------------ 마을 배치와 길
+
+    private bool Layout => Map.Coarse != null;
+
+    /// <summary>집이 들어서는 마을 중심 반경.</summary>
+    private int HouseZone(int v) => Config.HouseRadius + (int)(0.9f * MathF.Sqrt(Math.Max(1, VillageList.Households[v])));
+
+    /// <summary>
+    /// 마을을 세운다. 큰길(옛 마을 쪽 방향)과 직각 길을 내고, 들로 뻗는 밭길을 낸 뒤, 옛 마을과 길로 잇는다.
+    /// </summary>
+    private int FoundVillage(int x, int y, int parentVillage)
+    {
+        var vl = VillageList;
+        int v = vl.Add(x, y, Day);
+        if (!Layout) return v;
+        // 큰길 방향: 옛 마을 쪽(없으면 무작위) 을 상하좌우 중 하나로
+        int dx = 1, dy = 0;
+        if (parentVillage >= 0)
+        {
+            int px = vl.CenterX[parentVillage] - x, py = vl.CenterY[parentVillage] - y;
+            if (Math.Abs(px) >= Math.Abs(py)) { dx = Math.Sign(px); dy = 0; } else { dx = 0; dy = Math.Sign(py); }
+            if (dx == 0 && dy == 0) dx = 1;
+        }
+        else if (_rng.NextBool()) { dx = 0; dy = 1; }
+        vl.DirX[v] = dx; vl.DirY[v] = dy;
+        // 큰길과 직각 길: 마을 안은 짧게, 밭으로는 밭길로 이어진다
+        int R = Config.FarmRadius;
+        RoadLine(x, y, dx, dy, R);
+        RoadLine(x, y, -dx, -dy, R);
+        RoadLine(x, y, -dy, dx, R);
+        RoadLine(x, y, dy, -dx, R);
+        // 옛 마을과 잇는다
+        if (parentVillage >= 0)
+        {
+            var path = Map.FindPath(x, y, vl.CenterX[parentVillage], vl.CenterY[parentVillage]);
+            foreach (var (px, py) in path) Map.MakeRoad(px, py, Households);
+            if (path.Count > 0) Stats.RoadTiles += path.Count;
+        }
+        return v;
+    }
+
+    /// <summary>(x, y) 에서 (dx, dy) 방향으로 len 칸 길을 낸다. 물이나 집을 만나면 멈춘다(다리는 마을 잇기 길에서만).</summary>
+    private void RoadLine(int x, int y, int dx, int dy, int len)
+    {
+        for (int k = 0; k <= len; k++)
+        {
+            int xx = x + dx * k, yy = y + dy * k;
+            if (!Map.InBounds(xx, yy)) return;
+            var t = Map.Type(Map.Id(xx, yy));
+            if (t is TileType.Sea or TileType.Lake or TileType.River or TileType.Mountain) return;
+            Map.MakeRoad(xx, yy, Households);
+        }
+    }
+
+    /// <summary>
+    /// 길가 집터: 마을 반경 안에서 길에 붙은 빈 칸. 중심에 가까운 곳부터. 없으면 큰길에서 골목을 하나 낸다.
+    /// </summary>
+    private (int x, int y) HouseSpotOnRoad(int v)
+    {
+        var vl = VillageList;
+        int cx = vl.CenterX[v], cy = vl.CenterY[v];
+        if (!Layout) return Map.HouseSpot(cx, cy, HouseZone(v), ref _rng);
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            int R = HouseZone(v);
+            (int x, int y) best = (-1, -1);
+            float bestS = float.MaxValue;
+            for (int y = cy - R; y <= cy + R; y++)
+                for (int x = cx - R; x <= cx + R; x++)
+                {
+                    if ((x - cx) * (x - cx) + (y - cy) * (y - cy) > R * R || !Map.Buildable(x, y)) continue;
+                    if (!(Map.IsRoad(x + 1, y) || Map.IsRoad(x - 1, y) || Map.IsRoad(x, y + 1) || Map.IsRoad(x, y - 1))) continue;
+                    float d = MathF.Sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)) + _rng.NextFloat() * 1.5f;
+                    if (d < bestS) { bestS = d; best = (x, y); }
+                }
+            if (best.x >= 0) return best;
+            // 골목: 큰길이나 직각 길 위 한 점에서 직각으로 짧게
+            int k = 2 + _rng.NextInt(Math.Max(1, R - 2));
+            int sign = _rng.NextBool() ? 1 : -1;
+            int ddx = vl.DirX[v], ddy = vl.DirY[v];
+            if (_rng.NextBool()) (ddx, ddy) = (-ddy, ddx);
+            int sx = cx + ddx * k * sign, sy = cy + ddy * k * sign;
+            int side = _rng.NextBool() ? 1 : -1;
+            RoadLine(sx, sy, -ddy * side, ddx * side, Math.Max(3, R / 2));
+            Stats.Lanes++;
+        }
+        return Map.HouseSpot(cx, cy, HouseZone(v), ref _rng);
+    }
+
+    /// <summary>가구 h 가 마을 v 에서 밭 n 칸을 더 잡는다(덩어리로).</summary>
+    private int ClaimFields(int h, int n)
+    {
+        var (cx, cy) = ClaimCenter(h);
+        int v = Households.Village[h];
+        if (!Layout || v < 0) return Map.Claim(h, n, Households, cx, cy, FarmRadiusOf(v));
+        return Map.ClaimContiguous(h, n, Households, cx, cy, FarmRadiusOf(v), HouseZone(v) + 1);
+    }
+
     /// <summary>분가하는 가구의 자리를 정하고 가구를 만든다. 실패하면 -1.</summary>
     private int SettleNewHousehold(int parent)
     {
@@ -632,11 +726,11 @@ public sealed class World
         // 1) 지금 마을에 빈 땅이 넉넉하면 마을 안에 집을 짓는다.
         if (v >= 0 && FreeInVillage(v) >= Config.MinFreePlotsToStay)
         {
-            var (x, y) = Map.HouseSpot(vl.CenterX[v], vl.CenterY[v], Config.HouseRadius + (int)(0.7f * MathF.Sqrt(vl.Households[v])), ref _rng);
+            var (x, y) = HouseSpotOnRoad(v);
             if (x >= 0)
             {
                 int nh = NewHousehold(x, y, 0f, Config.HutCapacity, v);
-                TookPlots(v, Map.Claim(nh, 3, hh, vl.CenterX[v], vl.CenterY[v], FarmRadiusOf(v)));
+                TookPlots(v, ClaimFields(nh, 3));
                 return nh;
             }
         }
@@ -669,20 +763,22 @@ public sealed class World
         // 이미 있는 마을은 이웃과 혼인 상대가 있어서 조금 더 끌린다.
         if (bestV >= 0 && (bestSite.x < 0 || bestVScore + 15f > bestSiteScore * 0.5f))
         {
-            var (x, y) = Map.HouseSpot(vl.CenterX[bestV], vl.CenterY[bestV], Config.HouseRadius + (int)(0.7f * MathF.Sqrt(vl.Households[bestV])), ref _rng);
+            var (x, y) = HouseSpotOnRoad(bestV);
             if (x >= 0)
             {
                 int nh = NewHousehold(x, y, 0f, Config.HutCapacity, bestV);
-                TookPlots(bestV, Map.Claim(nh, 3, hh, vl.CenterX[bestV], vl.CenterY[bestV], FarmRadiusOf(bestV)));
+                TookPlots(bestV, ClaimFields(nh, 3));
                 Stats.Migrations++;
                 return nh;
             }
         }
         if (bestSite.x >= 0)
         {
-            int nv = vl.Add(bestSite.x, bestSite.y, Day);
-            int nh = NewHousehold(bestSite.x, bestSite.y, 0f, Config.HutCapacity, nv);
-            Map.Claim(nh, 3, hh, bestSite.x, bestSite.y, FarmRadiusOf(nv));
+            int nv = FoundVillage(bestSite.x, bestSite.y, v);
+            var (hx, hy) = HouseSpotOnRoad(nv);
+            if (hx < 0) (hx, hy) = NearestBuildable(bestSite.x, bestSite.y, 6);
+            int nh = NewHousehold(hx, hy, 0f, Config.HutCapacity, nv);
+            ClaimFields(nh, 3);
             Stats.Migrations++;
             Stats.NewVillages++;
             return nh;
@@ -711,7 +807,8 @@ public sealed class World
         if (_freeCacheYear != Calendar.Year) { _freeCache.Clear(); _freeCacheYear = Calendar.Year; }
         if (_freeCache.TryGetValue(v, out int n)) return n;
         var vl = VillageList;
-        n = Map.CountFreeNear(vl.CenterX[v], vl.CenterY[v], FarmRadiusOf(v));
+        n = Layout ? Map.CountClaimable(vl.CenterX[v], vl.CenterY[v], FarmRadiusOf(v), HouseZone(v) + 1)
+                   : Map.CountFreeNear(vl.CenterX[v], vl.CenterY[v], FarmRadiusOf(v));
         _freeCache[v] = n;
         return n;
     }

@@ -11,7 +11,7 @@ const OUT := "res://docs/images/"
 const T := 8.0                       # 타일 크기(m)
 const ISO := Vector3(-1.0, 1.25, 1.0)
 
-enum Tile { SEA, LAKE, RIVER, GRASS, FOREST, MARSH, HILLS, MOUNTAIN }
+enum Tile { SEA, LAKE, RIVER, GRASS, FOREST, MARSH, HILLS, MOUNTAIN, ROAD }
 
 var world: Node3D
 var cam: Camera3D
@@ -20,7 +20,8 @@ var W: int
 var H: int
 var heights: PackedFloat32Array
 var types: PackedInt32Array
-var fields: PackedInt32Array
+var fields: PackedInt32Array      # 밭 주인 가구 id, 없으면 -1
+var roads: PackedByteArray        # 길(물 위면 다리)
 var rng := RandomNumberGenerator.new()
 
 
@@ -30,9 +31,9 @@ func _init() -> void:
 	data = JSON.parse_string(FileAccess.get_file_as_string("res://prototypes/world_view/" + file))
 	W = int(data["w"]); H = int(data["h"])
 	var tiles: Array = data["tiles"]
-	heights.resize(W * H); types.resize(W * H); fields.resize(W * H)
+	heights.resize(W * H); types.resize(W * H); fields.resize(W * H); roads.resize(W * H)
 	for i in tiles.size():
-		types[i] = int(tiles[i][0]); heights[i] = float(tiles[i][1]); fields[i] = int(tiles[i][2])
+		types[i] = int(tiles[i][0]); heights[i] = float(tiles[i][1]); fields[i] = int(tiles[i][2]); roads[i] = int(tiles[i][3])
 	rng.seed = 7
 	BM.flat = true
 	BB.round_r = 0.07
@@ -104,7 +105,7 @@ func _terrain() -> void:
 	var col := {
 		Tile.GRASS: Color(0.45, 0.6, 0.3), Tile.FOREST: Color(0.33, 0.47, 0.25), Tile.MARSH: Color(0.42, 0.5, 0.36),
 		Tile.HILLS: Color(0.58, 0.57, 0.42), Tile.MOUNTAIN: Color(0.55, 0.53, 0.5), Tile.SEA: Color(0.3, 0.48, 0.66),
-		Tile.LAKE: Color(0.36, 0.56, 0.72), Tile.RIVER: Color(0.38, 0.6, 0.76),
+		Tile.LAKE: Color(0.36, 0.56, 0.72), Tile.RIVER: Color(0.38, 0.6, 0.76), Tile.ROAD: Color(0.69, 0.58, 0.41),
 	}
 	var groups := {}
 	var base := 1e9
@@ -117,9 +118,9 @@ func _terrain() -> void:
 			var top := H_at(x, y)
 			var key: Variant = t
 			var c: Color = col.get(t, Color.MAGENTA)
-			if fields[i] == 1 and t != Tile.FOREST:
+			if fields[i] >= 0 and t != Tile.FOREST:
 				key = "field"
-				c = Color(0.6, 0.48, 0.33)
+				c = Color(0.5, 0.38, 0.26)
 			if t in [Tile.RIVER, Tile.LAKE, Tile.SEA]:
 				# 물은 둑보다 낮게: 주변 땅 높이에서 0.6 m 아래
 				var lo := top
@@ -134,6 +135,52 @@ func _terrain() -> void:
 			if not groups.has(key): groups[key] = [c, []]
 			groups[key][1].append(xf)
 	for k in groups: _multi(unit, groups[k][0], groups[k][1])
+	_bridges()
+
+
+## 물 위의 길은 나무 다리. 이어진 다리 칸을 한 덩어리로 묶어 둑 높이에 맞추고,
+## 칸마다 가운데 판과 이웃 다리 칸 쪽으로 뻗는 판을 깔아 지그재그 길도 끊기지 않게 한다.
+func _bridges() -> void:
+	var planks := []
+	var seen := {}
+	var dirs := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+	for y in H:
+		for x in W:
+			var i := idx(x, y)
+			if seen.has(i) or not _bridge(x, y): continue
+			# 다리 한 덩어리 모으기
+			var comp := [Vector2i(x, y)]
+			seen[i] = true
+			var hi := -1e9
+			var k := 0
+			while k < comp.size():
+				var c: Vector2i = comp[k]
+				k += 1
+				for d in dirs:
+					var n: Vector2i = c + d
+					if n.x < 0 or n.y < 0 or n.x >= W or n.y >= H: continue
+					var ni := idx(n.x, n.y)
+					if _bridge(n.x, n.y):
+						if not seen.has(ni):
+							seen[ni] = true
+							comp.append(n)
+					elif roads[ni] == 1 or not (types[ni] in [Tile.RIVER, Tile.LAKE, Tile.SEA]):
+						hi = maxf(hi, H_at(n.x, n.y))
+			if hi < -1e8: hi = H_at(x, y) + 0.6
+			for c in comp:
+				var center := Vector3((c.x + 0.5) * T, hi + 0.1, (c.y + 0.5) * T)
+				planks.append(Transform3D(Basis.from_scale(Vector3(4.0, 0.5, 4.0)), center))
+				for d in dirs:
+					var n: Vector2i = c + d
+					if n.x < 0 or n.y < 0 or n.x >= W or n.y >= H or roads[idx(n.x, n.y)] == 0: continue
+					var sz := Vector3(T * 0.5, 0.5, 4.0) if d.x != 0 else Vector3(4.0, 0.5, T * 0.5)
+					planks.append(Transform3D(Basis.from_scale(sz), center + Vector3(d.x, 0, d.y) * T * 0.25))
+	_multi(_box(Vector3(1, 1, 1)), Color(0.5, 0.36, 0.23), planks)
+
+
+func _bridge(x: int, y: int) -> bool:
+	var i := idx(x, y)
+	return roads[i] == 1 and types[i] in [Tile.RIVER, Tile.LAKE, Tile.SEA]
 
 
 func _trees() -> void:
@@ -164,23 +211,39 @@ func _trees() -> void:
 	_multi(unit, Color(0.26, 0.44, 0.24), pines)
 
 
+## 한 가구의 밭은 한 덩어리로 보이게: 이랑 방향과 작물 상태를 주인 가구로 정하고,
+## 같은 주인 밭끼리는 이랑을 이어 붙인다. 주인이 바뀌는 경계에는 두렁(틈)을 남긴다.
 func _crops() -> void:
-	var rows := []
-	var rows2 := []
+	var kinds := [[], [], []]
 	var unit := _box(Vector3(1, 1, 1))
 	for y in H:
 		for x in W:
 			var i := idx(x, y)
-			if fields[i] != 1 or types[i] == Tile.FOREST: continue
-			var along_x := ((x / 3 + y / 3) % 2) == 0       # 밭마다 이랑 방향이 다르게
-			var ripe := ((x * 7 + y * 13) % 5) < 3
+			var o := fields[i]
+			if o < 0 or types[i] == Tile.FOREST: continue
+			var hsh := (o * 2654435761) & 0x7fffffff
+			var along_x := (hsh % 2) == 0
+			var kind := (hsh / 2) % 3                       # 익은 밀, 푸른 작물, 어린 싹
+			var dx := 1 if along_x else 0
+			var dy := 0 if along_x else 1
+			var a := -T * 0.5 + (0.0 if _same(x - dx, y - dy, o) else 0.7)
+			var b := T * 0.5 - (0.0 if _same(x + dx, y + dy, o) else 0.7)
+			var hgt := 0.7 if kind < 2 else 0.35
 			for r in 4:
 				var off := -3.0 + r * 2.0
-				var p := pos(x, y) + (Vector3(0, 0.35, off) if along_x else Vector3(off, 0.35, 0))
-				var sz := Vector3(7.2, 0.7, 1.0) if along_x else Vector3(1.0, 0.7, 7.2)
-				(rows if ripe else rows2).append(Transform3D(Basis.from_scale(sz), p))
-	_multi(unit, Color(0.82, 0.7, 0.36), rows)
-	_multi(unit, Color(0.5, 0.64, 0.3), rows2)
+				if r == 0 and not _same(x - dy, y - dx, o): off += 0.4
+				if r == 3 and not _same(x + dy, y + dx, o): off -= 0.4
+				var mid := (a + b) * 0.5
+				var p := pos(x, y) + (Vector3(mid, hgt * 0.5, off) if along_x else Vector3(off, hgt * 0.5, mid))
+				var sz := Vector3(b - a, hgt, 1.0) if along_x else Vector3(1.0, hgt, b - a)
+				kinds[kind].append(Transform3D(Basis.from_scale(sz), p))
+	_multi(unit, Color(0.82, 0.7, 0.36), kinds[0])
+	_multi(unit, Color(0.5, 0.64, 0.3), kinds[1])
+	_multi(unit, Color(0.58, 0.7, 0.36), kinds[2])
+
+
+func _same(x: int, y: int, o: int) -> bool:
+	return x >= 0 and y >= 0 and x < W and y < H and fields[idx(x, y)] == o
 
 
 func _houses() -> void:

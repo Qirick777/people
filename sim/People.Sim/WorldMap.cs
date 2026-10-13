@@ -23,7 +23,7 @@ public sealed class WorldMap
         public readonly byte[] Flags = new byte[CS * CS];       // 1 = 밭(개간됨), 2 = 집터
         public int Free;                                         // 주인 없고 집터 아닌 경작 가능 타일 수
     }
-    public const byte FlagField = 1, FlagHouse = 2;
+    public const byte FlagField = 1, FlagHouse = 2, FlagRoad = 4;   // 길: 땅이면 타입도 Road, 물이면 다리
 
     private readonly Chunk?[] _chunks;
     public int GeneratedChunks { get; private set; }
@@ -292,8 +292,215 @@ public sealed class WorldMap
         c.Owner[l] = to;
     }
 
+    /// <summary>
+    /// 땅 바꾸기: 덩어리에서 떨어진 필지를 내 밭 가장자리의 땅과 바꾼다. 가장자리 땅이 비었으면 옮겨 가고,
+    /// 남의 것이면 두 집 밭이 합쳐서 더 뭉칠 때만 맞바꾼다. 비옥도가 거의 같은 땅끼리만 바꾸므로
+    /// 수확은 그대로 두고 흩어진 밭이 해마다 덩어리로 모인다.
+    /// </summary>
+    public int Consolidate(HouseholdStore hh, int households, float tolerance)
+    {
+        int swaps = 0;
+        var frontier = new HashSet<int>();
+        for (int a = 0; a < households && a < _byOwner.Length; a++)
+        {
+            var list = _byOwner[a];
+            if (list == null || list.Count < 2) continue;
+            foreach (int p in list.ToArray())
+            {
+                if (Owner(p) != a) continue;
+                var (px, py) = Pos(p);
+                int sameA = SameOwnerAround(px, py, a, -1);
+                if (sameA >= 2) continue;
+                // 내 다른 필지에 붙은 칸들
+                frontier.Clear();
+                foreach (int r in list)
+                {
+                    if (r == p) continue;
+                    var (rx, ry) = Pos(r);
+                    if (InBounds(rx + 1, ry)) frontier.Add(Id(rx + 1, ry));
+                    if (InBounds(rx - 1, ry)) frontier.Add(Id(rx - 1, ry));
+                    if (InBounds(rx, ry + 1)) frontier.Add(Id(rx, ry + 1));
+                    if (InBounds(rx, ry - 1)) frontier.Add(Id(rx, ry - 1));
+                }
+                int best = -1, bestGain = 0;
+                foreach (int q in frontier)
+                {
+                    if (q == p) continue;
+                    int b = Owner(q);
+                    if (b == a || BaseFert(q) < BaseFert(p) - tolerance) continue;
+                    var (qx, qy) = Pos(q);
+                    int gain;
+                    if (b < 0)
+                    {
+                        // 빈 땅: 경작 가능하고 집터나 길가가 아니어야 한다
+                        if (!Farmable(Type(q)) || Type(q) == TileType.Forest || (Flags(q) & (FlagHouse | FlagRoad)) != 0) continue;
+                        if (IsRoad(qx + 1, qy) || IsRoad(qx - 1, qy) || IsRoad(qx, qy + 1) || IsRoad(qx, qy - 1)) continue;
+                        gain = SameOwnerAround(qx, qy, a, p) - sameA;
+                    }
+                    else
+                    {
+                        if (MathF.Abs(BaseFert(p) - BaseFert(q)) > tolerance || MathF.Abs(Fert(p) - Fert(q)) > tolerance) continue;
+                        int before = sameA + SameOwnerAround(qx, qy, b, -1);
+                        int after = SameOwnerAround(qx, qy, a, p) + SameOwnerAround(px, py, b, q);
+                        gain = after - before;
+                    }
+                    if (gain > bestGain) { bestGain = gain; best = q; }
+                }
+                if (best < 0) continue;
+                int ob = Owner(best);
+                SetOwner(p, ob, hh);
+                SetOwner(best, a, hh);
+                swaps++;
+            }
+        }
+        return swaps;
+    }
+
+    private int SameOwnerAround(int x, int y, int owner, int skip)
+    {
+        int n = 0;
+        if (InBounds(x + 1, y) && Id(x + 1, y) != skip && Owner(Id(x + 1, y)) == owner) n++;
+        if (InBounds(x - 1, y) && Id(x - 1, y) != skip && Owner(Id(x - 1, y)) == owner) n++;
+        if (InBounds(x, y + 1) && Id(x, y + 1) != skip && Owner(Id(x, y + 1)) == owner) n++;
+        if (InBounds(x, y - 1) && Id(x, y - 1) != skip && Owner(Id(x, y - 1)) == owner) n++;
+        return n;
+    }
+
     public List<int> PlotsOf(int household) =>
         household < _byOwner.Length && _byOwner[household] != null ? new List<int>(_byOwner[household]!) : new List<int>();
+
+    // ------------------------------------------------------------------ 길
+
+    public bool IsRoad(int x, int y) => InBounds(x, y) && (Flags(Id(x, y)) & FlagRoad) != 0;
+
+    /// <summary>타일을 길로 만든다. 밭이었으면 주인을 지운다. 물 위는 다리(타입 유지).</summary>
+    public void MakeRoad(int x, int y, HouseholdStore hh)
+    {
+        if (!InBounds(x, y)) return;
+        int id = Id(x, y);
+        var c = Get(x, y, out int l);
+        if ((c.Flags[l] & FlagRoad) != 0 || (c.Flags[l] & FlagHouse) != 0) return;
+        if (c.Owner[l] >= 0) SetOwner(id, -1, hh);
+        bool water = c.Type[l] is TileType.Sea or TileType.Lake or TileType.River;
+        if (!water)
+        {
+            if (Farmable(c.Type[l])) c.Free--;
+            c.Type[l] = TileType.Road;
+        }
+        c.Flags[l] |= FlagRoad;
+    }
+
+    /// <summary>길을 내는 비용. 이미 길이면 싸고, 밭은 피하고, 물은 다리라 비싸다.</summary>
+    private float StepCost(int x, int y)
+    {
+        var c = Get(x, y, out int l);
+        if ((c.Flags[l] & FlagRoad) != 0) return 0.3f;
+        if ((c.Flags[l] & FlagHouse) != 0) return float.PositiveInfinity;
+        float b = c.Type[l] switch
+        {
+            TileType.Grass => 1f, TileType.Forest => 2.5f, TileType.Hills => 2.5f, TileType.Marsh => 3f,
+            TileType.River => 6f, TileType.Lake => 25f, TileType.Mountain => 8f, _ => float.PositiveInfinity,
+        };
+        if (c.Owner[l] >= 0) b += 1.5f;
+        return b;
+    }
+
+    /// <summary>A* 길찾기(상하좌우). 두 점을 감싸는 상자 + 여유 안에서만 찾는다. 못 찾으면 빈 목록.</summary>
+    public List<(int x, int y)> FindPath(int ax, int ay, int bx, int by, int margin = 30)
+    {
+        int x0 = Math.Max(0, Math.Min(ax, bx) - margin), x1 = Math.Min(Width - 1, Math.Max(ax, bx) + margin);
+        int y0 = Math.Max(0, Math.Min(ay, by) - margin), y1 = Math.Min(Height - 1, Math.Max(ay, by) + margin);
+        EnsureAround((x0 + x1) / 2, (y0 + y1) / 2, Math.Max(x1 - x0, y1 - y0) / 2 + 1);
+        int bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+        var g = new float[bw * bh];
+        var from = new int[bw * bh];
+        Array.Fill(g, float.PositiveInfinity);
+        var open = new PriorityQueue<int, float>();
+        int start = (ay - y0) * bw + (ax - x0), goal = (by - y0) * bw + (bx - x0);
+        g[start] = 0; from[start] = -1;
+        open.Enqueue(start, 0);
+        Span<int> dx = stackalloc int[] { 1, -1, 0, 0 };
+        Span<int> dy = stackalloc int[] { 0, 0, 1, -1 };
+        while (open.TryDequeue(out int cur, out _))
+        {
+            if (cur == goal) break;
+            int cx = cur % bw, cy = cur / bw;
+            for (int k = 0; k < 4; k++)
+            {
+                int nx = cx + dx[k], ny = cy + dy[k];
+                if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue;
+                int nid = ny * bw + nx;
+                bool isGoal = nid == goal;
+                float step = isGoal ? 1f : StepCost(nx + x0, ny + y0);
+                if (float.IsInfinity(step)) continue;
+                float ng = g[cur] + step;
+                if (ng >= g[nid]) continue;
+                g[nid] = ng;
+                from[nid] = cur;
+                float h = 0.3f * (Math.Abs(nx + x0 - bx) + Math.Abs(ny + y0 - by));
+                open.Enqueue(nid, ng + h);
+            }
+        }
+        var path = new List<(int, int)>();
+        if (float.IsInfinity(g[goal])) return path;
+        for (int k = goal; k != -1; k = from[k]) path.Add((k % bw + x0, k / bw + y0));
+        path.Reverse();
+        return path;
+    }
+
+    /// <summary>ClaimContiguous 가 실제로 잡을 수 있는 칸 수(집터로 남긴 길가 칸은 뺀다).</summary>
+    public int CountClaimable(int cx, int cy, int radius, int reserve)
+    {
+        int n = 0;
+        ForEachFree(cx, cy, radius, id =>
+        {
+            var (x, y) = Pos(id);
+            if (reserve > 0 && (x - cx) * (x - cx) + (y - cy) * (y - cy) <= reserve * reserve &&
+                (IsRoad(x + 1, y) || IsRoad(x - 1, y) || IsRoad(x, y + 1) || IsRoad(x, y - 1))) return;
+            n++;
+        });
+        return n;
+    }
+
+    /// <summary>
+    /// 덩어리 밭 잡기: 이미 가진 밭에 붙은 칸을 크게 우대한다. reserve 안쪽의 길가 칸은 집터로 남긴다.
+    /// </summary>
+    public int ClaimContiguous(int household, int n, HouseholdStore hh, int cx, int cy, int radius, int reserve)
+    {
+        if (n <= 0) return 0;
+        var cand = new List<int>();
+        ForEachFree(cx, cy, radius, id =>
+        {
+            var (x, y) = Pos(id);
+            if (reserve > 0 && (x - cx) * (x - cx) + (y - cy) * (y - cy) <= reserve * reserve &&
+                (IsRoad(x + 1, y) || IsRoad(x - 1, y) || IsRoad(x, y + 1) || IsRoad(x, y - 1))) return;
+            cand.Add(id);
+        });
+        int got = 0;
+        var taken = new HashSet<int>();
+        while (got < n && taken.Count < cand.Count)
+        {
+            int best = -1;
+            float bestS = float.MinValue;
+            foreach (int id in cand)
+            {
+                if (taken.Contains(id)) continue;
+                var (x, y) = Pos(id);
+                int adj = 0;
+                if (InBounds(x + 1, y) && Owner(Id(x + 1, y)) == household) adj++;
+                if (InBounds(x - 1, y) && Owner(Id(x - 1, y)) == household) adj++;
+                if (InBounds(x, y + 1) && Owner(Id(x, y + 1)) == household) adj++;
+                if (InBounds(x, y - 1) && Owner(Id(x, y - 1)) == household) adj++;
+                float sc = Quality(id, cx, cy) + (adj > 0 ? 0.12f + 0.04f * adj : 0f);
+                if (sc > bestS) { bestS = sc; best = id; }
+            }
+            if (best < 0) break;
+            taken.Add(best);
+            SetOwner(best, household, hh);
+            got++;
+        }
+        return got;
+    }
 
     /// <summary>필지의 좋음 점수: 비옥도와 물, 집에서 먼 것은 깎는다.</summary>
     private float Quality(int id, int hx, int hy)

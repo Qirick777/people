@@ -25,7 +25,7 @@ SimConfig Config()
         if (a[i] != "--set") continue;
         var kv = a[i + 1].Split('=');
         var prop = typeof(SimConfig).GetProperty(kv[0]) ?? throw new ArgumentException($"SimConfig 에 {kv[0]} 없음");
-        object v = prop.PropertyType == typeof(int) ? int.Parse(kv[1], CultureInfo.InvariantCulture) : float.Parse(kv[1], CultureInfo.InvariantCulture);
+        object v = prop.PropertyType == typeof(int) ? (object)int.Parse(kv[1], CultureInfo.InvariantCulture) : float.Parse(kv[1], CultureInfo.InvariantCulture);
         prop.SetValue(c, v);
     }
     return c;
@@ -245,10 +245,11 @@ switch (cmd)
             for (int x = x0; x < x0 + rw; x++)
             {
                 if (x != x0 || y != y0) sb.Append(',');
-                if (!map.InBounds(x, y)) { sb.Append("[0,0,0]"); continue; }
+                if (!map.InBounds(x, y)) { sb.Append("[0,0,-1,0]"); continue; }
                 int id = map.Id(x, y);
-                int field = map.Owner(id) >= 0 ? 1 : 0;
-                sb.Append($"[{(int)map.Type(id)},{map.ElevationMeters(x, y).ToString("0.##", inv)},{field}]");
+                int owner = map.Owner(id);
+                int road = (map.Flags(id) & WorldMap.FlagRoad) != 0 ? 1 : 0;
+                sb.Append($"[{(int)map.Type(id)},{map.ElevationMeters(x, y).ToString("0.##", inv)},{owner},{road}]");
             }
         sb.Append("],\"houses\":[");
         bool first = true;

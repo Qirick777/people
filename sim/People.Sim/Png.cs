@@ -65,6 +65,7 @@ public static class MapRender
         TileType.Marsh => (104, 128, 96),
         TileType.Hills => (150, 150, 112),
         TileType.Mountain => (128, 120, 112),
+        TileType.Road => (150, 118, 80),
         _ => (255, 0, 255),
     };
 

@@ -65,7 +65,8 @@ public sealed class SimConfig
     public int HouseRadius { get; init; } = 4;              // 집은 마을 중심에서 이 거리(+ 0.7×√가구 수) 안에 모인다
     public int MigrationRadius { get; init; } = 160;        // 이주할 곳을 찾는 최대 거리(약 1.3 km)
     public int NewVillageMinDist { get; init; } = 56;       // 새 마을은 다른 마을 중심에서 이만큼 떨어져야 한다
-    public int MinFreePlotsToStay { get; init; } = 4;       // 마을에 빈 필지가 이보다 적으면 떠난다
+    public float SwapTolerance { get; init; } = 0.08f;     // 이웃끼리 필지를 맞바꿀 때 허용하는 비옥도 차이
+    public int MinFreePlotsToStay { get; init; } = 25;      // 마을에 빈 필지가 이보다 적으면 떠난다(새 가구가 자라며 쓸 땅까지 본다)
     public float FloodChance { get; init; } = 0.05f;        // 강이 흐르는 대략 칸마다 해마다
     public int CourtshipBucket { get; init; } = 128;        // 구애 상대를 찾는 지역 칸 크기(타일). 주변 3×3 칸
 
