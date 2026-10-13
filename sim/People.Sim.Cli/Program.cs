@@ -225,6 +225,50 @@ switch (cmd)
         MapRender.Save(w, map, path.Replace(".csv", "_zoom.png"), w.SpawnX - 120, w.SpawnY - 80, 240, 160, 4);
         break;
     }
+    case "export":
+    {
+        // 정착을 돌린 뒤 가장 큰 마을 주변을 화면용 JSON 으로 내보낸다(Godot 이 읽어 그린다).
+        var map = WorldMap.Generate((uint)Arg("--seed", 1), Arg("--size", 48));
+        var w = new World((ulong)Arg("--seed", 1), map, Config());
+        w.SeedCouples(Arg("--couples", 10));
+        int years = Arg("--years", 150);
+        for (int d = 0; d < years * w.Config.DaysPerYear; d++) w.Step();
+        var vl = w.VillageList;
+        int best = Enumerable.Range(0, vl.Count).Where(v => vl.Alive[v]).OrderByDescending(v => vl.Households[v]).First();
+        int rw = Arg("--w", 120), rh = Arg("--h", 90);
+        int x0 = vl.CenterX[best] - rw / 2, y0 = vl.CenterY[best] - rh / 2;
+        map.EnsureAround(vl.CenterX[best], vl.CenterY[best], Math.Max(rw, rh));
+        var inv = CultureInfo.InvariantCulture;
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"{{\"x0\":{x0},\"y0\":{y0},\"w\":{rw},\"h\":{rh},\"tiles\":[");
+        for (int y = y0; y < y0 + rh; y++)
+            for (int x = x0; x < x0 + rw; x++)
+            {
+                if (x != x0 || y != y0) sb.Append(',');
+                if (!map.InBounds(x, y)) { sb.Append("[0,0,0]"); continue; }
+                int id = map.Id(x, y);
+                int field = map.Owner(id) >= 0 ? 1 : 0;
+                sb.Append($"[{(int)map.Type(id)},{map.ElevationMeters(x, y).ToString("0.##", inv)},{field}]");
+            }
+        sb.Append("],\"houses\":[");
+        bool first = true;
+        var hh = w.Households;
+        for (int h = 0; h < hh.HighWater; h++)
+        {
+            if (!hh.IsAlive(h)) continue;
+            int hx = hh.X[h] - x0, hy = hh.Y[h] - y0;
+            if (hx < 0 || hy < 0 || hx >= rw || hy >= rh) continue;
+            if (!first) sb.Append(',');
+            first = false;
+            sb.Append($"[{hx},{hy},{hh.Members[h]},{hh.Capacity[h]},{(hh.Food[h] + hh.LandValue[h]).ToString("0", inv)}]");
+        }
+        sb.Append("]}");
+        string path = SArg("--out", "out/region.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        File.WriteAllText(path, sb.ToString());
+        Console.WriteLine($"내보냄: {path}, 마을 {best} ({vl.Households[best]}가구), 영역 {rw}×{rh} 타일, 인구 {w.People.AliveCount}");
+        break;
+    }
     default:
         Console.WriteLine("명령: bench | births | island | sexsel | inbreed | matediag | worldmap | settle");
         break;

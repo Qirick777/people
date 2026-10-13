@@ -136,6 +136,16 @@ public sealed class WorldMap
 
     private const int Margin = 8;
 
+    /// <summary>타일 높이(m). 화면용. 바다면 0 이하.</summary>
+    public float ElevationMeters(int x, int y)
+    {
+        if (Coarse == null) return 1f;
+        var c = Coarse;
+        float u = (x + 0.5f) / CS - 0.5f, v = (y + 0.5f) / CS - 0.5f;
+        float e = c.Sample(c.Elevation, u, v) + (Noise.Fbm(_seed + 21, x / 20f, y / 20f, 3) - 0.5f) * 0.08f;
+        return (e - c.SeaLevel) * 160f;
+    }
+
     private TileType BaseType(int x, int y, out float temp, out float rain)
     {
         var c = Coarse!;
