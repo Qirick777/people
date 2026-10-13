@@ -62,6 +62,7 @@ public sealed class SimConfig
 
     // 2단계: 공간
     public int FarmRadius { get; init; } = 24;              // 마을 중심에서 이 거리(타일, 약 200 m) 안의 땅만 부친다
+    public float FarmTravel { get; init; } = 26f;           // 마을 중심에서 걸어가는 수고가 이보다 큰 땅은 부치지 않는다(풀밭 1, 길 0.5, 숲 1.8)
     public int HouseRadius { get; init; } = 4;              // 집은 마을 중심에서 이 거리(+ 0.7×√가구 수) 안에 모인다
     public int MigrationRadius { get; init; } = 160;        // 이주할 곳을 찾는 최대 거리(약 1.3 km)
     public int NewVillageMinDist { get; init; } = 56;       // 새 마을은 다른 마을 중심에서 이만큼 떨어져야 한다

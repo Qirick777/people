@@ -371,6 +371,9 @@ public sealed class WorldMap
 
     // ------------------------------------------------------------------ 길
 
+    /// <summary>길이 바뀔 때마다 오른다. 마을 걸음 지도를 다시 만들지 정할 때 쓴다.</summary>
+    public int RoadVersion { get; private set; }
+
     public bool IsRoad(int x, int y) => InBounds(x, y) && (Flags(Id(x, y)) & FlagRoad) != 0;
 
     /// <summary>타일을 길로 만든다. 밭이었으면 주인을 지운다. 물 위는 다리(타입 유지).</summary>
@@ -388,6 +391,7 @@ public sealed class WorldMap
             c.Type[l] = TileType.Road;
         }
         c.Flags[l] |= FlagRoad;
+        RoadVersion++;
     }
 
     /// <summary>길을 내는 비용. 이미 길이면 싸고, 밭은 피하고, 물은 다리라 비싸다.</summary>
@@ -448,41 +452,128 @@ public sealed class WorldMap
         return path;
     }
 
+    /// <summary>마을 중심에서 각 칸까지 걸어가는 수고. 길은 빠르고, 숲·언덕·늪은 느리고, 물(다리 밖)과 산은 못 지난다.</summary>
+    public sealed class Reach
+    {
+        public int CX, CY, X0, Y0, W, H, RoadVersion;
+        public float Max;
+        public float[] Cost = Array.Empty<float>();
+        public float At(int x, int y)
+        {
+            int lx = x - X0, ly = y - Y0;
+            return lx < 0 || ly < 0 || lx >= W || ly >= H ? float.PositiveInfinity : Cost[ly * W + lx];
+        }
+    }
+
+    private float WalkCost(int x, int y)
+    {
+        var c = Get(x, y, out int l);
+        if ((c.Flags[l] & FlagRoad) != 0) return 0.5f;
+        return c.Type[l] switch
+        {
+            TileType.Grass => 1f, TileType.Road => 0.5f, TileType.Forest => 1.8f, TileType.Hills => 1.6f, TileType.Marsh => 2.2f,
+            _ => float.PositiveInfinity,
+        };
+    }
+
+    /// <summary>(cx, cy) 에서 수고 maxCost 안에 닿는 칸들을 다익스트라(8방향)로 구한다.</summary>
+    public Reach BuildReach(int cx, int cy, float maxCost)
+    {
+        int r = (int)MathF.Ceiling(maxCost / 0.5f) + 1;
+        EnsureAround(cx, cy, r);
+        var R = new Reach { CX = cx, CY = cy, Max = maxCost, RoadVersion = RoadVersion };
+        R.X0 = Math.Max(0, cx - r); R.Y0 = Math.Max(0, cy - r);
+        R.W = Math.Min(Width - 1, cx + r) - R.X0 + 1; R.H = Math.Min(Height - 1, cy + r) - R.Y0 + 1;
+        R.Cost = new float[R.W * R.H];
+        Array.Fill(R.Cost, float.PositiveInfinity);
+        var open = new PriorityQueue<int, float>();
+        // 중심이 물 위면 가장 가까운 땅들에서 시작한다
+        for (int d = 0; d <= 8 && open.Count == 0; d++)
+            for (int y = cy - d; y <= cy + d; y++)
+                for (int x = cx - d; x <= cx + d; x++)
+                {
+                    if (Math.Max(Math.Abs(x - cx), Math.Abs(y - cy)) != d || x < R.X0 || y < R.Y0 || x >= R.X0 + R.W || y >= R.Y0 + R.H) continue;
+                    if (float.IsInfinity(WalkCost(x, y))) continue;
+                    int si = (y - R.Y0) * R.W + (x - R.X0);
+                    R.Cost[si] = d;
+                    open.Enqueue(si, d);
+                }
+        while (open.TryDequeue(out int cur, out float g))
+        {
+            if (g > R.Cost[cur]) continue;
+            int x = cur % R.W, y = cur / R.W;
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    if (dx == 0 && dy == 0) continue;
+                    int nx = x + dx, ny = y + dy;
+                    if (nx < 0 || ny < 0 || nx >= R.W || ny >= R.H) continue;
+                    float step = WalkCost(nx + R.X0, ny + R.Y0);
+                    if (float.IsInfinity(step)) continue;
+                    if (dx != 0 && dy != 0)
+                    {
+                        // 대각선은 양옆 두 칸이 다 지나갈 수 있어야 한다(강 모서리를 비껴 건너지 않게)
+                        if (float.IsInfinity(WalkCost(x + dx + R.X0, y + R.Y0)) || float.IsInfinity(WalkCost(x + R.X0, y + dy + R.Y0))) continue;
+                        step *= 1.414f;
+                    }
+                    float ng = g + step;
+                    int ni = ny * R.W + nx;
+                    if (ng > maxCost || ng >= R.Cost[ni]) continue;
+                    R.Cost[ni] = ng;
+                    open.Enqueue(ni, ng);
+                }
+        }
+        return R;
+    }
+
+    /// <summary>걸음 지도 안의 빈 경작 가능 칸마다 visit(id, 수고). reserve 안쪽 길가 칸은 집터로 남긴다.</summary>
+    private void ForEachReachable(Reach R, int reserve, Action<int, float> visit)
+    {
+        int x0 = R.X0, y0 = R.Y0, x1 = R.X0 + R.W - 1, y1 = R.Y0 + R.H - 1;
+        for (int cy = y0 / CS; cy <= y1 / CS; cy++)
+            for (int cx = x0 / CS; cx <= x1 / CS; cx++)
+            {
+                var c = _chunks[cy * ChunksX + cx]!;
+                if (c.Free <= 0) continue;
+                int ys = Math.Max(y0, cy * CS), ye = Math.Min(y1, cy * CS + CS - 1);
+                int xs = Math.Max(x0, cx * CS), xe = Math.Min(x1, cx * CS + CS - 1);
+                for (int yy = ys; yy <= ye; yy++)
+                    for (int xx = xs; xx <= xe; xx++)
+                    {
+                        float cost = R.Cost[(yy - y0) * R.W + (xx - x0)];
+                        if (float.IsInfinity(cost)) continue;
+                        int l = (yy - cy * CS) * CS + (xx - cx * CS);
+                        if (c.Owner[l] >= 0 || (c.Flags[l] & (FlagHouse | FlagRoad)) != 0 || !Farmable(c.Type[l])) continue;
+                        if (reserve > 0 && (xx - R.CX) * (xx - R.CX) + (yy - R.CY) * (yy - R.CY) <= reserve * reserve &&
+                            (IsRoad(xx + 1, yy) || IsRoad(xx - 1, yy) || IsRoad(xx, yy + 1) || IsRoad(xx, yy - 1))) continue;
+                        visit(yy * Width + xx, cost);
+                    }
+            }
+    }
+
     /// <summary>ClaimContiguous 가 실제로 잡을 수 있는 칸 수(집터로 남긴 길가 칸은 뺀다).</summary>
-    public int CountClaimable(int cx, int cy, int radius, int reserve)
+    public int CountClaimable(Reach R, int reserve)
     {
         int n = 0;
-        ForEachFree(cx, cy, radius, id =>
-        {
-            var (x, y) = Pos(id);
-            if (reserve > 0 && (x - cx) * (x - cx) + (y - cy) * (y - cy) <= reserve * reserve &&
-                (IsRoad(x + 1, y) || IsRoad(x - 1, y) || IsRoad(x, y + 1) || IsRoad(x, y - 1))) return;
-            n++;
-        });
+        ForEachReachable(R, reserve, (_, _) => n++);
         return n;
     }
 
     /// <summary>
-    /// 덩어리 밭 잡기: 이미 가진 밭에 붙은 칸을 크게 우대한다. reserve 안쪽의 길가 칸은 집터로 남긴다.
+    /// 마을 밭 잡기: 비옥하고 덜 걸어가는 땅부터. 이미 가진 밭에 붙은 칸에 작은 가산점. reserve 안쪽의 길가 칸은 집터로 남긴다.
     /// </summary>
-    public int ClaimContiguous(int household, int n, HouseholdStore hh, int cx, int cy, int radius, int reserve)
+    public int ClaimContiguous(int household, int n, HouseholdStore hh, Reach R, int reserve)
     {
         if (n <= 0) return 0;
-        var cand = new List<int>();
-        ForEachFree(cx, cy, radius, id =>
-        {
-            var (x, y) = Pos(id);
-            if (reserve > 0 && (x - cx) * (x - cx) + (y - cy) * (y - cy) <= reserve * reserve &&
-                (IsRoad(x + 1, y) || IsRoad(x - 1, y) || IsRoad(x, y + 1) || IsRoad(x, y - 1))) return;
-            cand.Add(id);
-        });
+        var cand = new List<(int id, float q)>();
+        ForEachReachable(R, reserve, (id, cost) => cand.Add((id, BaseFert(id) - 0.02f * cost)));
         int got = 0;
         var taken = new HashSet<int>();
         while (got < n && taken.Count < cand.Count)
         {
             int best = -1;
             float bestS = float.MinValue;
-            foreach (int id in cand)
+            foreach (var (id, q) in cand)
             {
                 if (taken.Contains(id)) continue;
                 var (x, y) = Pos(id);
@@ -491,7 +582,7 @@ public sealed class WorldMap
                 if (InBounds(x - 1, y) && Owner(Id(x - 1, y)) == household) adj++;
                 if (InBounds(x, y + 1) && Owner(Id(x, y + 1)) == household) adj++;
                 if (InBounds(x, y - 1) && Owner(Id(x, y - 1)) == household) adj++;
-                float sc = Quality(id, cx, cy) + (adj > 0 ? 0.12f + 0.04f * adj : 0f);
+                float sc = q + (adj > 0 ? 0.12f + 0.04f * adj : 0f);
                 if (sc > bestS) { bestS = sc; best = id; }
             }
             if (best < 0) break;

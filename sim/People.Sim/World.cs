@@ -234,8 +234,22 @@ public sealed class World
         Households.Remove(h);
     }
 
-    /// <summary>마을 밭 반경.</summary>
+    /// <summary>마을 밭 반경(평평한 섬과 집터 고르기용).</summary>
     private int FarmRadiusOf(int village) => Config.FarmRadius;
+
+    // 마을별 걸음 지도. 길이 바뀌면 다음 해에 다시 만든다.
+    private readonly Dictionary<int, (WorldMap.Reach reach, int year)> _reach = new();
+
+    private WorldMap.Reach ReachOf(int v)
+    {
+        var vl = VillageList;
+        if (_reach.TryGetValue(v, out var e) && e.reach.CX == vl.CenterX[v] && e.reach.CY == vl.CenterY[v] &&
+            (e.reach.RoadVersion == Map.RoadVersion || e.year == Calendar.Year))
+            return e.reach;
+        var r = Map.BuildReach(vl.CenterX[v], vl.CenterY[v], Config.FarmTravel);
+        _reach[v] = (r, Calendar.Year);
+        return r;
+    }
 
     /// <summary>가구가 땅을 잡는 중심. 생성된 대륙은 마을 중심, 평평한 섬(1단계 실험)은 자기 집.</summary>
     private (int x, int y) ClaimCenter(int h)
@@ -295,8 +309,7 @@ public sealed class World
                 var p = CreateFounder(_rng.NextBool(), 16 + _rng.NextInt(10), h);
                 if (i == 0) Households.Head[h] = p;
             }
-            var (cx, cy) = ClaimCenter(h);
-            Map.Claim(h, (int)MathF.Ceiling(size * 1.5f), Households, cx, cy, FarmRadiusOf(v0));
+            ClaimFields(h, (int)MathF.Ceiling(size * 1.5f));
             made += size;
         }
     }
@@ -634,10 +647,10 @@ public sealed class World
         vl.DirX[v] = dx; vl.DirY[v] = dy;
         // 큰길과 직각 길: 마을 안은 짧게, 밭으로는 밭길로 이어진다
         int R = Config.FarmRadius;
-        RoadLine(x, y, dx, dy, R);
-        RoadLine(x, y, -dx, -dy, R);
-        RoadLine(x, y, -dy, dx, R);
-        RoadLine(x, y, dy, -dx, R);
+        RoadLine(x, y, dx, dy, R, true);
+        RoadLine(x, y, -dx, -dy, R, true);
+        RoadLine(x, y, -dy, dx, R, true);
+        RoadLine(x, y, dy, -dx, R, true);
         // 옛 마을과 잇는다
         if (parentVillage >= 0)
         {
@@ -649,14 +662,24 @@ public sealed class World
     }
 
     /// <summary>(x, y) 에서 (dx, dy) 방향으로 len 칸 길을 낸다. 물이나 집을 만나면 멈춘다(다리는 마을 잇기 길에서만).</summary>
-    private void RoadLine(int x, int y, int dx, int dy, int len)
+    private void RoadLine(int x, int y, int dx, int dy, int len, bool bridge = false)
     {
         for (int k = 0; k <= len; k++)
         {
             int xx = x + dx * k, yy = y + dy * k;
             if (!Map.InBounds(xx, yy)) return;
             var t = Map.Type(Map.Id(xx, yy));
-            if (t is TileType.Sea or TileType.Lake or TileType.River or TileType.Mountain) return;
+            if (t is TileType.Sea or TileType.Lake or TileType.Mountain) return;
+            if (t == TileType.River)
+            {
+                // 큰길은 강폭이 3칸 이하면 다리를 놓고 건넌다. 골목은 강에서 멈춘다.
+                if (!bridge) return;
+                int w = 0;
+                while (w <= 3 && Map.InBounds(xx + dx * w, yy + dy * w) && Map.Type(Map.Id(xx + dx * w, yy + dy * w)) == TileType.River) w++;
+                if (w > 3 || !Map.InBounds(xx + dx * w, yy + dy * w)) return;
+                var far = Map.Type(Map.Id(xx + dx * w, yy + dy * w));
+                if (far is TileType.Sea or TileType.Lake or TileType.Mountain) return;
+            }
             Map.MakeRoad(xx, yy, Households);
         }
     }
@@ -702,7 +725,7 @@ public sealed class World
         var (cx, cy) = ClaimCenter(h);
         int v = Households.Village[h];
         if (!Layout || v < 0) return Map.Claim(h, n, Households, cx, cy, FarmRadiusOf(v));
-        return Map.ClaimContiguous(h, n, Households, cx, cy, FarmRadiusOf(v), HouseZone(v) + 1);
+        return Map.ClaimContiguous(h, n, Households, ReachOf(v), HouseZone(v) + 1);
     }
 
     /// <summary>분가하는 가구의 자리를 정하고 가구를 만든다. 실패하면 -1.</summary>
@@ -807,7 +830,7 @@ public sealed class World
         if (_freeCacheYear != Calendar.Year) { _freeCache.Clear(); _freeCacheYear = Calendar.Year; }
         if (_freeCache.TryGetValue(v, out int n)) return n;
         var vl = VillageList;
-        n = Layout ? Map.CountClaimable(vl.CenterX[v], vl.CenterY[v], FarmRadiusOf(v), HouseZone(v) + 1)
+        n = Layout ? Map.CountClaimable(ReachOf(v), HouseZone(v) + 1)
                    : Map.CountFreeNear(vl.CenterX[v], vl.CenterY[v], FarmRadiusOf(v));
         _freeCache[v] = n;
         return n;
