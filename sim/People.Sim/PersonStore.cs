@@ -31,14 +31,31 @@ public sealed class PersonStore
     public PersonId[] Father;
     public PersonId[] Mother;
     public int[] Household;
+    public int[] HhNext, HhPrev;     // 같은 가구 구성원 연결 목록 (World 가 관리)
     public byte[] Genomes;           // Capacity × BytesPerGenome
     public float[] Phenotype;        // Capacity × Trait.Count
     public ushort[] ChildhoodHungryDays;
+
+    // 족보 번호 (Lineage)
+    public int[] Uid;
+
+    // 혼인
+    public PersonId[] Husband;       // 여성: 남편. 남성은 None
+    public byte[] WifeCount;         // 남성: 아내 수
+    public float[] CoupleScore;      // 여성: 혼인할 때 두 사람이 서로 매긴 점수 평균
+    public int[] RejectUid0, RejectUid1, RejectUntil0, RejectUntil1;
 
     // 번식 상태
     public int[] PregnantUntil;      // 출산 예정일, 아니면 -1
     public int[] CooldownUntil;
     public PersonId[] PregnancyFather;
+    public int[] PregnancyFatherUid;
+    public byte[] PregnancyFatherGenome; // 임신할 때 아버지 유전체를 복사해 둔다(아버지가 먼저 죽어도 된다)
+    public byte[] BirthsGiven;
+
+    // 상태
+    public bool[] HungryToday;
+    public bool[] GrownUp;           // 16세 처리(어린 시절 굶주림 반영)를 했는가
 
     public PersonStore(int capacity = 1024)
     {
@@ -50,13 +67,29 @@ public sealed class PersonStore
         Father = new PersonId[capacity];
         Mother = new PersonId[capacity];
         Household = new int[capacity];
+        HhNext = new int[capacity];
+        HhPrev = new int[capacity];
         Genomes = new byte[capacity * GenomeLayout.BytesPerGenome];
         Phenotype = new float[capacity * (int)Trait.Count];
         ChildhoodHungryDays = new ushort[capacity];
+        Uid = new int[capacity];
+        Husband = new PersonId[capacity];
+        WifeCount = new byte[capacity];
+        CoupleScore = new float[capacity];
+        RejectUid0 = new int[capacity]; RejectUid1 = new int[capacity];
+        RejectUntil0 = new int[capacity]; RejectUntil1 = new int[capacity];
         PregnantUntil = new int[capacity];
         CooldownUntil = new int[capacity];
         PregnancyFather = new PersonId[capacity];
+        PregnancyFatherUid = new int[capacity];
+        PregnancyFatherGenome = new byte[capacity * GenomeLayout.BytesPerGenome];
+        BirthsGiven = new byte[capacity];
+        HungryToday = new bool[capacity];
+        GrownUp = new bool[capacity];
     }
+
+    public Span<byte> FatherGenomeBuffer(int i) =>
+        PregnancyFatherGenome.AsSpan(i * GenomeLayout.BytesPerGenome, GenomeLayout.BytesPerGenome);
 
     public int HighWater => _highWater;
     public bool IsAliveIndex(int i) => _alive[i];
@@ -82,11 +115,22 @@ public sealed class PersonStore
         BirthDay[i] = birthDay;
         Father[i] = father;
         Mother[i] = mother;
-        Household[i] = household;
+        Household[i] = -1;          // World.Join 으로 넣는다
+        HhNext[i] = HhPrev[i] = -1;
         ChildhoodHungryDays[i] = 0;
+        Uid[i] = -1;
+        Husband[i] = PersonId.None;
+        WifeCount[i] = 0;
+        CoupleScore[i] = 0f;
+        RejectUid0[i] = RejectUid1[i] = -1;
+        RejectUntil0[i] = RejectUntil1[i] = -1;
         PregnantUntil[i] = -1;
         CooldownUntil[i] = -1;
         PregnancyFather[i] = PersonId.None;
+        PregnancyFatherUid[i] = -1;
+        BirthsGiven[i] = 0;
+        HungryToday[i] = false;
+        GrownUp[i] = false;
         AliveCount++;
         return new PersonId(i, _gen[i]);
     }
@@ -132,12 +176,25 @@ public sealed class PersonStore
         Array.Resize(ref Father, cap);
         Array.Resize(ref Mother, cap);
         Array.Resize(ref Household, cap);
+        Array.Resize(ref HhNext, cap);
+        Array.Resize(ref HhPrev, cap);
         Array.Resize(ref Genomes, cap * GenomeLayout.BytesPerGenome);
         Array.Resize(ref Phenotype, cap * (int)Trait.Count);
         Array.Resize(ref ChildhoodHungryDays, cap);
+        Array.Resize(ref Uid, cap);
+        Array.Resize(ref Husband, cap);
+        Array.Resize(ref WifeCount, cap);
+        Array.Resize(ref CoupleScore, cap);
+        Array.Resize(ref RejectUid0, cap); Array.Resize(ref RejectUid1, cap);
+        Array.Resize(ref RejectUntil0, cap); Array.Resize(ref RejectUntil1, cap);
         Array.Resize(ref PregnantUntil, cap);
         Array.Resize(ref CooldownUntil, cap);
         Array.Resize(ref PregnancyFather, cap);
+        Array.Resize(ref PregnancyFatherUid, cap);
+        Array.Resize(ref PregnancyFatherGenome, cap * GenomeLayout.BytesPerGenome);
+        Array.Resize(ref BirthsGiven, cap);
+        Array.Resize(ref HungryToday, cap);
+        Array.Resize(ref GrownUp, cap);
         Capacity = cap;
     }
 }

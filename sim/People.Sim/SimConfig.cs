@@ -21,12 +21,45 @@ public sealed class SimConfig
     public float MortalityAgingBase { get; init; } = 1.085f; // 40세 이후 0.7% × 1.085^(나이-40)
 
     // 4. 임신
-    public float ConceptionBasePerDay { get; init; } = 0.05f;
+    public float ConceptionBasePerDay { get; init; } = 0.045f;
     public int PregnancyDays { get; init; } = 18;
     public int PostpartumCooldownDays { get; init; } = 24;
     public float TwinBase { get; init; } = 0.01f;
     public float TwinWithTrait { get; init; } = 0.06f;
     public float TripletRate { get; init; } = 0.001f;
+
+    public float HungerMortality { get; init; } = 3f;           // 굶은 날 사망률 배수
+    public float HungerMortalityVulnerable { get; init; } = 5f; // 아기·노인
+    public float CrowdingMortality { get; init; } = 0.3f;     // 북적임 1 초과분당 사망률 증가
+    public float StillbirthBase { get; init; } = 0.04f;
+    public float MaternalDeathBase { get; init; } = 0.015f;
+
+    // 3. 짝짓기
+    public int CandidateSample { get; init; } = 16;
+    public float KinForbidden { get; init; } = 0.13f;       // r > 1/8 이면 불가
+    public float AcceptMidpoint { get; init; } = 0.4f;
+    public float AcceptSpread { get; init; } = 0.15f;
+    public float PolygynyWealthPerWife { get; init; } = 300f;
+    public float PreferenceStrength { get; init; } = 1.5f;   // 선호(평균과의 차이) 항의 세기
+    public float WifePenalty { get; init; } = 0.35f;
+    public float KinPenalty { get; init; } = 2f;
+
+    // 5. 식량과 땅
+    public float PlotYield { get; init; } = 14f;
+    public float PlotsPerWorker { get; init; } = 3.5f;
+    public float LandReserve { get; init; } = 1.6f;          // 일손보다 넉넉히 잡는 땅 배수
+    public float LandRelease { get; init; } = 2.2f;          // 이 배수를 넘는 땅은 내놓는다
+    public float FertilityDeclinePerYear { get; init; } = 0.08f;
+    public float FertilityRecoverPerYear { get; init; } = 0.15f;
+    public float SpoilagePerSeason { get; init; } = 0.08f;
+    public float WeatherSd { get; init; } = 0.15f;
+    public float WeatherCorrelation { get; init; } = 0.4f;
+    public int HarvestDayOfYear { get; init; } = 17;        // 가을 마지막 날
+
+    // 6. 가구
+    public int HutCapacity { get; init; } = 4;
+    public int MaxCapacity { get; init; } = 20;
+    public float HouseUpgradeCost { get; init; } = 40f;
 
     public static SimConfig Default { get; } = new();
 }
