@@ -19,6 +19,7 @@ public sealed class HouseholdStore
     public int[] PlotCount = new int[256];
     public float[] LandValue = new float[256];
     public int[] FirstMember = new int[256];
+    public int[] X = new int[256], Y = new int[256];   // 집 위치(타일)
     public int[] FoundedDay = new int[256];
 
     // 매일 다시 계산하는 값
@@ -47,6 +48,7 @@ public sealed class HouseholdStore
         PlotCount[h] = 0;
         LandValue[h] = 0;
         FirstMember[h] = -1;
+        X[h] = Y[h] = 0;
         FoundedDay[h] = day;
         Members[h] = 0;
         Need[h] = 0;
@@ -78,6 +80,8 @@ public sealed class HouseholdStore
         Array.Resize(ref PlotCount, cap);
         Array.Resize(ref LandValue, cap);
         Array.Resize(ref FirstMember, cap);
+        Array.Resize(ref X, cap);
+        Array.Resize(ref Y, cap);
         Array.Resize(ref FoundedDay, cap);
         Array.Resize(ref Members, cap);
         Array.Resize(ref Need, cap);
@@ -86,107 +90,28 @@ public sealed class HouseholdStore
     }
 }
 
-/// <summary>필지 (spec 5.1). 1단계에서는 위치 없이 비옥도와 주인만 다룬다.</summary>
-public sealed class Land
+
+/// <summary>마을: 집이 모인 중심과 그 둘레 밭. 땅이 차면 사람들이 떠나 새 마을을 연다 (spec 8.4).</summary>
+public sealed class VillageStore
 {
-    public readonly float[] BaseFertility;
-    public readonly float[] Fertility;
-    public readonly int[] Owner;
-    public int Count => Owner.Length;
-    public int UnownedCount { get; private set; }
+    public readonly List<int> CenterX = new(), CenterY = new(), Founded = new(), Households = new();
+    public readonly List<bool> Alive = new();
+    public int Count => CenterX.Count;
+    public int AliveCount { get; private set; }
 
-    // 가구별 필지 목록 (가구 번호 → 필지들)
-    private List<int>?[] _byOwner = new List<int>?[256];
-
-    // 주인 없는 필지를 비옥한 순서로 꺼내기 위한 목록. 내놓은 필지는 끝에 붙고, 꺼낼 때 다시 정렬한다.
-    private readonly List<int> _free = new();
-    private bool _freeSorted;
-
-    public Land(int plots, ref Rng rng)
+    public int Add(int x, int y, int day)
     {
-        BaseFertility = new float[plots];
-        Fertility = new float[plots];
-        Owner = new int[plots];
-        for (int i = 0; i < plots; i++)
-        {
-            // 강가(20%)는 비옥하고, 나머지는 0.5~1.1
-            float b = rng.Chance(0.2f) ? 1.1f + rng.NextFloat() * 0.4f : 0.5f + rng.NextFloat() * 0.6f;
-            BaseFertility[i] = b;
-            Fertility[i] = b;
-            Owner[i] = -1;
-            _free.Add(i);
-        }
-        UnownedCount = plots;
+        CenterX.Add(x); CenterY.Add(y); Founded.Add(day); Households.Add(0); Alive.Add(true);
+        AliveCount++;
+        return CenterX.Count - 1;
     }
 
-    public int Unowned() => UnownedCount;
+    public void Join(int v) { if (v >= 0) Households[v]++; }
 
-    public float PlotValue(int i) => 30f * BaseFertility[i];
-
-    private void SetOwner(int plot, int to, HouseholdStore hh)
+    public void Leave(int v)
     {
-        int from = Owner[plot];
-        if (from == to) return;
-        if (from >= 0) { hh.PlotCount[from]--; hh.LandValue[from] -= PlotValue(plot); _byOwner[from]!.Remove(plot); }
-        else UnownedCount--;
-        if (to >= 0)
-        {
-            hh.PlotCount[to]++;
-            hh.LandValue[to] += PlotValue(plot);
-            if (to >= _byOwner.Length) Array.Resize(ref _byOwner, Math.Max(to + 1, _byOwner.Length * 2));
-            (_byOwner[to] ??= new List<int>()).Add(plot);
-        }
-        else { UnownedCount++; _free.Add(plot); _freeSorted = false; }
-        Owner[plot] = to;
+        if (v < 0) return;
+        Households[v]--;
+        if (Households[v] <= 0 && Alive[v]) { Alive[v] = false; AliveCount--; }
     }
-
-    /// <summary>주인 없는 필지 중 비옥한 것부터 n개를 가구에 준다. 실제로 준 수를 돌려준다.</summary>
-    public int Claim(int household, int n, HouseholdStore hh)
-    {
-        if (!_freeSorted)
-        {
-            _free.RemoveAll(i => Owner[i] >= 0);
-            _free.Sort((a, b) => BaseFertility[a].CompareTo(BaseFertility[b])); // 끝이 가장 비옥
-            _freeSorted = true;
-        }
-        int got = 0;
-        while (got < n && _free.Count > 0)
-        {
-            int plot = _free[^1];
-            _free.RemoveAt(_free.Count - 1);
-            if (Owner[plot] >= 0) continue;
-            SetOwner(plot, household, hh);
-            got++;
-        }
-        return got;
-    }
-
-    /// <summary>from 가구의 필지 n개를 to 가구로 옮긴다(좋은 땅과 나쁜 땅을 번갈아).</summary>
-    public int Transfer(int from, int to, int n, HouseholdStore hh)
-    {
-        var mine = PlotsOf(from);
-        mine.Sort((a, b) => BaseFertility[b].CompareTo(BaseFertility[a]));
-        int moved = 0;
-        for (int k = 0; k < mine.Count && moved < n; k += 2) { SetOwner(mine[k], to, hh); moved++; }
-        for (int k = 1; k < mine.Count && moved < n; k += 2) { SetOwner(mine[k], to, hh); moved++; }
-        return moved;
-    }
-
-    public void ReleaseWorst(int household, int n, HouseholdStore hh)
-    {
-        var mine = PlotsOf(household);
-        mine.Sort((a, b) => BaseFertility[a].CompareTo(BaseFertility[b]));
-        for (int k = 0; k < n && k < mine.Count; k++) SetOwner(mine[k], -1, hh);
-    }
-
-    public void Release(int household, HouseholdStore hh)
-    {
-        foreach (int i in PlotsOf(household)) SetOwner(i, -1, hh);
-    }
-
-    /// <summary>가구의 필지 목록 복사본.</summary>
-    public List<int> PlotsOf(int household) =>
-        household < _byOwner.Length && _byOwner[household] != null ? new List<int>(_byOwner[household]!) : new List<int>();
-
-    public float Value(int household, HouseholdStore hh) => hh.LandValue[household];
 }

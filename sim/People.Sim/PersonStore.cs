@@ -35,6 +35,7 @@ public sealed class PersonStore
     public byte[] Genomes;           // Capacity × BytesPerGenome
     public float[] Phenotype;        // Capacity × Trait.Count
     public ushort[] ChildhoodHungryDays;
+    public float[] Inbreeding;       // 근교 계수 F = 부모 혈연 / 2
 
     // 족보 번호 (Lineage)
     public int[] Uid;
@@ -72,6 +73,7 @@ public sealed class PersonStore
         Genomes = new byte[capacity * GenomeLayout.BytesPerGenome];
         Phenotype = new float[capacity * (int)Trait.Count];
         ChildhoodHungryDays = new ushort[capacity];
+        Inbreeding = new float[capacity];
         Uid = new int[capacity];
         Husband = new PersonId[capacity];
         WifeCount = new byte[capacity];
@@ -118,6 +120,7 @@ public sealed class PersonStore
         Household[i] = -1;          // World.Join 으로 넣는다
         HhNext[i] = HhPrev[i] = -1;
         ChildhoodHungryDays[i] = 0;
+        Inbreeding[i] = 0f;
         Uid[i] = -1;
         Husband[i] = PersonId.None;
         WifeCount[i] = 0;
@@ -143,17 +146,21 @@ public sealed class PersonStore
         AliveCount--;
     }
 
-    /// <summary>유전체와 성장 환경으로 표현형을 계산한다 (spec 1.2).</summary>
-    public void ComputePhenotype(int i)
+    /// <summary>유전체, 근교 계수, 유전병으로 표현형을 계산한다 (spec 1.2, 1.3).</summary>
+    public void ComputePhenotype(int i, float inbreedingDepression = 2.5f)
     {
         var g = Genome(i);
         bool male = Male[i];
+        float depress = 1f - inbreedingDepression * Inbreeding[i];
         for (int t = 0; t < (int)Trait.Count; t++)
         {
             var trait = (Trait)t;
             float v = Genetics.Score(g, trait) * Genetics.SexFactor(trait, male);
+            if (Genetics.AffectedByInbreeding(trait)) v *= depress;
             Set(i, trait, v);
         }
+        if (Genetics.Expressed(g, Marker.Frailty, male)) Set(i, Trait.Constitution, Get(i, Trait.Constitution) * 0.6f);
+        if (Genetics.Expressed(g, Marker.ShortLife, male)) Set(i, Trait.Longevity, Get(i, Trait.Longevity) * 0.5f);
     }
 
     /// <summary>16세가 될 때 어린 시절 굶주림을 반영한다.</summary>
@@ -181,6 +188,7 @@ public sealed class PersonStore
         Array.Resize(ref Genomes, cap * GenomeLayout.BytesPerGenome);
         Array.Resize(ref Phenotype, cap * (int)Trait.Count);
         Array.Resize(ref ChildhoodHungryDays, cap);
+        Array.Resize(ref Inbreeding, cap);
         Array.Resize(ref Uid, cap);
         Array.Resize(ref Husband, cap);
         Array.Resize(ref WifeCount, cap);

@@ -13,7 +13,7 @@ public enum Trait : byte
 /// <summary>유무형 특성(한 자리).</summary>
 public enum Marker : byte
 {
-    Twinning, RedHair, Blond, ColorBlind, Baldness, DiseaseA, DiseaseB,
+    Twinning, RedHair, Blond, ColorBlind, Baldness, DiseaseA, DiseaseB, Frailty, ShortLife,
     Count
 }
 
@@ -42,11 +42,13 @@ public static class GenomeLayout
         Inheritance.XRecessive,         // 색맹
         Inheritance.MaleLimitedDominant,// 대머리
         Inheritance.Recessive,          // 유전병 A
-        Inheritance.Recessive,          // 유전병 B
+        Inheritance.Recessive,          // 유전병 B (불임)
+        Inheritance.Recessive,          // 허약 체질 (체질 ×0.6)
+        Inheritance.Recessive,          // 단명 (수명 ×0.5)
     };
 
     /// <summary>시작 인구에서 변이 대립유전자 빈도.</summary>
-    public static readonly float[] MarkerStartFrequency = { 0.03f, 0.15f, 0.20f, 0.08f, 0.25f, 0.04f, 0.04f };
+    public static readonly float[] MarkerStartFrequency = { 0.03f, 0.15f, 0.20f, 0.08f, 0.25f, 0.04f, 0.04f, 0.06f, 0.06f };
 
     static GenomeLayout()
     {
@@ -180,6 +182,10 @@ public static class Genetics
         Trait.Ambition => male ? 1.05f : 1f,
         _ => 1f,
     };
+
+    /// <summary>근교약세: 부모 혈연이 높을수록 깎이는 특성.</summary>
+    public static bool AffectedByInbreeding(Trait t) =>
+        t is Trait.Constitution or Trait.Strength or Trait.Fertility or Trait.Intelligence or Trait.Longevity;
 
     /// <summary>어릴 때 굶주림의 영향을 받는 특성.</summary>
     public static bool AffectedByChildhoodHunger(Trait t) =>

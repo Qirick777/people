@@ -10,7 +10,8 @@ public sealed class World
     public PersonStore People { get; } = new();
     public HouseholdStore Households { get; } = new();
     public Lineage Lineage { get; } = new();
-    public Land Land { get; }
+    public VillageStore VillageList { get; } = new();
+    public WorldMap Map { get; }
     public Mortality Mortality { get; }
     public YearStats Stats { get; } = new();
     public int Day { get; private set; }
@@ -22,12 +23,41 @@ public sealed class World
 
     private Rng _rng;
 
+    /// <summary>평평한 섬(필지 plots 개)에서 시작한다. 1단계 실험용.</summary>
     public World(ulong seed, int plots = 400, SimConfig? config = null)
+        : this(seed, WorldMap.Flat((uint)seed, plots), config) { }
+
+    public World(ulong seed, WorldMap map, SimConfig? config = null)
     {
         Config = config ?? SimConfig.Default;
         Mortality = new Mortality(Config);
         _rng = new Rng(seed);
-        Land = new Land(plots, ref _rng);
+        Map = map;
+        if (map.Coarse == null) { SpawnX = map.Width / 2; SpawnY = map.Height / 2; }
+        else (SpawnX, SpawnY) = ChooseSpawn();
+        map.EnsureAround(SpawnX, SpawnY, WorldMap.CS * 2);
+    }
+
+    public int SpawnX { get; private set; }
+    public int SpawnY { get; private set; }
+
+    /// <summary>시작 자리: 강이 흐르고, 기온이 알맞고, 가운데에 가까운 대략 칸.</summary>
+    private (int, int) ChooseSpawn()
+    {
+        var c = Map.Coarse!;
+        int best = -1;
+        float bestS = float.MinValue;
+        for (int i = 0; i < c.W * c.H; i++)
+        {
+            if (c.Sea[i] || c.Lake[i]) continue;
+            int x = i % c.W, y = i / c.W;
+            float land = c.Elevation[i] - c.SeaLevel;
+            if (land > 0.2f) continue;
+            float dc = MathF.Sqrt(MathF.Pow(x - c.W / 2f, 2) + MathF.Pow(y - c.H / 2f, 2)) / c.W;
+            float s = (c.River[i] ? 1f : 0f) - MathF.Abs(c.Temperature[i] - 0.6f) * 2f - dc * 2f + c.Rain[i] * 0.3f;
+            if (s > bestS) { bestS = s; best = i; }
+        }
+        return ((best % c.W) * WorldMap.CS + WorldMap.CS / 2, (best / c.W) * WorldMap.CS + WorldMap.CS / 2);
     }
 
     // ------------------------------------------------------------------ 가구 구성원 목록
@@ -80,17 +110,168 @@ public sealed class World
         return id;
     }
 
+    // ------------------------------------------------------------------ 가구 위치
+
+    private Dictionary<long, List<int>> _hhGrid = new();
+    private const int HhCell = 32;
+    private static long Key(int x, int y, int cell) => ((long)(x / cell) << 32) | (uint)(y / cell);
+
+    private void RebuildHouseholdGrid()
+    {
+        _hhGrid = new Dictionary<long, List<int>>();
+        for (int h = 0; h < Households.HighWater; h++) if (Households.IsAlive(h)) GridAdd(h);
+    }
+
+    private void GridAdd(int h)
+    {
+        long k = Key(Households.X[h], Households.Y[h], HhCell);
+        if (!_hhGrid.TryGetValue(k, out var l)) _hhGrid[k] = l = new List<int>();
+        l.Add(h);
+    }
+
+    /// <summary>(x, y) 에서 30 타일 안의 가구 수.</summary>
+    private int NeighborsAt(int x, int y)
+    {
+        int n = 0;
+        for (int dy = -1; dy <= 1; dy++)
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                if (!_hhGrid.TryGetValue(Key(x + dx * HhCell, y + dy * HhCell, HhCell), out var l)) continue;
+                foreach (int h in l)
+                {
+                    if (!Households.IsAlive(h)) continue;
+                    int ddx = Households.X[h] - x, ddy = Households.Y[h] - y;
+                    if (ddx * ddx + ddy * ddy <= 900) n++;
+                }
+            }
+        return n;
+    }
+
+    /// <summary>살아 있는 마을 수와 가장 큰 마을의 가구 수.</summary>
+    public (int count, int largest) Villages()
+    {
+        int count = 0, largest = 0;
+        for (int v = 0; v < VillageList.Count; v++)
+        {
+            if (!VillageList.Alive[v]) continue;
+            count++;
+            largest = Math.Max(largest, VillageList.Households[v]);
+        }
+        return (count, largest);
+    }
+
+    /// <summary>가구 무리(서로 40 타일 안에 이어진 집들). 마을 경계가 실제로 나뉘는지 확인용.</summary>
+    public (int count, int largest, int[] villageOf) Clusters()
+    {
+        var hh = Households;
+        int n = hh.HighWater;
+        var parent = new int[n];
+        for (int i = 0; i < n; i++) parent[i] = i;
+        int Find(int a) { while (parent[a] != a) a = parent[a] = parent[parent[a]]; return a; }
+        const int link = 40;
+        var grid = new Dictionary<long, List<int>>();
+        for (int h = 0; h < n; h++)
+        {
+            if (!hh.IsAlive(h)) continue;
+            long k = Key(hh.X[h], hh.Y[h], link);
+            if (!grid.TryGetValue(k, out var l)) grid[k] = l = new List<int>();
+            l.Add(h);
+        }
+        for (int h = 0; h < n; h++)
+        {
+            if (!hh.IsAlive(h)) continue;
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    if (!grid.TryGetValue(Key(hh.X[h] + dx * link, hh.Y[h] + dy * link, link), out var l)) continue;
+                    foreach (int o in l)
+                    {
+                        if (o <= h) continue;
+                        int ddx = hh.X[o] - hh.X[h], ddy = hh.Y[o] - hh.Y[h];
+                        if (ddx * ddx + ddy * ddy <= link * link) parent[Find(o)] = Find(h);
+                    }
+                }
+        }
+        var size = new Dictionary<int, int>();
+        for (int h = 0; h < n; h++) if (hh.IsAlive(h)) { int r = Find(h); size[r] = size.GetValueOrDefault(r) + 1; }
+        var villageOf = new int[n];
+        for (int h = 0; h < n; h++) villageOf[h] = hh.IsAlive(h) && size[Find(h)] >= 5 ? Find(h) : -1;
+        int count = size.Values.Count(v => v >= 5);
+        int largest = size.Count > 0 ? size.Values.Max() : 0;
+        return (count, largest, villageOf);
+    }
+
+    /// <summary>집이 물(강·호수·바다)에서 10 타일(80 m) 안에 있는 가구 비율.</summary>
+    public float NearWaterFraction()
+    {
+        int n = 0, near = 0;
+        for (int h = 0; h < Households.HighWater; h++)
+        {
+            if (!Households.IsAlive(h)) continue;
+            n++;
+            if (Map.WaterDist(Map.Id(Households.X[h], Households.Y[h])) <= 10) near++;
+        }
+        return n > 0 ? near / (float)n : 0f;
+    }
+
+    /// <summary>가구를 만들고 (x, y) 에 집을 놓는다.</summary>
+    private int NewHousehold(int x, int y, float food, int capacity, int village)
+    {
+        int h = Households.Add(village, food, capacity, Day);
+        VillageList.Join(village);
+        Households.X[h] = x;
+        Households.Y[h] = y;
+        Map.MarkHouse(x, y, true);
+        GridAdd(h);
+        return h;
+    }
+
+    private void RemoveHousehold(int h)
+    {
+        VillageList.Leave(Households.Village[h]);
+        Map.Release(h, Households);
+        Map.MarkHouse(Households.X[h], Households.Y[h], false);
+        Households.Remove(h);
+    }
+
+    /// <summary>마을 밭 반경.</summary>
+    private int FarmRadiusOf(int village) => Config.FarmRadius;
+
+    /// <summary>가구가 땅을 잡는 중심. 생성된 대륙은 마을 중심, 평평한 섬(1단계 실험)은 자기 집.</summary>
+    private (int x, int y) ClaimCenter(int h)
+    {
+        int v = Households.Village[h];
+        if (Map.Coarse == null || v < 0) return (Households.X[h], Households.Y[h]);
+        return (VillageList.CenterX[v], VillageList.CenterY[v]);
+    }
+
+    /// <summary>(x, y) 주변 radius 안에서 집을 지을 수 있는 가장 가까운 타일.</summary>
+    private (int, int) NearestBuildable(int x, int y, int radius)
+    {
+        for (int r = 0; r <= radius; r++)
+            for (int dy = -r; dy <= r; dy++)
+                for (int dx = -r; dx <= r; dx++)
+                {
+                    if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != r) continue;
+                    if (Map.Buildable(x + dx, y + dy)) return (x + dx, y + dy);
+                }
+        return (-1, -1);
+    }
+
     /// <summary>시작 상황: 젊은 부부 couples 쌍, 가구마다 필지와 한 계절 식량.</summary>
     public void SeedCouples(int couples, int plotsEach = 3)
     {
+        int v = VillageList.Add(SpawnX, SpawnY, Day);
         for (int k = 0; k < couples; k++)
         {
-            int h = Households.Add(0, 6f * 2 * Config.DaysPerSeason, Config.HutCapacity, Day);
+            var (x, y) = NearestBuildable(SpawnX + _rng.NextInt(13) - 6, SpawnY + _rng.NextInt(13) - 6, 20);
+            int h = NewHousehold(x, y, 6f * 2 * Config.DaysPerSeason, Config.HutCapacity, v);
             var man = CreateFounder(true, 18 + _rng.NextInt(8), h);
             var woman = CreateFounder(false, 16 + _rng.NextInt(8), h);
             Households.Head[h] = man;
             Marry(man.Index, woman.Index, 0.5f);
-            Land.Claim(h, plotsEach, Households);
+            var (cx, cy) = ClaimCenter(h);
+            Map.Claim(h, plotsEach, Households, cx, cy, FarmRadiusOf(v));
         }
     }
 
@@ -98,16 +279,25 @@ public sealed class World
     public void SeedSingles(int count)
     {
         int made = 0;
+        int v0 = VillageList.Add(SpawnX, SpawnY, Day);
         while (made < count)
         {
             int size = Math.Min(2 + _rng.NextInt(3), count - made);
-            int h = Households.Add(0, 8f * size * Config.DaysPerSeason, Config.HutCapacity + 2, Day);
+            var (x, y) = NearestBuildable(SpawnX + _rng.NextInt(41) - 20, SpawnY + _rng.NextInt(41) - 20, 30);
+            for (int t = 0; x < 0 && t < 2000; t++)
+            {
+                int rx = _rng.NextInt(Map.Width), ry = _rng.NextInt(Map.Height);
+                if (Map.Buildable(rx, ry)) (x, y) = (rx, ry);
+            }
+            if (x < 0) throw new InvalidOperationException("시작 인구를 놓을 땅이 없다");
+            int h = NewHousehold(x, y, 8f * size * Config.DaysPerSeason, Config.HutCapacity + 2, v0);
             for (int i = 0; i < size; i++)
             {
                 var p = CreateFounder(_rng.NextBool(), 16 + _rng.NextInt(10), h);
                 if (i == 0) Households.Head[h] = p;
             }
-            Land.Claim(h, (int)MathF.Ceiling(size * 1.5f), Households);
+            var (cx, cy) = ClaimCenter(h);
+            Map.Claim(h, (int)MathF.Ceiling(size * 1.5f), Households, cx, cy, FarmRadiusOf(v0));
             made += size;
         }
     }
@@ -118,7 +308,8 @@ public sealed class World
     public void SeedPopulation(int count, int maxAgeYears = 50)
     {
         // 벤치마크용: 식량이 끝없는 큰 가구 하나
-        int h = Households.Add(0, 1e12f, 999999, Day);
+        int v = VillageList.Add(SpawnX, SpawnY, Day);
+        int h = NewHousehold(SpawnX, SpawnY, 1e12f, 999999, v);
         for (int k = 0; k < count; k++)
         {
             var p = CreateFounder(_rng.NextBool(), _rng.NextInt(maxAgeYears + 1), h);
@@ -136,7 +327,12 @@ public sealed class World
         p.Uid[child.Index] = Lineage.Add(male, Day, p.PregnancyFatherUid[mother], p.Uid[mother]);
         Genetics.Inherit(p.FatherGenomeBuffer(mother), p.Genome(mother), p.Genome(child.Index),
             male, Config.MutationRate, ref _rng);
-        p.ComputePhenotype(child.Index);
+        int fatherUid = p.PregnancyFatherUid[mother];
+        p.Inbreeding[child.Index] = fatherUid >= 0 ? Lineage.Relatedness(fatherUid, p.Uid[mother]) * 0.5f : 0f;
+        p.ComputePhenotype(child.Index, Config.InbreedingDepression);
+        Stats.InbreedingSum += p.Inbreeding[child.Index];
+        if (Genetics.Expressed(p.Genome(child.Index), Marker.Frailty, male) || Genetics.Expressed(p.Genome(child.Index), Marker.ShortLife, male))
+            Stats.RecessiveBirths++;
         Stats.Births++;
         if (Genetics.Expressed(p.Genome(child.Index), Marker.DiseaseA, male)) Stats.DiseaseABirths++;
         return child;
@@ -195,10 +391,23 @@ public sealed class World
         float zz = Config.WeatherCorrelation * prev + MathF.Sqrt(1 - Config.WeatherCorrelation * Config.WeatherCorrelation) * z;
         Weather = Math.Clamp(1f + Config.WeatherSd * zz, 0.3f, 1.4f);
         Stats.Begin(Day, Weather);
+        RebuildHouseholdGrid();
+        ChooseFloods();
         RecountHouseholds();
         Splits();
         ClaimLand();
         UpgradeHouses();
+    }
+
+    private HashSet<int> _flooded = new();
+
+    /// <summary>강이 흐르는 대략 칸마다 해마다 홍수 판정.</summary>
+    private void ChooseFloods()
+    {
+        _flooded = new HashSet<int>();
+        var c = Map.Coarse;
+        if (c == null) return;
+        for (int i = 0; i < c.W * c.H; i++) if (c.River[i] && _rng.Chance(Config.FloodChance)) _flooded.Add(i);
     }
 
     private float Gaussian()
@@ -261,35 +470,62 @@ public sealed class World
         return need <= 0 ? 2f : Households.Food[h] / need;
     }
 
+    private readonly HashSet<int> _depleted = new();   // 지력이 기본값보다 낮은 필지
+
     private void Harvest()
     {
         var hh = Households;
-        var land = Land;
+        var map = Map;
         float total = 0;
-        // 가구마다 일할 수 있는 필지 수만큼, 비옥한 것부터 부친다.
-        var worked = new bool[land.Count];
+        var worked = new HashSet<int>();
         for (int h = 0; h < hh.HighWater; h++)
         {
             if (!hh.IsAlive(h) || hh.PlotCount[h] == 0) continue;
             float capacity = hh.Labor[h] * Config.PlotsPerWorker;
-            var mine = land.PlotsOf(h);
-            mine.Sort((a, b) => land.Fertility[b].CompareTo(land.Fertility[a]));
+            var mine = map.PlotsOf(h);
+            mine.Sort((a, b) => map.Fert(b).CompareTo(map.Fert(a)));
             float yield = 0;
             for (int k = 0; k < mine.Count && capacity > 0; k++)
             {
                 float part = MathF.Min(1f, capacity);
-                int plot = mine[k];
-                yield += Config.PlotYield * land.Fertility[plot] * Weather * part;
-                worked[plot] = part > 0.5f;
                 capacity -= 1f;
+                int plot = mine[k];
+                if (part > 0.5f) worked.Add(plot);
+                // 숲은 첫해에 개간만 한다(수확 없음).
+                if (map.Type(plot) == TileType.Forest)
+                {
+                    map.SetType(plot, TileType.Grass);
+                    map.SetFlags(plot, (byte)(map.Flags(plot) | WorldMap.FlagField));
+                    continue;
+                }
+                map.SetFlags(plot, (byte)(map.Flags(plot) | WorldMap.FlagField));
+                if (_flooded.Count > 0 && map.WaterDist(plot) <= 2)
+                {
+                    var (x, y) = map.Pos(plot);
+                    int ci = (y / WorldMap.CS) * map.ChunksX + x / WorldMap.CS;
+                    if (_flooded.Contains(ci))
+                    {
+                        map.SetBaseFert(plot, MathF.Min(1.6f, map.BaseFert(plot) + 0.03f));
+                        Stats.FloodedPlots++;
+                        continue;
+                    }
+                }
+                yield += Config.PlotYield * map.Fert(plot) * Weather * part;
             }
             hh.Food[h] += yield;
             total += yield;
         }
-        for (int i = 0; i < land.Count; i++)
+        foreach (int plot in worked)
         {
-            if (worked[i]) land.Fertility[i] = MathF.Max(0.1f, land.Fertility[i] - Config.FertilityDeclinePerYear);
-            else land.Fertility[i] = MathF.Min(land.BaseFertility[i], land.Fertility[i] + Config.FertilityRecoverPerYear);
+            map.SetFert(plot, MathF.Max(0.1f, map.Fert(plot) - Config.FertilityDeclinePerYear));
+            _depleted.Add(plot);
+        }
+        foreach (int plot in _depleted.ToArray())
+        {
+            if (worked.Contains(plot)) continue;
+            float f = MathF.Min(map.BaseFert(plot), map.Fert(plot) + Config.FertilityRecoverPerYear);
+            map.SetFert(plot, f);
+            if (f >= map.BaseFert(plot)) _depleted.Remove(plot);
         }
         Stats.Harvest += total;
     }
@@ -306,10 +542,14 @@ public sealed class World
         {
             // 일할 수 있는 양보다 넉넉히 잡는다. 남는 땅은 쉬게 되어 비옥도가 돌아온다(돌려짓기가 저절로 생긴다).
             int want = (int)MathF.Ceiling(hh.Labor[h] * Config.PlotsPerWorker * Config.LandReserve);
-            if (hh.PlotCount[h] < want) Land.Claim(h, want - hh.PlotCount[h], hh);
+            if (hh.PlotCount[h] < want)
+            {
+                var (cx, cy) = ClaimCenter(h);
+                Map.Claim(h, want - hh.PlotCount[h], hh, cx, cy, FarmRadiusOf(hh.Village[h]));
+            }
             // 일손이 줄어 부칠 수 없는 땅이 너무 많으면 덜 비옥한 것부터 내놓는다.
             int keep = (int)MathF.Ceiling(hh.Labor[h] * Config.PlotsPerWorker * Config.LandRelease);
-            if (hh.PlotCount[h] > keep) Land.ReleaseWorst(h, hh.PlotCount[h] - keep, hh);
+            if (hh.PlotCount[h] > keep) Map.ReleaseWorst(h, hh.PlotCount[h] - keep, hh);
         }
     }
 
@@ -346,15 +586,9 @@ public sealed class World
                 if (h != h0 || !hh.IsAlive(h) || hh.Head[h].Index == i) continue;
                 if (!hasChild[i] && hh.Crowding(h) <= 1.5f) continue;
 
-                int nh = hh.Add(hh.Village[h], 0f, Config.HutCapacity, Day);
-                int got = Land.Unowned() >= 2 ? Land.Claim(nh, 3, hh) : 0;
-                if (got < 2)
-                {
-                    // 빈 땅이 없으면 본가 땅을 나눠 받는다(균분 관습).
-                    int share = hh.PlotCount[h] / 2;
-                    if (share + got >= 2) Land.Transfer(h, nh, share, hh);
-                    else { Land.Release(nh, hh); hh.Remove(nh); continue; }
-                }
+                // 집터: 마을에 빈 땅이 있으면 마을 안, 없으면 다른 마을이나 새 마을로. 다 안 되면 본가 땅을 나눈다.
+                int nh = SettleNewHousehold(h);
+                if (nh < 0) continue;
                 // 이 남자, 아내들, 그 사이 아이들을 옮긴다.
                 int moved = 0;
                 var me = p.IdAt(i);
@@ -375,6 +609,128 @@ public sealed class World
             }
         }
         RecountHouseholds();
+    }
+
+    /// <summary>분가하는 가구의 자리를 정하고 가구를 만든다. 실패하면 -1.</summary>
+    private int SettleNewHousehold(int parent)
+    {
+        var hh = Households;
+        var vl = VillageList;
+        int v = hh.Village[parent];
+        if (Map.Coarse == null)
+        {
+            // 평평한 섬(1단계 실험): 본가 근처에 집을 짓고 그 둘레 빈 땅을 잡는다.
+            var (fx, fy) = NearestBuildable(hh.X[parent], hh.Y[parent], 8);
+            if (fx >= 0 && Map.CountFreeNear(fx, fy, Config.FarmRadius) >= 2)
+            {
+                int nh = NewHousehold(fx, fy, 0f, Config.HutCapacity, v);
+                Map.Claim(nh, 3, hh, fx, fy, Config.FarmRadius);
+                return nh;
+            }
+            return SplitParentLand(parent, v);
+        }
+        // 1) 지금 마을에 빈 땅이 넉넉하면 마을 안에 집을 짓는다.
+        if (v >= 0 && FreeInVillage(v) >= Config.MinFreePlotsToStay)
+        {
+            var (x, y) = Map.HouseSpot(vl.CenterX[v], vl.CenterY[v], Config.HouseRadius + (int)(0.7f * MathF.Sqrt(vl.Households[v])), ref _rng);
+            if (x >= 0)
+            {
+                int nh = NewHousehold(x, y, 0f, Config.HutCapacity, v);
+                TookPlots(v, Map.Claim(nh, 3, hh, vl.CenterX[v], vl.CenterY[v], FarmRadiusOf(v)));
+                return nh;
+            }
+        }
+
+        // 2) 근처 다른 마을 중 빈 땅이 있는 곳, 3) 새 마을 자리. 더 나은 쪽으로 간다.
+        int px = hh.X[parent], py = hh.Y[parent];
+        int bestV = -1;
+        float bestVScore = float.MinValue;
+        for (int o = 0; o < vl.Count; o++)
+        {
+            if (!vl.Alive[o] || o == v) continue;
+            float d = MathF.Sqrt(MathF.Pow(vl.CenterX[o] - px, 2) + MathF.Pow(vl.CenterY[o] - py, 2));
+            if (d > Config.MigrationRadius) continue;
+            int free = FreeInVillage(o);
+            if (free < Config.MinFreePlotsToStay * 2) continue;
+            float sc = MathF.Min(free, 60) - d * 0.1f;
+            if (sc > bestVScore) { bestVScore = sc; bestV = o; }
+        }
+        (int x, int y) bestSite = (-1, -1);
+        float bestSiteScore = float.MinValue;
+        for (int attempt = 0; attempt < 24; attempt++)
+        {
+            float r = Config.NewVillageMinDist + _rng.NextFloat() * (Config.MigrationRadius - Config.NewVillageMinDist);
+            float a = _rng.NextFloat() * MathF.PI * 2;
+            int x = (int)(px + MathF.Cos(a) * r), y = (int)(py + MathF.Sin(a) * r);
+            if (!Map.InBounds(x, y) || NearestVillageDist(x, y) < Config.NewVillageMinDist) continue;
+            float sc = Map.VillageSiteScore(x, y, Config.FarmRadius) - r * 0.05f;
+            if (sc > bestSiteScore) { bestSiteScore = sc; bestSite = (x, y); }
+        }
+        // 이미 있는 마을은 이웃과 혼인 상대가 있어서 조금 더 끌린다.
+        if (bestV >= 0 && (bestSite.x < 0 || bestVScore + 15f > bestSiteScore * 0.5f))
+        {
+            var (x, y) = Map.HouseSpot(vl.CenterX[bestV], vl.CenterY[bestV], Config.HouseRadius + (int)(0.7f * MathF.Sqrt(vl.Households[bestV])), ref _rng);
+            if (x >= 0)
+            {
+                int nh = NewHousehold(x, y, 0f, Config.HutCapacity, bestV);
+                TookPlots(bestV, Map.Claim(nh, 3, hh, vl.CenterX[bestV], vl.CenterY[bestV], FarmRadiusOf(bestV)));
+                Stats.Migrations++;
+                return nh;
+            }
+        }
+        if (bestSite.x >= 0)
+        {
+            int nv = vl.Add(bestSite.x, bestSite.y, Day);
+            int nh = NewHousehold(bestSite.x, bestSite.y, 0f, Config.HutCapacity, nv);
+            Map.Claim(nh, 3, hh, bestSite.x, bestSite.y, FarmRadiusOf(nv));
+            Stats.Migrations++;
+            Stats.NewVillages++;
+            return nh;
+        }
+        return SplitParentLand(parent, v);
+    }
+
+    /// <summary>갈 곳이 없으면 본가 옆에 집을 짓고 본가 땅을 반 나눈다.</summary>
+    private int SplitParentLand(int parent, int v)
+    {
+        var hh = Households;
+        int share = hh.PlotCount[parent] / 2;
+        var (bx, by) = NearestBuildable(hh.X[parent], hh.Y[parent], 6);
+        if (share < 2 || bx < 0) return -1;
+        int nh = NewHousehold(bx, by, 0f, Config.HutCapacity, v);
+        Map.Transfer(parent, nh, share, hh);
+        return nh;
+    }
+
+    // 마을별 빈 필지 수. 해마다 처음 물을 때 세고, 이후 가져간 만큼 뺀다(근사).
+    private readonly Dictionary<int, int> _freeCache = new();
+    private int _freeCacheYear = -1;
+
+    private int FreeInVillage(int v)
+    {
+        if (_freeCacheYear != Calendar.Year) { _freeCache.Clear(); _freeCacheYear = Calendar.Year; }
+        if (_freeCache.TryGetValue(v, out int n)) return n;
+        var vl = VillageList;
+        n = Map.CountFreeNear(vl.CenterX[v], vl.CenterY[v], FarmRadiusOf(v));
+        _freeCache[v] = n;
+        return n;
+    }
+
+    private void TookPlots(int v, int n)
+    {
+        if (_freeCache.TryGetValue(v, out int f)) _freeCache[v] = Math.Max(0, f - n);
+    }
+
+    private float NearestVillageDist(int x, int y)
+    {
+        float best = float.MaxValue;
+        for (int o = 0; o < VillageList.Count; o++)
+        {
+            if (!VillageList.Alive[o]) continue;
+            float d = MathF.Sqrt(MathF.Pow(VillageList.CenterX[o] - x, 2) + MathF.Pow(VillageList.CenterY[o] - y, 2));
+            if (d < best) best = d;
+        }
+        return best;
     }
 
     private void UpgradeHouses()
@@ -461,11 +817,12 @@ public sealed class World
     {
         var p = People;
         p.PregnantUntil[w] = -1;
-        p.CooldownUntil[w] = Day + Config.PostpartumCooldownDays;
+        float fert = p.Get(w, Trait.Fertility);
+        p.CooldownUntil[w] = Day + (int)MathF.Round(Config.PostpartumCooldownDays * (Config.CooldownFertBase - Config.CooldownFertSlope * fert));
         int h = p.Household[w];
         float con = p.Get(w, Trait.Constitution);
         int n = 1;
-        float twin = Genetics.Expressed(p.Genome(w), Marker.Twinning, false) ? Config.TwinWithTrait : Config.TwinBase;
+        float twin = (Genetics.Expressed(p.Genome(w), Marker.Twinning, false) ? Config.TwinWithTrait : Config.TwinBase) * (0.5f + fert);
         if (_rng.Chance(Config.TripletRate)) n = 3;
         else if (_rng.Chance(twin)) n = 2;
         if (n > 1) Stats.MultipleBirths++;
@@ -538,8 +895,7 @@ public sealed class World
             Join(k, target);
         }
         // 남은 사람이 없거나 아이만 있던 가구는 없앤다.
-        Land.Release(h, hh);
-        hh.Remove(h);
+        RemoveHousehold(h);
         Stats.Dissolved++;
     }
 
@@ -662,41 +1018,60 @@ public sealed class World
     private void Courtship()
     {
         var p = People;
-        var men = new List<int>();
-        var women = new List<int>();
+        var hh = Households;
+        int cell = Config.CourtshipBucket;
+        // 지역 칸별 미혼 남녀 목록
+        var menBy = new Dictionary<long, List<int>>();
+        var womenBy = new Dictionary<long, List<int>>();
+        var courters = new List<int>();
         for (int i = 0; i < p.HighWater; i++)
         {
-            if (!p.IsAliveIndex(i) || !Households.IsAlive(p.Household[i])) continue;
+            if (!p.IsAliveIndex(i) || !hh.IsAlive(p.Household[i])) continue;
             int age = AgeYears(i);
             if (age < 16) continue;
+            int h = p.Household[i];
+            Dictionary<long, List<int>>? target = null;
             if (p.Male[i])
             {
-                if (p.WifeCount[i] == 0 || Wealth(p.Household[i]) >= Config.PolygynyWealthPerWife * (p.WifeCount[i] + 1)) men.Add(i);
+                if (p.WifeCount[i] == 0 || Wealth(h) >= Config.PolygynyWealthPerWife * (p.WifeCount[i] + 1)) target = menBy;
             }
-            else if (!p.IsValid(p.Husband[i]) && age <= 45) women.Add(i);
+            else if (!p.IsValid(p.Husband[i]) && age <= 45) target = womenBy;
+            if (target == null) continue;
+            long k = Key(hh.X[h], hh.Y[h], cell);
+            if (!target.TryGetValue(k, out var l)) target[k] = l = new List<int>();
+            l.Add(i);
+            courters.Add(i);
         }
-        if (men.Count == 0 || women.Count == 0) return;
-        var courters = new List<int>(men.Count + women.Count);
-        courters.AddRange(men);
-        courters.AddRange(women);
+        if (menBy.Count == 0 || womenBy.Count == 0) return;
         for (int i = courters.Count - 1; i > 0; i--) { int j = _rng.NextInt(i + 1); (courters[i], courters[j]) = (courters[j], courters[i]); }
 
         PrepareCourtship();
         var taken = _taken;
         Span<int> cand = stackalloc int[Config.CandidateSample];
         Span<float> score = stackalloc float[Config.CandidateSample];
+        var near = new List<List<int>>(9);
         foreach (int a in courters)
         {
             if (taken[a]) continue;
             if (!_rng.Chance(0.3f + 0.7f * p.Get(a, Trait.Ambition))) continue;
-            var pool = p.Male[a] ? women : men;
+            // 주변 3×3 지역 칸의 이성 목록
+            near.Clear();
+            int total = 0;
+            var src = p.Male[a] ? womenBy : menBy;
+            int ha = p.Household[a];
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                    if (src.TryGetValue(Key(hh.X[ha] + dx * cell, hh.Y[ha] + dy * cell, cell), out var l)) { near.Add(l); total += l.Count; }
+            if (total == 0) continue;
             // 1) 혈연을 빼고 점수를 매겨 상위 몇 명만 남긴다. 2) 그들만 혈연을 계산한다.
-            int n = Math.Min(Config.CandidateSample, pool.Count);
+            int n = Math.Min(Config.CandidateSample, total);
             int m = 0;
             int ageA = AgeYears(a);
             for (int k = 0; k < n; k++)
             {
-                int b = pool[_rng.NextInt(pool.Count)];
+                int pick = _rng.NextInt(total), li = 0;
+                while (pick >= near[li].Count) { pick -= near[li].Count; li++; }
+                int b = near[li][pick];
                 if (taken[b] || b == a || Rejected(a, p.Uid[b])) continue;
                 cand[m] = b;
                 score[m] = FastScore(a, b, ageA, AgeYears(b));

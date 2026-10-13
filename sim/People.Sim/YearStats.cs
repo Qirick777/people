@@ -7,8 +7,8 @@ namespace People.Sim;
 public sealed class YearStats
 {
     public int Year, Births, Deaths, HungerDeaths, InfantDeaths, MaternalDeaths, Stillbirths, MultipleBirths,
-        Marriages, Polygynous, Splits, Dissolved, DiseaseABirths;
-    public float MarriageKinSum, Harvest, Weather;
+        Marriages, Polygynous, Splits, Dissolved, DiseaseABirths, RecessiveBirths, FloodedPlots, Migrations, NewVillages;
+    public float MarriageKinSum, Harvest, Weather, InbreedingSum;
     private int _womenDied45, _womenChildren45;
 
     private readonly StringBuilder _csv = new();
@@ -16,9 +16,10 @@ public sealed class YearStats
 
     public static readonly string Header =
         "year,population,households,births,deaths,hunger_deaths,infant_deaths,maternal_deaths,stillbirths,multiple_births," +
-        "marriages,polygynous,mean_marriage_kin,splits,dissolved,weather,harvest,food_per_capita,unowned_plots," +
+        "marriages,polygynous,mean_marriage_kin,splits,dissolved,weather,harvest,food_per_capita,generated_chunks," +
         "height,strength,fertility,looks,charisma,constitution,pref_height," +
-        "twinning_freq,diseaseA_freq,diseaseA_births,completed_fertility";
+        "twinning_freq,diseaseA_freq,diseaseA_births,completed_fertility,mean_birth_inbreeding,recessive_births," +
+        "villages,largest_village,near_water_households,flooded_plots,migrations,new_villages";
 
     public YearStats() => _csv.AppendLine(Header);
 
@@ -32,8 +33,8 @@ public sealed class YearStats
     public void Begin(int day, float weather)
     {
         Births = Deaths = HungerDeaths = InfantDeaths = MaternalDeaths = Stillbirths = MultipleBirths = 0;
-        Marriages = Polygynous = Splits = Dissolved = DiseaseABirths = 0;
-        MarriageKinSum = Harvest = 0;
+        Marriages = Polygynous = Splits = Dissolved = DiseaseABirths = RecessiveBirths = FloodedPlots = Migrations = NewVillages = 0;
+        MarriageKinSum = Harvest = InbreedingSum = 0;
         Weather = weather;
         _womenDied45 = _womenChildren45 = 0;
     }
@@ -66,14 +67,17 @@ public sealed class YearStats
         double a = Math.Max(1, adults);
         float food = 0;
         for (int h = 0; h < w.Households.HighWater; h++) if (w.Households.IsAlive(h)) food += w.Households.Food[h];
+        var villages = w.Villages();
         var c = CultureInfo.InvariantCulture;
         string F(double v) => v.ToString("0.####", c);
         _csv.AppendLine(string.Join(",",
             w.Calendar.Year + 1, pop, w.Households.AliveCount, Births, Deaths, HungerDeaths, InfantDeaths, MaternalDeaths,
             Stillbirths, MultipleBirths, Marriages, Polygynous, F(Marriages > 0 ? MarriageKinSum / Marriages : 0), Splits, Dissolved,
-            F(Weather), F(Harvest), F(pop > 0 ? food / pop : 0), w.Land.Unowned(),
+            F(Weather), F(Harvest), F(pop > 0 ? food / pop : 0), w.Map.GeneratedChunks,
             F(height / a), F(strength / a), F(fert / a), F(looks / a), F(cha / a), F(con / a), F(prefH / a),
             F(alleles > 0 ? twinAlleles / (double)alleles : 0), F(alleles > 0 ? diseaseAlleles / (double)alleles : 0), DiseaseABirths,
-            F(_womenDied45 > 0 ? _womenChildren45 / (double)_womenDied45 : double.NaN)));
+            F(_womenDied45 > 0 ? _womenChildren45 / (double)_womenDied45 : double.NaN),
+            F(Births > 0 ? InbreedingSum / Births : 0), RecessiveBirths,
+            villages.count, villages.largest, F(w.NearWaterFraction()), FloodedPlots, Migrations, NewVillages));
     }
 }

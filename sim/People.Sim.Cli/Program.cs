@@ -180,7 +180,52 @@ switch (cmd)
         Console.WriteLine($"가능한 쌍 {pairs}, 금지 쌍 {forbidden}, 평균 점수 {sc / Math.Max(1, pairs):F3}, 평균 혈연 {kin / Math.Max(1, pairs):F3}, 평균 수락 {acc / Math.Max(1, pairs):F3}");
         break;
     }
+    case "worldmap":
+    {
+        // 시드로 대륙 전체를 만들어 그린다.
+        int size = Arg("--size", 48);
+        var sw = Stopwatch.StartNew();
+        var map = WorldMap.Generate((uint)Arg("--seed", 1), size);
+        Console.WriteLine($"대략 지도 {size}×{size}: {sw.ElapsedMilliseconds} ms");
+        sw.Restart();
+        string path = SArg("--out", "out/world.png");
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        MapRender.Save(null, map, path, 0, 0, map.Width, map.Height, 1, generateAll: true);
+        Console.WriteLine($"세부 {map.GeneratedChunks}청크 생성·그리기: {sw.ElapsedMilliseconds} ms → {path}");
+        // 강이 흐르는 곳 하나를 확대 (청크 경계선 확인용)
+        var c = map.Coarse!;
+        int ri = Enumerable.Range(0, c.W * c.H).Where(i => c.River[i]).OrderByDescending(i => c.Flow[i]).Skip(3).First();
+        int zx = (ri % c.W) * WorldMap.CS - 64, zy = (ri / c.W) * WorldMap.CS - 48;
+        MapRender.Save(null, map, path.Replace(".png", "_zoom.png"), zx, zy, 160, 112, 4, generateAll: true);
+        break;
+    }
+    case "settle":
+    {
+        // 생성된 대륙에 부부 몇 쌍을 놓고 정착이 퍼지는 모습을 본다.
+        var map = WorldMap.Generate((uint)Arg("--seed", 1), Arg("--size", 48));
+        var w = new World((ulong)Arg("--seed", 1), map, Config());
+        w.SeedCouples(Arg("--couples", 10));
+        int years = Arg("--years", 200), every = Arg("--snap", 0);
+        string path = SArg("--out", "out/settle.csv");
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        var sw = Stopwatch.StartNew();
+        for (int y = 1; y <= years; y++)
+        {
+            for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
+            if (every > 0 && y % every == 0)
+                MapRender.Save(w, map, path.Replace(".csv", $"_y{y:D4}.png"), 0, 0, map.Width, map.Height, 1);
+            if (w.People.AliveCount == 0) { Console.WriteLine($"{y}년에 절멸"); break; }
+        }
+        Console.WriteLine($"settle: {years}년, 인구 {w.People.AliveCount}, 가구 {w.Households.AliveCount}, 마을 {w.Villages().count}, 청크 {map.GeneratedChunks}, {sw.Elapsed.TotalSeconds:F1}초");
+        Console.WriteLine($"  물에서 80 m 안: 가구 {w.NearWaterFraction():P0}, 경작 가능 땅 {map.FarmableNearWaterFraction(10):P0}");
+        Summary(w);
+        Save(w, path);
+        MapRender.Save(w, map, path.Replace(".csv", ".png"), 0, 0, map.Width, map.Height, 1);
+        // 시작 지점 주변 확대
+        MapRender.Save(w, map, path.Replace(".csv", "_zoom.png"), w.SpawnX - 120, w.SpawnY - 80, 240, 160, 4);
+        break;
+    }
     default:
-        Console.WriteLine("명령: bench | births | island | sexsel | inbreed | matediag");
+        Console.WriteLine("명령: bench | births | island | sexsel | inbreed | matediag | worldmap | settle");
         break;
 }

@@ -27,6 +27,10 @@ public sealed class SimConfig
     public float TwinBase { get; init; } = 0.01f;
     public float TwinWithTrait { get; init; } = 0.06f;
     public float TripletRate { get; init; } = 0.001f;
+    public float InbreedingDepression { get; init; } = 2.5f;   // 표현형 × (1 − 이 값 × F). 사촌 자녀 F=1/16 → −16%
+    // 다산 특성: 쿨타임 × (CooldownFertBase − CooldownFertSlope × 다산), 쌍둥이 확률 × (0.5 + 다산)
+    public float CooldownFertBase { get; init; } = 1.3f;
+    public float CooldownFertSlope { get; init; } = 0.6f;
 
     public float HungerMortality { get; init; } = 3f;           // 굶은 날 사망률 배수
     public float HungerMortalityVulnerable { get; init; } = 5f; // 아기·노인
@@ -55,6 +59,15 @@ public sealed class SimConfig
     public float WeatherSd { get; init; } = 0.15f;
     public float WeatherCorrelation { get; init; } = 0.4f;
     public int HarvestDayOfYear { get; init; } = 17;        // 가을 마지막 날
+
+    // 2단계: 공간
+    public int FarmRadius { get; init; } = 24;              // 마을 중심에서 이 거리(타일, 약 200 m) 안의 땅만 부친다
+    public int HouseRadius { get; init; } = 4;              // 집은 마을 중심에서 이 거리(+ 0.7×√가구 수) 안에 모인다
+    public int MigrationRadius { get; init; } = 160;        // 이주할 곳을 찾는 최대 거리(약 1.3 km)
+    public int NewVillageMinDist { get; init; } = 56;       // 새 마을은 다른 마을 중심에서 이만큼 떨어져야 한다
+    public int MinFreePlotsToStay { get; init; } = 4;       // 마을에 빈 필지가 이보다 적으면 떠난다
+    public float FloodChance { get; init; } = 0.05f;        // 강이 흐르는 대략 칸마다 해마다
+    public int CourtshipBucket { get; init; } = 128;        // 구애 상대를 찾는 지역 칸 크기(타일). 주변 3×3 칸
 
     // 6. 가구
     public int HutCapacity { get; init; } = 4;
