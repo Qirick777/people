@@ -700,12 +700,18 @@ public sealed class World
             for (int y = cy - R; y <= cy + R; y++)
                 for (int x = cx - R; x <= cx + R; x++)
                 {
-                    if ((x - cx) * (x - cx) + (y - cy) * (y - cy) > R * R || !Map.Buildable(x, y)) continue;
+                    if ((x - cx) * (x - cx) + (y - cy) * (y - cy) > R * R || !Map.BuildableOrField(x, y)) continue;
                     if (!(Map.IsRoad(x + 1, y) || Map.IsRoad(x - 1, y) || Map.IsRoad(x, y + 1) || Map.IsRoad(x, y - 1))) continue;
-                    float d = MathF.Sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)) + _rng.NextFloat() * 1.5f;
+                    // 빈 칸을 먼저 쓰고, 없으면 길가 밭을 집터로 내준다
+                    float d = MathF.Sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy)) + _rng.NextFloat() * 1.5f
+                              + (Map.Buildable(x, y) ? 0f : 4f);
                     if (d < bestS) { bestS = d; best = (x, y); }
                 }
-            if (best.x >= 0) return best;
+            if (best.x >= 0)
+            {
+                if (Map.Evict(best.x, best.y, Households) >= 0) Stats.Evicted++;
+                return best;
+            }
             // 골목: 큰길이나 직각 길 위 한 점에서 직각으로 짧게
             int k = 2 + _rng.NextInt(Math.Max(1, R - 2));
             int sign = _rng.NextBool() ? 1 : -1;
@@ -830,7 +836,7 @@ public sealed class World
         if (_freeCacheYear != Calendar.Year) { _freeCache.Clear(); _freeCacheYear = Calendar.Year; }
         if (_freeCache.TryGetValue(v, out int n)) return n;
         var vl = VillageList;
-        n = Layout ? Map.CountClaimable(ReachOf(v), HouseZone(v) + 1)
+        n = Layout ? Map.CountClaimable(ReachOf(v), HouseZone(v) + 1, Config.StayTravel)
                    : Map.CountFreeNear(vl.CenterX[v], vl.CenterY[v], FarmRadiusOf(v));
         _freeCache[v] = n;
         return n;

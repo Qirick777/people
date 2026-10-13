@@ -552,10 +552,10 @@ public sealed class WorldMap
     }
 
     /// <summary>ClaimContiguous 가 실제로 잡을 수 있는 칸 수(집터로 남긴 길가 칸은 뺀다).</summary>
-    public int CountClaimable(Reach R, int reserve)
+    public int CountClaimable(Reach R, int reserve, float maxCost = float.MaxValue)
     {
         int n = 0;
-        ForEachReachable(R, reserve, (_, _) => n++);
+        ForEachReachable(R, reserve, (_, c) => { if (c <= maxCost) n++; });
         return n;
     }
 
@@ -691,6 +691,23 @@ public sealed class WorldMap
     public void Release(int household, HouseholdStore hh)
     {
         foreach (int id in PlotsOf(household)) SetOwner(id, -1, hh);
+    }
+
+    /// <summary>집터로 쓸 수 있는 칸: 비었거나 밭(밭은 집에 내준다).</summary>
+    public bool BuildableOrField(int x, int y)
+    {
+        if (!InBounds(x, y)) return false;
+        var c = Get(x, y, out int l);
+        return Farmable(c.Type[l]) && c.Type[l] != TileType.Forest && (c.Flags[l] & (FlagHouse | FlagRoad)) == 0;
+    }
+
+    /// <summary>(x, y) 가 누군가의 밭이면 주인에게서 떼어 낸다. 주인은 다음 해 땅 잡기에서 다른 땅을 찾는다.</summary>
+    public int Evict(int x, int y, HouseholdStore hh)
+    {
+        int id = Id(x, y);
+        int o = Owner(id);
+        if (o >= 0) SetOwner(id, -1, hh);
+        return o;
     }
 
     public void MarkHouse(int x, int y, bool on)

@@ -7,7 +7,7 @@ namespace People.Sim;
 public sealed class YearStats
 {
     public int Year, Births, Deaths, HungerDeaths, InfantDeaths, MaternalDeaths, Stillbirths, MultipleBirths,
-        Marriages, Polygynous, Splits, Dissolved, DiseaseABirths, RecessiveBirths, FloodedPlots, Migrations, NewVillages, RoadTiles, Lanes, Swaps;
+        Marriages, Polygynous, Splits, Dissolved, DiseaseABirths, RecessiveBirths, FloodedPlots, Migrations, NewVillages, RoadTiles, Lanes, Swaps, Evicted;
     public float MarriageKinSum, Harvest, Weather, InbreedingSum;
     private int _womenDied45, _womenChildren45;
 
@@ -19,7 +19,7 @@ public sealed class YearStats
         "marriages,polygynous,mean_marriage_kin,splits,dissolved,weather,harvest,food_per_capita,generated_chunks," +
         "height,strength,fertility,looks,charisma,constitution,pref_height," +
         "twinning_freq,diseaseA_freq,diseaseA_births,completed_fertility,mean_birth_inbreeding,recessive_births," +
-        "villages,largest_village,near_water_households,flooded_plots,migrations,new_villages,road_tiles,lanes,swaps";
+        "villages,largest_village,near_water_households,flooded_plots,migrations,new_villages,road_tiles,lanes,swaps,evicted_fields";
 
     public YearStats() => _csv.AppendLine(Header);
 
@@ -33,7 +33,7 @@ public sealed class YearStats
     public void Begin(int day, float weather)
     {
         Births = Deaths = HungerDeaths = InfantDeaths = MaternalDeaths = Stillbirths = MultipleBirths = 0;
-        Marriages = Polygynous = Splits = Dissolved = DiseaseABirths = RecessiveBirths = FloodedPlots = Migrations = NewVillages = RoadTiles = Lanes = Swaps = 0;
+        Marriages = Polygynous = Splits = Dissolved = DiseaseABirths = RecessiveBirths = FloodedPlots = Migrations = NewVillages = RoadTiles = Lanes = Swaps = Evicted = 0;
         MarriageKinSum = Harvest = InbreedingSum = 0;
         Weather = weather;
         _womenDied45 = _womenChildren45 = 0;
@@ -78,6 +78,6 @@ public sealed class YearStats
             F(alleles > 0 ? twinAlleles / (double)alleles : 0), F(alleles > 0 ? diseaseAlleles / (double)alleles : 0), DiseaseABirths,
             F(_womenDied45 > 0 ? _womenChildren45 / (double)_womenDied45 : double.NaN),
             F(Births > 0 ? InbreedingSum / Births : 0), RecessiveBirths,
-            villages.count, villages.largest, F(w.NearWaterFraction()), FloodedPlots, Migrations, NewVillages, RoadTiles, Lanes, Swaps));
+            villages.count, villages.largest, F(w.NearWaterFraction()), FloodedPlots, Migrations, NewVillages, RoadTiles, Lanes, Swaps, Evicted));
     }
 }
