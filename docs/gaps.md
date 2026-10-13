@@ -50,7 +50,7 @@
 
 ## B. 곧 필요한 것
 
-### ~~6. 건축 실행~~ → `systems/building.md` (양식 기준은 아직 미정)
+### ~~6. 건축 실행~~ → `systems/building.md` (양식: 서양 중세)
 
 <details><summary>이전 메모</summary>
 
