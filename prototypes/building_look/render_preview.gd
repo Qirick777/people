@@ -6,6 +6,7 @@ const BB := preload("res://prototypes/building_look/building_builder.gd")
 const BM := preload("res://prototypes/building_look/materials.gd")
 const HB := preload("res://prototypes/human_look/human_builder.gd")
 const OF := preload("res://prototypes/human_look/outfits.gd")
+const BH := preload("res://prototypes/blocky_look/blocky_human.gd")
 const VS := preload("res://prototypes/building_look/village.gd")
 const OUT := "res://docs/images/"
 const ISO := Vector3(-1.0, 1.25, 1.0)
@@ -15,7 +16,14 @@ var world: Node3D
 
 # ---------------------------------------------------------------- 장면
 
+var prefix := ""
+
+
 func _init() -> void:
+	if "--flat" in OS.get_cmdline_user_args():
+		BM.flat = true
+		BB.round_r = 0.07
+		prefix = "blocky_"
 	world = Node3D.new()
 	root.add_child(world)
 	var env := WorldEnvironment.new()
@@ -41,6 +49,13 @@ func _init() -> void:
 	ground.mesh = pm
 	var gm := StandardMaterial3D.new()
 	gm.albedo_texture = HB.tex(HB.fabric(Color(0.3, 0.37, 0.21), 99, 256, 256, 0.0))
+	if BM.flat:
+		gm.albedo_texture = null
+		gm.albedo_color = Color(0.4, 0.54, 0.29)
+		e.background_color = gm.albedo_color
+		e.tonemap_mode = Environment.TONE_MAPPER_ACES
+		e.ambient_light_energy = 0.32
+		sun.light_energy = 0.72
 	gm.uv1_scale = Vector3(240, 240, 1)
 	gm.roughness = 1.0
 	ground.material_override = gm
@@ -61,7 +76,7 @@ func _snap(file: String) -> void:
 	for i in 4:
 		await process_frame
 	await RenderingServer.frame_post_draw
-	root.get_texture().get_image().save_png(ProjectSettings.globalize_path(OUT + file))
+	root.get_texture().get_image().save_png(ProjectSettings.globalize_path(OUT + prefix + file))
 
 
 func _aim(center: Vector3, size: float) -> void:
@@ -126,7 +141,10 @@ func _civic(base: Vector3) -> void:
 
 
 func _village(base: Vector3) -> void:
-	VS.build(world, base)
+	if BM.flat:
+		VS.build(world, base, func(r: RandomNumberGenerator, i: int) -> Node3D: return BH.random(r, true))
+	else:
+		VS.build(world, base)
 	_aim(base + Vector3(23, 1, 1), 30.0)
 	await _snap("building_village.png")
 	_aim(base + Vector3(23.5, 0.5, -3.5), 9.0)

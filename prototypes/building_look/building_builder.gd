@@ -9,11 +9,79 @@ const H := BM.FLOOR_H
 const DIRS := [Vector2i(0, 1), Vector2i(0, -1), Vector2i(1, 0), Vector2i(-1, 0)]
 
 
+## 상자 모서리를 깎는 정도(m). 0이면 각진 상자.
+static var round_r := 0.0
+static var _cbox_cache := {}
+
+
+## 모서리를 깎은 상자 메시. 면마다 법선을 따로 둬서 면이 또렷하게 보인다.
+static func cbox(size: Vector3, r: float) -> ArrayMesh:
+	var key := "%s_%.3f" % [size, r]
+	if _cbox_cache.has(key):
+		return _cbox_cache[key]
+	r = minf(r, minf(size.x, minf(size.y, size.z)) * 0.3)
+	var h := size * 0.5
+	var i := h - Vector3(r, r, r)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var faces := []
+	# 큰 면 6개
+	for ax in 3:
+		for sg in [-1.0, 1.0]:
+			var q := []
+			for a in [-1.0, 1.0]:
+				for b in [-1.0, 1.0]:
+					var p := Vector3()
+					p[ax] = sg * h[ax]
+					p[(ax + 1) % 3] = a * i[(ax + 1) % 3]
+					p[(ax + 2) % 3] = b * i[(ax + 2) % 3]
+					q.append(p)
+			faces.append([q[0], q[1], q[3], q[2]])
+	# 모서리 깎은 면 12개
+	for ax in 3:
+		var u := (ax + 1) % 3
+		var v := (ax + 2) % 3
+		for su in [-1.0, 1.0]:
+			for sv in [-1.0, 1.0]:
+				var q := []
+				for sa in [-1.0, 1.0]:
+					var p1 := Vector3()
+					p1[ax] = sa * i[ax]; p1[u] = su * h[u]; p1[v] = sv * i[v]
+					var p2 := Vector3()
+					p2[ax] = sa * i[ax]; p2[u] = su * i[u]; p2[v] = sv * h[v]
+					q.append(p1); q.append(p2)
+				faces.append([q[0], q[2], q[3], q[1]])
+	# 꼭짓점 삼각형 8개
+	for sx in [-1.0, 1.0]:
+		for sy in [-1.0, 1.0]:
+			for sz in [-1.0, 1.0]:
+				faces.append([Vector3(sx * h.x, sy * i.y, sz * i.z), Vector3(sx * i.x, sy * h.y, sz * i.z), Vector3(sx * i.x, sy * i.y, sz * h.z)])
+	for f in faces:
+		var c := Vector3.ZERO
+		for p in f:
+			c += p
+		c /= f.size()
+		var nrm: Vector3 = (f[1] - f[0]).cross(f[2] - f[0]).normalized()
+		if nrm.dot(c) < 0.0:
+			f.reverse()
+			nrm = -nrm
+		for k in range(1, f.size() - 1):
+			for p in [f[0], f[k + 1], f[k]]:
+				st.set_normal(nrm)
+				st.add_vertex(p)
+	var m := st.commit()
+	_cbox_cache[key] = m
+	return m
+
+
 static func box(parent: Node3D, size: Vector3, center: Vector3, mat: Material, rot := Vector3.ZERO) -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = size
-	mi.mesh = bm
+	if round_r > 0.0:
+		mi.mesh = cbox(size, round_r)
+	else:
+		var bm := BoxMesh.new()
+		bm.size = size
+		mi.mesh = bm
 	mi.material_override = mat
 	mi.position = center
 	mi.rotation = rot
@@ -73,6 +141,19 @@ static func _segment(root: Node3D, start: Vector3, along: Vector3, n: Vector3, y
 			_piece(root, start, along, n, y0, w1 + 0.02, w1 + 0.22, sill, head, 0.04, 0.03, sm)
 	elif kind == "door":
 		_piece(root, start, along, n, y0, 0.2, 0.8, 0.0, 2.05, 0.06, -t * 0.4, wood)
+	var wk: String = sp.get("_wall_kind", "")
+	if BM.flat and (wk == "timber" or wk == "daub") and kind != "low" and kind != "low_door":
+		var bmat := BM.get_mat("beam_" + wk, age)
+		_piece(root, start, along, n, y0, -0.06, 0.06, 0.0, h, 0.04, 0.02, bmat)
+		_piece(root, start, along, n, y0, 0.94, 1.06, 0.0, h, 0.04, 0.02, bmat)
+		_piece(root, start, along, n, y0, 0.0, 1.0, h - 0.12, h, 0.04, 0.02, bmat)
+		_piece(root, start, along, n, y0, 0.0, 1.0, 0.0, 0.12, 0.04, 0.02, bmat)
+		if kind == "plain":
+			var c := start + along * 0.5 + Vector3.UP * (y0 + h * 0.5) + n * 0.02
+			var ang := atan2(h - 0.24, 0.9)
+			var rot := Vector3(0, 0, ang) if absf(along.x) > 0.5 else Vector3(-ang, 0, 0)
+			var L := sqrt(0.81 + (h - 0.24) * (h - 0.24))
+			box(root, Vector3(L, 0.1, 0.04) if absf(along.x) > 0.5 else Vector3(0.04, 0.1, L), c, bmat, rot)
 
 
 ## 벽 조각 직사각형 하나를 상자로 만든다. off: 바깥 방향으로 밀어내는 거리(벽 바깥면 기준).
@@ -80,9 +161,12 @@ static func _piece(root: Node3D, start: Vector3, along: Vector3, n: Vector3, y0:
 		u0: float, u1: float, v0: float, v1: float, t: float, off: float, mat: Material) -> void:
 	if u1 - u0 <= 0.001 or v1 - v0 <= 0.001:
 		return
+	var keep := round_r
+	round_r = 0.0
 	var c := start + along * (u0 + u1) * 0.5 + Vector3.UP * (y0 + (v0 + v1) * 0.5) - n * (t * 0.5) + n * off
 	var size := Vector3(u1 - u0, v1 - v0, t) if absf(along.x) > 0.5 else Vector3(t, v1 - v0, u1 - u0)
 	box(root, size, c, mat)
+	round_r = keep
 
 
 # ---------------------------------------------------------------- 지붕
@@ -247,6 +331,7 @@ static func build(sp: Dictionary) -> Node3D:
 				if cut and dir in cut_n:
 					kind = "low_door" if is_door else "low"
 					hh = 0.9
+				sp["_wall_kind"] = wall_kind
 				_segment(root, start, along, n, y0, hh, t, kind, mat, sp)
 				if is_door and not cut:
 					box(root, Vector3(1.0, 0.18, 0.5) if absf(n.z) > 0.5 else Vector3(0.5, 0.18, 1.0),

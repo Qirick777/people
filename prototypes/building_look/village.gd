@@ -68,6 +68,9 @@ static func cut_house() -> Dictionary:
 
 
 static func _tree(world: Node3D, pos: Vector3, rng: RandomNumberGenerator) -> void:
+	if BM.flat:
+		_block_tree(world, pos, rng)
+		return
 	var h := rng.randf_range(2.2, 3.4)
 	var trunk := MeshInstance3D.new()
 	var cm := CylinderMesh.new()
@@ -111,7 +114,7 @@ static func _person(world: Node3D, pos: Vector3, rng: RandomNumberGenerator, i: 
 
 
 
-static func build(world: Node3D, base: Vector3) -> void:
+static func build(world: Node3D, base: Vector3, make_person := Callable()) -> void:
 	var road := MeshInstance3D.new()
 	var rb := BoxMesh.new()
 	rb.size = Vector3(70, 0.04, 4)
@@ -147,4 +150,26 @@ static func build(world: Node3D, base: Vector3) -> void:
 		var tz := rng.randf_range(-22, -12) if rng.randf() < 0.5 else rng.randf_range(16, 24)
 		_tree(world, base + Vector3(tx, 0, tz), rng)
 	for i in 16:
-		_person(world, base + Vector3(rng.randf_range(0, 50), 0, rng.randf_range(0.5, 3.5)), rng, i)
+		var pos := base + Vector3(rng.randf_range(0, 50), 0, rng.randf_range(0.5, 3.5))
+		if make_person.is_valid():
+			var p: Node3D = make_person.call(rng, i)
+			p.position = pos
+			p.rotation.y = rng.randf_range(-PI, PI)
+			world.add_child(p)
+		else:
+			_person(world, pos, rng, i)
+
+
+static func _block_tree(world: Node3D, pos: Vector3, rng: RandomNumberGenerator) -> void:
+	var h := rng.randf_range(1.8, 2.8)
+	BB.box(world, Vector3(0.32, h, 0.32), pos + Vector3(0, h * 0.5, 0), BM.get_mat("wood"))
+	var leaf := BM.FLAT["leaf"] as Color
+	if rng.randf() < 0.35:
+		for k in 3:
+			var w := 1.9 - k * 0.55
+			BB.box(world, Vector3(w, 0.9, w), pos + Vector3(0, h + k * 0.75, 0), BM.flat_mat(leaf.darkened(0.2 + k * 0.03)))
+	else:
+		for k in 3:
+			var w := rng.randf_range(1.2, 1.9) * (1.0 - k * 0.15)
+			var c := leaf.lightened(rng.randf_range(-0.05, 0.1))
+			BB.box(world, Vector3(w, w * 0.85, w), pos + Vector3(rng.randf_range(-0.4, 0.4), h + 0.3 + k * 0.6, rng.randf_range(-0.4, 0.4)), BM.flat_mat(c))

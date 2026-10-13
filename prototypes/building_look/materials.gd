@@ -6,6 +6,29 @@ extends RefCounted
 const FLOOR_H := 2.6
 
 static var _cache := {}
+## 블록풍(단색) 모드. true면 텍스처 대신 단색 재질을 돌려준다.
+static var flat := false
+
+const FLAT := {
+	"timber": Color(0.9, 0.86, 0.76), "daub": Color(0.84, 0.74, 0.54), "stone": Color(0.64, 0.63, 0.6),
+	"stone_light": Color(0.79, 0.75, 0.66), "planks": Color(0.55, 0.4, 0.27), "wood": Color(0.42, 0.29, 0.19),
+	"floor": Color(0.62, 0.48, 0.33), "thatch": Color(0.68, 0.55, 0.34), "shingle": Color(0.52, 0.37, 0.27),
+	"slate": Color(0.38, 0.43, 0.5), "tile": Color(0.76, 0.38, 0.25), "glass": Color(0.17, 0.18, 0.22),
+	"linen": Color(0.92, 0.88, 0.8), "ember": Color(0.95, 0.5, 0.2), "dirt": Color(0.6, 0.49, 0.35),
+	"leaf": Color(0.38, 0.58, 0.3), "beam_timber": Color(0.33, 0.22, 0.14), "beam_daub": Color(0.45, 0.34, 0.23),
+}
+
+
+static func flat_mat(c: Color) -> StandardMaterial3D:
+	var key := "flat_" + c.to_html()
+	if _cache.has(key):
+		return _cache[key]
+	var m := StandardMaterial3D.new()
+	m.albedo_color = c
+	m.roughness = 1.0
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_cache[key] = m
+	return m
 
 
 static func _img(w: int, h: int, base: Color, seed_v: int, jitter := 0.05) -> Image:
@@ -185,6 +208,16 @@ static func _make(kind: String) -> StandardMaterial3D:
 
 ## 재질 하나를 낡음 정도별로 공유한다. age 0 = 새것, 1 = 아주 낡음.
 static func get_mat(kind: String, age := 0.0, shutter := Color()) -> StandardMaterial3D:
+	if flat:
+		var c: Color = shutter if kind == "shutter" else FLAT.get(kind, Color.MAGENTA)
+		if age > 0.0:
+			c = c * Color(1.0 - age * 0.22, 1.0 - age * 0.18, 1.0 - age * 0.25)
+		var fm := flat_mat(c)
+		if kind == "ember" and not fm.emission_enabled:
+			fm.emission_enabled = true
+			fm.emission = c
+			fm.emission_energy_multiplier = 0.5
+		return fm
 	var key := "%s_%.1f_%s" % [kind, age, shutter.to_html()]
 	if _cache.has(key):
 		return _cache[key]
