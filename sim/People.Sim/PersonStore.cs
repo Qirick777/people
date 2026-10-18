@@ -36,6 +36,9 @@ public sealed class PersonStore
     public float[] Phenotype;        // Capacity × Trait.Count
     public ushort[] ChildhoodHungryDays;
     public float[] Inbreeding;       // 근교 계수 F = 부모 혈연 / 2
+    public byte[] LoadInfant;        // 드러난 유전 부하 중 아기 허약 자리 수
+    public byte[] LoadHits;          // 드러난 유전 부하 자리 수(통계·화면용)
+    public int[] RaisedBy;           // 6살 때 가구 주인의 uid. 같은 사람 밑에서 비슷한 나이로 자라면 서로 끌리지 않는다
 
     // 족보 번호 (Lineage)
     public int[] Uid;
@@ -74,6 +77,9 @@ public sealed class PersonStore
         Phenotype = new float[capacity * (int)Trait.Count];
         ChildhoodHungryDays = new ushort[capacity];
         Inbreeding = new float[capacity];
+        LoadInfant = new byte[capacity];
+        LoadHits = new byte[capacity];
+        RaisedBy = new int[capacity];
         Uid = new int[capacity];
         Husband = new PersonId[capacity];
         WifeCount = new byte[capacity];
@@ -121,6 +127,8 @@ public sealed class PersonStore
         HhNext[i] = HhPrev[i] = -1;
         ChildhoodHungryDays[i] = 0;
         Inbreeding[i] = 0f;
+        LoadInfant[i] = LoadHits[i] = 0;
+        RaisedBy[i] = -1;
         Uid[i] = -1;
         Husband[i] = PersonId.None;
         WifeCount[i] = 0;
@@ -159,6 +167,13 @@ public sealed class PersonStore
             if (Genetics.AffectedByInbreeding(trait)) v *= depress;
             Set(i, trait, v);
         }
+        Span<int> load = stackalloc int[4];
+        int hits = Genetics.LoadHits(g, load);
+        LoadHits[i] = (byte)hits;
+        LoadInfant[i] = (byte)load[0];
+        if (load[1] > 0) Set(i, Trait.Constitution, Get(i, Trait.Constitution) * MathF.Pow(0.75f, load[1]));
+        if (load[2] > 0) Set(i, Trait.Fertility, Get(i, Trait.Fertility) * MathF.Pow(0.6f, load[2]));
+        if (load[3] > 0) Set(i, Trait.Longevity, Get(i, Trait.Longevity) * MathF.Pow(0.75f, load[3]));
         if (Genetics.Expressed(g, Marker.Frailty, male)) Set(i, Trait.Constitution, Get(i, Trait.Constitution) * 0.6f);
         if (Genetics.Expressed(g, Marker.ShortLife, male)) Set(i, Trait.Longevity, Get(i, Trait.Longevity) * 0.5f);
     }
@@ -189,6 +204,9 @@ public sealed class PersonStore
         Array.Resize(ref Phenotype, cap * (int)Trait.Count);
         Array.Resize(ref ChildhoodHungryDays, cap);
         Array.Resize(ref Inbreeding, cap);
+        Array.Resize(ref LoadInfant, cap);
+        Array.Resize(ref LoadHits, cap);
+        Array.Resize(ref RaisedBy, cap);
         Array.Resize(ref Uid, cap);
         Array.Resize(ref Husband, cap);
         Array.Resize(ref WifeCount, cap);

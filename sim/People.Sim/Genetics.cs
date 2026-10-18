@@ -32,6 +32,15 @@ public static class GenomeLayout
     private static readonly int[] TraitOffset;
     public static readonly int MarkerOffset;
     public static readonly int LocusCount;
+
+    /// <summary>
+    /// 유전 부하: 드문 해로운 열성 유전자들. 두 벌이 다 있을 때만 드러난다.
+    /// 남남끼리는 거의 겹치지 않고, 근친이면 같은 조상에게서 받은 것이 겹친다.
+    /// 효과는 자리 번호 % 4: 0 아기 허약(5세 전 사망 ×3), 1 체질 ×0.75, 2 다산 ×0.6, 3 수명 ×0.75.
+    /// </summary>
+    public const int LoadLoci = 48;
+    public const float LoadStartFrequency = 0.015f;   // 한 사람이 평균 1.4개를 지닌다(실제 사람과 비슷)
+    public static readonly int LoadOffset;
     public static int BytesPerGenome => LocusCount * 2;
 
     public static readonly Inheritance[] MarkerInheritance =
@@ -60,7 +69,8 @@ public static class GenomeLayout
             o += LociPerTrait[t];
         }
         MarkerOffset = o;
-        LocusCount = o + (int)Marker.Count;
+        LoadOffset = o + (int)Marker.Count;
+        LocusCount = LoadOffset + LoadLoci;
     }
 
     private static int[] BuildLociPerTrait()
@@ -76,6 +86,7 @@ public static class GenomeLayout
     public static int Loci(Trait t) => LociPerTrait[(int)t];
     public static int Locus(Trait t, int i) => TraitOffset[(int)t] + i;
     public static int Locus(Marker m) => MarkerOffset + (int)m;
+    public static bool IsLoad(int locus) => locus >= LoadOffset;
     public static bool IsXLinked(int locus) =>
         locus == Locus(Marker.ColorBlind);
 }
@@ -103,13 +114,20 @@ public static class Genetics
             g[l * 2 + 1] = (byte)(rng.Chance(f) ? 1 : 0);
             if (male && GenomeLayout.IsXLinked(l)) g[l * 2] = GenomeLayout.Absent;
         }
+        for (int k = 0; k < GenomeLayout.LoadLoci; k++)
+        {
+            int l = GenomeLayout.LoadOffset + k;
+            g[l * 2] = (byte)(rng.Chance(GenomeLayout.LoadStartFrequency) ? 1 : 0);
+            g[l * 2 + 1] = (byte)(rng.Chance(GenomeLayout.LoadStartFrequency) ? 1 : 0);
+        }
     }
 
     /// <summary>부모 유전체에서 자식 유전체를 만든다(멘델 유전, 성염색체, 돌연변이).</summary>
     public static void Inherit(ReadOnlySpan<byte> father, ReadOnlySpan<byte> mother, Span<byte> child,
-        bool childMale, float mutationRate, ref Rng rng)
+        bool childMale, float mutationRate, ref Rng rng, float loadMutationRate = -1f)
     {
         int quantLoci = GenomeLayout.MarkerOffset;
+        if (loadMutationRate < 0) loadMutationRate = mutationRate;
         for (int l = 0; l < GenomeLayout.LocusCount; l++)
         {
             bool quant = l < quantLoci;
@@ -123,6 +141,13 @@ public static class Genetics
             else
             {
                 fromFather = father[l * 2 + rng.NextInt(2)];
+            }
+            if (GenomeLayout.IsLoad(l))
+            {
+                // 해로운 변이는 새로 생기기만 하고 저절로 고쳐지지 않는다(선택으로만 줄어든다).
+                child[l * 2] = rng.Chance(loadMutationRate) ? (byte)1 : fromFather;
+                child[l * 2 + 1] = rng.Chance(loadMutationRate) ? (byte)1 : fromMother;
+                continue;
             }
             child[l * 2] = Mutate(fromFather, quant, mutationRate, ref rng);
             child[l * 2 + 1] = Mutate(fromMother, quant, mutationRate, ref rng);
@@ -171,6 +196,31 @@ public static class Genetics
         int l = GenomeLayout.Locus(m);
         bool any = g[l * 2] == 1 || g[l * 2 + 1] == 1;
         return any && !Expressed(g, m, male);
+    }
+
+    /// <summary>유전 부하 중 드러난(두 벌 다 가진) 자리 수를 효과별로 센다. kinds[0..3].</summary>
+    public static int LoadHits(ReadOnlySpan<byte> g, Span<int> kinds)
+    {
+        int total = 0;
+        kinds.Clear();
+        for (int k = 0; k < GenomeLayout.LoadLoci; k++)
+        {
+            int l = GenomeLayout.LoadOffset + k;
+            if (g[l * 2] == 1 && g[l * 2 + 1] == 1) { kinds[k % 4]++; total++; }
+        }
+        return total;
+    }
+
+    /// <summary>유전 부하 대립유전자 수(보인 포함).</summary>
+    public static int LoadAlleles(ReadOnlySpan<byte> g)
+    {
+        int n = 0;
+        for (int k = 0; k < GenomeLayout.LoadLoci; k++)
+        {
+            int l = GenomeLayout.LoadOffset + k;
+            n += g[l * 2] + g[l * 2 + 1];
+        }
+        return n;
     }
 
     /// <summary>성별 영향 계수 (spec 1.2).</summary>

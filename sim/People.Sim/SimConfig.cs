@@ -27,7 +27,9 @@ public sealed class SimConfig
     public float TwinBase { get; init; } = 0.01f;
     public float TwinWithTrait { get; init; } = 0.06f;
     public float TripletRate { get; init; } = 0.001f;
-    public float InbreedingDepression { get; init; } = 2.5f;   // 표현형 × (1 − 이 값 × F). 사촌 자녀 F=1/16 → −16%
+    public float InbreedingDepression { get; init; } = 0.5f;   // 작은 효과 유전자들의 근교약세. 표현형 × (1 − 이 값 × F). 큰 손해는 유전 부하(Genetics.LoadLoci)가 낸다
+    public float LoadMutationRate { get; init; } = 0.0003f;   // 유전 부하 자리마다 배우자 하나당 새 해로운 변이 확률
+    public float LoadInfantMortality { get; init; } = 3f;      // 아기 허약 부하 하나당 5세 전 사망률 배수
     // 다산 특성: 쿨타임 × (CooldownFertBase − CooldownFertSlope × 다산), 쌍둥이 확률 × (0.5 + 다산)
     public float CooldownFertBase { get; init; } = 1.3f;
     public float CooldownFertSlope { get; init; } = 0.6f;
@@ -40,13 +42,13 @@ public sealed class SimConfig
 
     // 3. 짝짓기
     public int CandidateSample { get; init; } = 16;
-    public float KinForbidden { get; init; } = 0.13f;       // r > 1/8 이면 불가
     public float AcceptMidpoint { get; init; } = 0.4f;
     public float AcceptSpread { get; init; } = 0.15f;
     public float PolygynyWealthPerWife { get; init; } = 300f;
     public float PreferenceStrength { get; init; } = 1.5f;   // 선호(평균과의 차이) 항의 세기
     public float WifePenalty { get; init; } = 0.35f;
-    public float KinPenalty { get; init; } = 2f;
+    public float CoRaisedPenalty { get; init; } = 3f;       // 함께 자란 사이의 짝 점수 감점(근친 금지 대신)
+    public int CoRaisedMaxAgeGap { get; init; } = 8;       // 나이 차가 이 안이어야 함께 자란 것으로 본다
 
     // 5. 식량과 땅
     public float PlotYield { get; init; } = 28f;              // 필지를 크게 잡아 밭 면적을 줄였다(14 × 2)

@@ -338,7 +338,7 @@ public sealed class World
         Join(child.Index, household);
         p.Uid[child.Index] = Lineage.Add(male, Day, p.PregnancyFatherUid[mother], p.Uid[mother]);
         Genetics.Inherit(p.FatherGenomeBuffer(mother), p.Genome(mother), p.Genome(child.Index),
-            male, Config.MutationRate, ref _rng);
+            male, Config.MutationRate, ref _rng, Config.LoadMutationRate);
         int fatherUid = p.PregnancyFatherUid[mother];
         p.Inbreeding[child.Index] = fatherUid >= 0 ? Lineage.Relatedness(fatherUid, p.Uid[mother]) * 0.5f : 0f;
         p.ComputePhenotype(child.Index, Config.InbreedingDepression);
@@ -347,6 +347,11 @@ public sealed class World
             Stats.RecessiveBirths++;
         Stats.Births++;
         if (Genetics.Expressed(p.Genome(child.Index), Marker.DiseaseA, male)) Stats.DiseaseABirths++;
+        if (p.LoadHits[child.Index] > 0) Stats.LoadBirths++;
+        float fi = p.Inbreeding[child.Index];
+        bool hit = p.LoadHits[child.Index] > 0;
+        if (fi >= 0.1f) { Stats.CloseKinBirths++; if (hit) Stats.CloseKinLoadBirths++; }        // 형제·부모·숙질 (F ≥ 1/8)
+        else if (fi >= 0.05f) { Stats.CousinBirths++; if (hit) Stats.CousinLoadBirths++; }  // 사촌 (F = 1/16)
         return child;
     }
 
@@ -899,6 +904,8 @@ public sealed class World
             if (hungry) situ *= age < 5 || age >= 55 ? Config.HungerMortalityVulnerable : Config.HungerMortality;
             if (hh.IsAlive(h)) situ *= 1f + Config.CrowdingMortality * MathF.Max(0f, hh.Crowding(h) - 1f);
             if (age < 5 && Genetics.Expressed(p.Genome(i), Marker.DiseaseA, p.Male[i])) situ *= 4f;
+            if (age < 5 && p.LoadInfant[i] > 0) situ *= MathF.Pow(Config.LoadInfantMortality, p.LoadInfant[i]);
+            if (age == 6 && p.RaisedBy[i] < 0) RecordRaisedBy(i);
             float d = Mortality.Daily(age, p.Get(i, Trait.Longevity), p.Get(i, Trait.Constitution), situ);
             if (_rng.Chance(d))
             {
@@ -1078,7 +1085,28 @@ public sealed class World
     }
 
     /// <summary>A 가 B 를 짝으로 얼마나 원하는가.</summary>
-    public float MateScore(int a, int b) => MateScoreNoKin(a, b) - Lineage.Relatedness(People.Uid[a], People.Uid[b]) * Config.KinPenalty;
+    public float MateScore(int a, int b) => MateScoreNoKin(a, b) - CoRaisedPenalty(a, b);
+
+    /// <summary>
+    /// 같은 사람 밑에서 비슷한 나이로 자란 사이는 서로 끌리지 않는다(혈연을 직접 보지 않는다).
+    /// 친형제·이복형제·의붓형제가 걸리고, 따로 자란 친척은 걸리지 않는다.
+    /// </summary>
+    public float CoRaisedPenalty(int a, int b)
+    {
+        var p = People;
+        int ra = p.RaisedBy[a];
+        if (ra < 0 || ra != p.RaisedBy[b]) return 0f;
+        int gap = Math.Abs(p.BirthDay[a] - p.BirthDay[b]) / Config.DaysPerYear;
+        return gap <= Config.CoRaisedMaxAgeGap ? Config.CoRaisedPenalty : 0f;
+    }
+
+    private void RecordRaisedBy(int i)
+    {
+        int h = People.Household[i];
+        if (!Households.IsAlive(h)) return;
+        var head = Households.Head[h];
+        if (People.IsValid(head)) People.RaisedBy[i] = People.Uid[head.Index];
+    }
 
     /// <summary>혈연 감점을 뺀 짝 점수. 후보를 먼저 거르는 데 쓴다(혈연 계산이 비싸다).</summary>
     public float MateScoreNoKin(int a, int b)
@@ -1189,7 +1217,7 @@ public sealed class World
                 for (int dx = -1; dx <= 1; dx++)
                     if (src.TryGetValue(Key(hh.X[ha] + dx * cell, hh.Y[ha] + dy * cell, cell), out var l)) { near.Add(l); total += l.Count; }
             if (total == 0) continue;
-            // 1) 혈연을 빼고 점수를 매겨 상위 몇 명만 남긴다. 2) 그들만 혈연을 계산한다.
+            // 1) 점수를 매겨 상위 몇 명만 남긴다. 2) 그들만 함께 자랐는지 본다.
             int n = Math.Min(Config.CandidateSample, total);
             int m = 0;
             int ageA = AgeYears(a);
@@ -1204,26 +1232,26 @@ public sealed class World
                 m++;
             }
             int best = -1;
-            float bestScore = float.MinValue, bestR = 0f;
+            float bestScore = float.MinValue;
             for (int tries = 0; tries < 4 && m > 0; tries++)
             {
                 int top = 0;
                 for (int k = 1; k < m; k++) if (score[k] > score[top]) top = k;
                 if (score[top] <= bestScore) break;
                 int b = cand[top];
-                float r = Lineage.Relatedness(p.Uid[a], p.Uid[b]);
-                float sc = score[top] - r * Config.KinPenalty;
-                if (r <= Config.KinForbidden && sc > bestScore) { bestScore = sc; best = b; bestR = r; }
+                float sc = score[top] - CoRaisedPenalty(a, b);
+                if (sc > bestScore) { bestScore = sc; best = b; }
                 score[top] = float.MinValue;
             }
             if (best < 0) continue;
-            float back = FastScore(best, a, AgeYears(best), ageA) - bestR * Config.KinPenalty;
+            float back = FastScore(best, a, AgeYears(best), ageA) - CoRaisedPenalty(best, a);
             float accept = 1f / (1f + MathF.Exp(-(back - Config.AcceptMidpoint) / Config.AcceptSpread));
             if (_rng.Chance(accept))
             {
                 int man = p.Male[a] ? a : best, woman = p.Male[a] ? best : a;
                 if (p.WifeCount[man] > 0) Stats.Polygynous++;
                 Stats.Marriages++;
+                float bestR = Lineage.Relatedness(p.Uid[a], p.Uid[best]);
                 Stats.MarriageKinSum += bestR;
                 Marry(man, woman, Math.Clamp((bestScore + back) * 0.5f, 0f, 1f));
                 taken[woman] = true;

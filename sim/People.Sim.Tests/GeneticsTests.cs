@@ -113,4 +113,29 @@ public class GeneticsTests
         }
         Assert.InRange(sum / n, mid - 0.01, mid + 0.01);
     }
+
+    [Fact]
+    public void SiblingChildrenShowGeneticLoadFarMoreOften()
+    {
+        // 남남 자식보다 형제 자식에게 유전 부하가 훨씬 자주 드러나야 한다.
+        var rng = new Rng(11);
+        var gf = Blank(); var gm = Blank(); var bro = Blank(); var sis = Blank(); var other = Blank(); var c = Blank();
+        Span<int> kinds = stackalloc int[4];
+        int n = 6000, sibHit = 0, outHit = 0;
+        for (int i = 0; i < n; i++)
+        {
+            Genetics.Randomize(gf, true, ref rng);
+            Genetics.Randomize(gm, false, ref rng);
+            Genetics.Randomize(other, false, ref rng);
+            Genetics.Inherit(gf, gm, bro, true, 0f, ref rng);
+            Genetics.Inherit(gf, gm, sis, false, 0f, ref rng);
+            Genetics.Inherit(bro, sis, c, rng.NextBool(), 0f, ref rng);
+            if (Genetics.LoadHits(c, kinds) > 0) sibHit++;
+            Genetics.Inherit(bro, other, c, rng.NextBool(), 0f, ref rng);
+            if (Genetics.LoadHits(c, kinds) > 0) outHit++;
+        }
+        double sib = sibHit / (double)n, outb = outHit / (double)n;
+        Assert.InRange(outb, 0.005, 0.05);
+        Assert.True(sib > outb * 4, $"형제 자식 {sib:P1}, 남남 자식 {outb:P1}");
+    }
 }

@@ -168,16 +168,16 @@ switch (cmd)
         var men = single.Where(i => p.Male[i]).ToList();
         var women = single.Where(i => !p.Male[i]).ToList();
         Console.WriteLine($"미혼 어른: 남 {men.Count}, 여 {women.Count}");
-        int pairs = 0, forbidden = 0; double sc = 0, kin = 0, acc = 0;
+        int pairs = 0, coRaised = 0; double sc = 0, kin = 0, acc = 0;
         foreach (int m in men) foreach (int f in women)
         {
             float r = w.Lineage.Relatedness(p.Uid[m], p.Uid[f]);
-            if (r > w.Config.KinForbidden) { forbidden++; continue; }
+            if (w.CoRaisedPenalty(m, f) > 0) coRaised++;
             float s1 = w.MateScore(m, f), s2 = w.MateScore(f, m);
             float ac = 1f / (1f + MathF.Exp(-(s2 - w.Config.AcceptMidpoint) / w.Config.AcceptSpread));
             pairs++; sc += s1; kin += r; acc += ac;
         }
-        Console.WriteLine($"가능한 쌍 {pairs}, 금지 쌍 {forbidden}, 평균 점수 {sc / Math.Max(1, pairs):F3}, 평균 혈연 {kin / Math.Max(1, pairs):F3}, 평균 수락 {acc / Math.Max(1, pairs):F3}");
+        Console.WriteLine($"쌍 {pairs}, 함께 자란 쌍 {coRaised}, 평균 점수 {sc / Math.Max(1, pairs):F3}, 평균 혈연 {kin / Math.Max(1, pairs):F3}, 평균 수락 {acc / Math.Max(1, pairs):F3}");
         break;
     }
     case "worldmap":
