@@ -21,9 +21,12 @@ public sealed class WorldMap
         public readonly byte[] Temp = new byte[CS * CS];        // 기온 0~255
         public readonly int[] Owner = new int[CS * CS];
         public readonly byte[] Flags = new byte[CS * CS];       // 1 = 밭(개간됨), 2 = 집터
+        public readonly byte[] Wild = new byte[CS * CS];        // 개간한 땅이 버려진 지 몇 해
+        public readonly float[] Wear = new float[CS * CS];      // 사람이 다녀 닳은 정도. 해마다 줄어든다
+        public readonly TileType[] Under = new TileType[CS * CS]; // 길이 되기 전 땅 종류
         public int Free;                                         // 주인 없고 집터 아닌 경작 가능 타일 수
     }
-    public const byte FlagField = 1, FlagHouse = 2, FlagRoad = 4;   // 길: 땅이면 타입도 Road, 물이면 다리
+    public const byte FlagField = 1, FlagHouse = 2, FlagRoad = 4, FlagMajor = 8;   // 큰길: 많이 다녀 넓어진 길   // 길: 땅이면 타입도 Road, 물이면 다리
 
     private readonly Chunk?[] _chunks;
     public int GeneratedChunks { get; private set; }
@@ -98,6 +101,34 @@ public sealed class WorldMap
     public byte Flags(int id) { var (x, y) = Pos(id); return Get(x, y, out int l).Flags[l]; }
     public void SetFlags(int id, byte f) { var (x, y) = Pos(id); Get(x, y, out int l).Flags[l] = f; }
     public void SetType(int id, TileType t) { var (x, y) = Pos(id); Get(x, y, out int l).Type[l] = t; }
+    public int Wild(int id) { var (x, y) = Pos(id); return Get(x, y, out int l).Wild[l]; }
+    public void SetWild(int id, int v) { var (x, y) = Pos(id); Get(x, y, out int l).Wild[l] = (byte)Math.Clamp(v, 0, 255); }
+
+    // 버려진 밭(개간했지만 주인 없는 땅). 해마다 거칠어지다가 숲이 된다.
+    private readonly HashSet<int> _abandoned = new();
+    public int AbandonedCount => _abandoned.Count;
+
+    /// <summary>버려진 밭이 한 해 묵는다. forestYears 가 되면 숲으로 돌아간다. 숲이 된 칸 수를 돌려준다.</summary>
+    public int AgeAbandoned(int forestYears)
+    {
+        int toForest = 0;
+        var done = new List<int>();
+        foreach (int id in _abandoned)
+        {
+            var (x, y) = Pos(id);
+            var c = Get(x, y, out int l);
+            if (c.Owner[l] >= 0 || (c.Flags[l] & (FlagHouse | FlagRoad)) != 0) { done.Add(id); continue; }
+            if (c.Wild[l] < 255) c.Wild[l]++;
+            if (c.Wild[l] < forestYears) continue;
+            c.Type[l] = TileType.Forest;
+            c.Flags[l] = (byte)(c.Flags[l] & ~FlagField);
+            c.Wild[l] = 0;
+            done.Add(id);
+            toForest++;
+        }
+        foreach (int id in done) _abandoned.Remove(id);
+        return toForest;
+    }
 
     public static bool Farmable(TileType t) => t is TileType.Grass or TileType.Forest or TileType.Marsh or TileType.Hills;
 
@@ -279,6 +310,8 @@ public sealed class WorldMap
         int from = c.Owner[l];
         if (from == to) return;
         if (from >= 0) { hh.PlotCount[from]--; hh.LandValue[from] -= PlotValue(id); _byOwner[from]!.Remove(id); }
+        if (to >= 0) _abandoned.Remove(id);
+        else if ((c.Flags[l] & FlagField) != 0 && (c.Flags[l] & (FlagHouse | FlagRoad)) == 0) _abandoned.Add(id);
         bool farm = Farmable(c.Type[l]) && (c.Flags[l] & FlagHouse) == 0;
         if (farm && from < 0 && to >= 0) c.Free--;
         if (farm && from >= 0 && to < 0) c.Free++;
@@ -388,10 +421,155 @@ public sealed class WorldMap
         if (!water)
         {
             if (Farmable(c.Type[l])) c.Free--;
+            c.Under[l] = c.Type[l];
             c.Type[l] = TileType.Road;
         }
         c.Flags[l] |= FlagRoad;
         RoadVersion++;
+    }
+
+    /// <summary>길이 풀에 덮여 사라진다. 땅은 묵은 풀밭이 되어 천이를 따른다(물 위면 다리가 없어진다).</summary>
+    public void RemoveRoad(int x, int y)
+    {
+        var c = Get(x, y, out int l);
+        if ((c.Flags[l] & FlagRoad) == 0) return;
+        c.Flags[l] = (byte)(c.Flags[l] & ~(FlagRoad | FlagMajor));
+        if (c.Type[l] == TileType.Road)
+        {
+            var t = c.Under[l];
+            if (t is TileType.Road or TileType.Sea or TileType.Lake or TileType.River) t = TileType.Grass;
+            c.Type[l] = t;
+            if (Farmable(t) && c.Owner[l] < 0 && (c.Flags[l] & FlagHouse) == 0)
+            {
+                c.Free++;
+                c.Flags[l] |= FlagField;
+                c.Wild[l] = 3;
+                _abandoned.Add(Id(x, y));
+            }
+        }
+        RoadVersion++;
+    }
+
+    // ------------------------------------------------------------------ 닳음과 길의 생성·소멸
+
+    private readonly HashSet<int> _worn = new();
+
+    public void AddWear(int x, int y, float amount)
+    {
+        if (!InBounds(x, y)) return;
+        var c = Get(x, y, out int l);
+        c.Wear[l] += amount;
+        _worn.Add(Id(x, y));
+    }
+
+    public float WearAt(int x, int y) => InBounds(x, y) ? Get(x, y, out int l).Wear[l] : 0f;
+
+    /// <summary>
+    /// 한 해 닳음을 정리한다. 남은 닳음 × keep. on 을 넘으면 길이 생기고, off 아래로 내려가면 길이 사라진다.
+    /// major 를 넘으면 큰길로 표시한다. (생긴 길, 사라진 길) 수를 돌려준다.
+    /// </summary>
+    public (int made, int lost) UpdateRoads(float keep, float on, float off, float major, HouseholdStore hh)
+    {
+        int made = 0, lost = 0;
+        var drop = new List<int>();
+        foreach (int id in _worn)
+        {
+            var (x, y) = Pos(id);
+            var c = Get(x, y, out int l);
+            float w = c.Wear[l];
+            bool road = (c.Flags[l] & FlagRoad) != 0;
+            if (!road && w >= on && (c.Flags[l] & FlagHouse) == 0 && c.Type[l] != TileType.Mountain)
+            {
+                MakeRoad(x, y, hh);
+                made++;
+                road = true;
+            }
+            else if (road && w < off)
+            {
+                RemoveRoad(x, y);
+                lost++;
+                road = false;
+            }
+            if (road)
+                c.Flags[l] = w >= major ? (byte)(c.Flags[l] | FlagMajor) : (byte)(c.Flags[l] & ~FlagMajor);
+            c.Wear[l] = w * keep;
+            if (c.Wear[l] < 0.05f && !road) { c.Wear[l] = 0f; drop.Add(id); }
+        }
+        foreach (int id in drop) _worn.Remove(id);
+        return (made, lost);
+    }
+
+    /// <summary>
+    /// 사람이 걷는 수고(상하좌우). 길은 빠르고, 남의 밭은 가로지르기 꺼리며, 물은 다리 없이 못 건넌다.
+    /// </summary>
+    private float TripCost(int x, int y)
+    {
+        var c = Get(x, y, out int l);
+        if ((c.Flags[l] & FlagRoad) != 0) return (c.Flags[l] & FlagMajor) != 0 ? 0.4f : 0.5f;
+        if ((c.Flags[l] & FlagHouse) != 0) return float.PositiveInfinity;
+        float b = c.Type[l] switch
+        {
+            TileType.Grass => 1f, TileType.Hills => 1.6f, TileType.Forest => 2f, TileType.Marsh => 2.2f,
+            _ => float.PositiveInfinity,
+        };
+        if (c.Owner[l] >= 0) b += 0.8f;
+        return b;
+    }
+
+    /// <summary>마을 중심에서 걷는 수고 지도(상하좌우, 길과 밭을 따진다). 닳음 경로를 그리는 데 쓴다.</summary>
+    public Reach BuildTrips(int cx, int cy, float maxCost)
+    {
+        int r = (int)MathF.Ceiling(maxCost / 0.4f) + 1;
+        EnsureAround(cx, cy, r);
+        var R = new Reach { CX = cx, CY = cy, Max = maxCost, RoadVersion = RoadVersion };
+        R.X0 = Math.Max(0, cx - r); R.Y0 = Math.Max(0, cy - r);
+        R.W = Math.Min(Width - 1, cx + r) - R.X0 + 1; R.H = Math.Min(Height - 1, cy + r) - R.Y0 + 1;
+        R.Cost = new float[R.W * R.H];
+        Array.Fill(R.Cost, float.PositiveInfinity);
+        var open = new PriorityQueue<int, float>();
+        int start = (cy - R.Y0) * R.W + (cx - R.X0);
+        R.Cost[start] = 0;
+        open.Enqueue(start, 0);
+        Span<int> dx = stackalloc int[] { 1, -1, 0, 0 };
+        Span<int> dy = stackalloc int[] { 0, 0, 1, -1 };
+        while (open.TryDequeue(out int cur, out float g))
+        {
+            if (g > R.Cost[cur]) continue;
+            int x = cur % R.W, y = cur / R.W;
+            for (int k = 0; k < 4; k++)
+            {
+                int nx = x + dx[k], ny = y + dy[k];
+                if (nx < 0 || ny < 0 || nx >= R.W || ny >= R.H) continue;
+                float step = TripCost(nx + R.X0, ny + R.Y0);
+                if (float.IsInfinity(step)) continue;
+                float ng = g + step;
+                int ni = ny * R.W + nx;
+                if (ng > maxCost || ng >= R.Cost[ni]) continue;
+                R.Cost[ni] = ng;
+                open.Enqueue(ni, ng);
+            }
+        }
+        return R;
+    }
+
+    /// <summary>(x, y) 에서 걸음 지도를 따라 중심까지 내려가며 지나는 칸을 닳게 한다. 닿지 못하면 false.</summary>
+    public bool WalkToCenter(Reach R, int x, int y, float amount)
+    {
+        float cur = R.At(x, y);
+        for (int step = 0; step < 600; step++)
+        {
+            int bx = -1, by = -1;
+            float best = cur;
+            if (InBounds(x + 1, y) && R.At(x + 1, y) < best) { best = R.At(x + 1, y); bx = x + 1; by = y; }
+            if (InBounds(x - 1, y) && R.At(x - 1, y) < best) { best = R.At(x - 1, y); bx = x - 1; by = y; }
+            if (InBounds(x, y + 1) && R.At(x, y + 1) < best) { best = R.At(x, y + 1); bx = x; by = y + 1; }
+            if (InBounds(x, y - 1) && R.At(x, y - 1) < best) { best = R.At(x, y - 1); bx = x; by = y - 1; }
+            if (bx < 0) return false;
+            x = bx; y = by; cur = best;
+            AddWear(x, y, amount);
+            if (cur <= 0f) return true;
+        }
+        return false;
     }
 
     /// <summary>길을 내는 비용. 이미 길이면 싸고, 밭은 피하고, 물은 다리라 비싸다.</summary>

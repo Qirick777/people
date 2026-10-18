@@ -226,12 +226,30 @@ public sealed class World
         return h;
     }
 
-    private void RemoveHousehold(int h)
+    /// <summary>빈집. 대가 끊긴 가구의 집은 바로 사라지지 않고 남아 낡는다.</summary>
+    public struct VacantHouse
     {
-        VillageList.Leave(Households.Village[h]);
-        Map.Release(h, Households);
-        Map.MarkHouse(Households.X[h], Households.Y[h], false);
-        Households.Remove(h);
+        public int X, Y, Capacity, Village, Heir, HeirFounded;
+        public float Condition;   // 1 = 멀쩡, 0 = 무너짐
+    }
+
+    private readonly List<VacantHouse> _vacant = new();
+    public IReadOnlyList<VacantHouse> Vacant => _vacant;
+
+    /// <summary>가구를 없앤다. 집은 빈집으로 남기고, 팔리면 값은 heir 가구가 받는다.</summary>
+    private void RemoveHousehold(int h, int heir = -1)
+    {
+        var hh = Households;
+        VillageList.Leave(hh.Village[h]);
+        Map.Release(h, hh);
+        if (Layout && hh.Village[h] >= 0)
+            _vacant.Add(new VacantHouse
+            {
+                X = hh.X[h], Y = hh.Y[h], Capacity = hh.Capacity[h], Village = hh.Village[h], Condition = 1f,
+                Heir = heir, HeirFounded = heir >= 0 && hh.IsAlive(heir) ? hh.FoundedDay[heir] : -1,
+            });
+        else Map.MarkHouse(hh.X[h], hh.Y[h], false);
+        hh.Remove(h);
     }
 
     /// <summary>마을 밭 반경(평평한 섬과 집터 고르기용).</summary>
@@ -411,9 +429,12 @@ public sealed class World
         RebuildHouseholdGrid();
         ChooseFloods();
         RecountHouseholds();
+        DecayVacant();
+        if (Layout) Stats.RegrownForest += Map.AgeAbandoned(Config.ForestYears);
         Splits();
         ClaimLand();
         if (Layout) Stats.Swaps += Map.Consolidate(Households, Households.HighWater, Config.SwapTolerance);
+        if (Layout) UpdateTraffic();
         UpgradeHouses();
     }
 
@@ -509,7 +530,14 @@ public sealed class World
                 capacity -= 1f;
                 int plot = mine[k];
                 if (part > 0.5f) worked.Add(plot);
-                // 숲은 첫해에 개간만 한다(수확 없음).
+                // 숲과 오래 묵어 덤불이 된 땅은 첫해에 개간만 한다(수확 없음).
+                int wild = map.Wild(plot);
+                if (wild > 0) map.SetWild(plot, 0);
+                if (wild >= Config.ScrubYears)
+                {
+                    map.SetFlags(plot, (byte)(map.Flags(plot) | WorldMap.FlagField));
+                    continue;
+                }
                 if (map.Type(plot) == TileType.Forest)
                 {
                     map.SetType(plot, TileType.Grass);
@@ -650,24 +678,23 @@ public sealed class World
         }
         else if (_rng.NextBool()) { dx = 0; dy = 1; }
         vl.DirX[v] = dx; vl.DirY[v] = dy;
-        // 큰길과 직각 길: 마을 안은 짧게, 밭으로는 밭길로 이어진다
-        int R = Config.FarmRadius;
-        RoadLine(x, y, dx, dy, R, true);
-        RoadLine(x, y, -dx, -dy, R, true);
-        RoadLine(x, y, -dy, dx, R, true);
-        RoadLine(x, y, dy, -dx, R, true);
-        // 옛 마을과 잇는다
+        // 계획하는 길은 큰길 하나뿐. 집이 늘어설 자리다. 나머지 길은 사람이 다니며 생긴다.
+        int R = Config.MainStreetLength;
+        RoadLine(x, y, dx, dy, R, true, Config.PlannedWear);
+        RoadLine(x, y, -dx, -dy, R, true, Config.PlannedWear);
+        // 옛 마을과 잇는다. 왕래가 없으면 이 길도 풀에 덮인다.
         if (parentVillage >= 0)
         {
             var path = Map.FindPath(x, y, vl.CenterX[parentVillage], vl.CenterY[parentVillage]);
-            foreach (var (px, py) in path) Map.MakeRoad(px, py, Households);
+            foreach (var (px, py) in path) { Map.MakeRoad(px, py, Households); Map.AddWear(px, py, Config.PlannedWear); }
             if (path.Count > 0) Stats.RoadTiles += path.Count;
+            Contact(v, parentVillage);
         }
         return v;
     }
 
     /// <summary>(x, y) 에서 (dx, dy) 방향으로 len 칸 길을 낸다. 물이나 집을 만나면 멈춘다(다리는 마을 잇기 길에서만).</summary>
-    private void RoadLine(int x, int y, int dx, int dy, int len, bool bridge = false)
+    private void RoadLine(int x, int y, int dx, int dy, int len, bool bridge = false, float wear = 0f)
     {
         for (int k = 0; k <= len; k++)
         {
@@ -686,7 +713,79 @@ public sealed class World
                 if (far is TileType.Sea or TileType.Lake or TileType.Mountain) return;
             }
             Map.MakeRoad(xx, yy, Households);
+            if (wear > 0f) Map.AddWear(xx, yy, wear);
         }
+    }
+
+    // ------------------------------------------------------------------ 왕래와 길
+
+    // 그해 두 마을 사이 왕래(혼인, 이주) 횟수. 해가 바뀔 때 길을 닳게 하고 비운다.
+    private readonly Dictionary<long, int> _contacts = new();
+
+    private void Contact(int a, int b)
+    {
+        if (a < 0 || b < 0 || a == b) return;
+        long key = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+        _contacts[key] = _contacts.GetValueOrDefault(key) + 1;
+    }
+
+    /// <summary>
+    /// 한 해 동안 사람이 다닌 만큼 땅을 닳게 하고, 길을 만들거나 지운다.
+    /// 가구마다 집 → 마을 중심, 밭 → 마을 중심을 한 번씩 걷는다. 왕래한 마을끼리는 길찾기 경로를 걷는다.
+    /// </summary>
+    private void UpdateTraffic()
+    {
+        var hh = Households;
+        var vl = VillageList;
+        var trips = new Dictionary<int, WorldMap.Reach>();
+        for (int h = 0; h < hh.HighWater; h++)
+        {
+            if (!hh.IsAlive(h)) continue;
+            int v = hh.Village[h];
+            if (v < 0 || !vl.Alive[v]) continue;
+            if (!trips.TryGetValue(v, out var R))
+            {
+                R = Map.BuildTrips(vl.CenterX[v], vl.CenterY[v], Config.FarmTravel + 8f);
+                trips[v] = R;
+            }
+            Map.WalkToCenter(R, hh.X[h], hh.Y[h], Config.HomeTripWear);
+            int plot = RepresentativePlot(h);
+            if (plot >= 0)
+            {
+                var (fx, fy) = Map.Pos(plot);
+                Map.WalkToCenter(R, fx, fy, Config.FieldTripWear);
+            }
+        }
+        foreach (var (key, n) in _contacts)
+        {
+            int a = (int)(key >> 32), b = (int)(key & 0xffffffff);
+            if (!vl.Alive[a] || !vl.Alive[b]) continue;
+            var path = Map.FindPath(vl.CenterX[a], vl.CenterY[a], vl.CenterX[b], vl.CenterY[b]);
+            foreach (var (px, py) in path) Map.AddWear(px, py, n * Config.ContactWear);
+        }
+        _contacts.Clear();
+        var (made, lost) = Map.UpdateRoads(Config.WearKeep, Config.WearRoadOn, Config.WearRoadOff, Config.WearMajor, hh);
+        Stats.RoadTiles += made;
+        Stats.RoadsLost += lost;
+    }
+
+    /// <summary>가구 밭 덩어리의 가운데에 가장 가까운 필지.</summary>
+    private int RepresentativePlot(int h)
+    {
+        var plots = Map.PlotsOf(h);
+        if (plots.Count == 0) return -1;
+        float mx = 0, my = 0;
+        foreach (int id in plots) { var (x, y) = Map.Pos(id); mx += x; my += y; }
+        mx /= plots.Count; my /= plots.Count;
+        int best = plots[0];
+        float bd = float.MaxValue;
+        foreach (int id in plots)
+        {
+            var (x, y) = Map.Pos(id);
+            float d = (x - mx) * (x - mx) + (y - my) * (y - my);
+            if (d < bd) { bd = d; best = id; }
+        }
+        return best;
     }
 
     /// <summary>
@@ -724,7 +823,7 @@ public sealed class World
             if (_rng.NextBool()) (ddx, ddy) = (-ddy, ddx);
             int sx = cx + ddx * k * sign, sy = cy + ddy * k * sign;
             int side = _rng.NextBool() ? 1 : -1;
-            RoadLine(sx, sy, -ddy * side, ddx * side, Math.Max(3, R / 2));
+            RoadLine(sx, sy, -ddy * side, ddx * side, Math.Max(3, R / 2), false, Config.PlannedWear * 0.5f);
             Stats.Lanes++;
         }
         return Map.HouseSpot(cx, cy, HouseZone(v), ref _rng);
@@ -760,13 +859,8 @@ public sealed class World
         // 1) 지금 마을에 빈 땅이 넉넉하면 마을 안에 집을 짓는다.
         if (v >= 0 && FreeInVillage(v) >= Config.MinFreePlotsToStay)
         {
-            var (x, y) = HouseSpotOnRoad(v);
-            if (x >= 0)
-            {
-                int nh = NewHousehold(x, y, 0f, Config.HutCapacity, v);
-                TookPlots(v, ClaimFields(nh, 3));
-                return nh;
-            }
+            int nh = SettleIn(v, parent);
+            if (nh >= 0) return nh;
         }
 
         // 2) 근처 다른 마을 중 빈 땅이 있는 곳, 3) 새 마을 자리. 더 나은 쪽으로 간다.
@@ -797,11 +891,10 @@ public sealed class World
         // 이미 있는 마을은 이웃과 혼인 상대가 있어서 조금 더 끌린다.
         if (bestV >= 0 && (bestSite.x < 0 || bestVScore + 15f > bestSiteScore * 0.5f))
         {
-            var (x, y) = HouseSpotOnRoad(bestV);
-            if (x >= 0)
+            int nh = SettleIn(bestV, parent);
+            if (nh >= 0)
             {
-                int nh = NewHousehold(x, y, 0f, Config.HutCapacity, bestV);
-                TookPlots(bestV, ClaimFields(nh, 3));
+                Contact(v, bestV);
                 Stats.Migrations++;
                 return nh;
             }
@@ -812,12 +905,81 @@ public sealed class World
             var (hx, hy) = HouseSpotOnRoad(nv);
             if (hx < 0) (hx, hy) = NearestBuildable(bestSite.x, bestSite.y, 6);
             int nh = NewHousehold(hx, hy, 0f, Config.HutCapacity, nv);
+            PayBuild(parent);
             ClaimFields(nh, 3);
             Stats.Migrations++;
             Stats.NewVillages++;
             return nh;
         }
         return SplitParentLand(parent, v);
+    }
+
+    /// <summary>
+    /// 마을 v 에 자리를 잡는다. 살 만한 빈집이 있고 값을 치를 수 있으면 사서 들어가고,
+    /// 아니면 길가에 새로 짓는다(짓는 값은 본가가 낸다). 실패하면 -1.
+    /// </summary>
+    private int SettleIn(int v, int parent)
+    {
+        var hh = Households;
+        int best = -1;
+        float bestScore = 0f;
+        for (int k = 0; k < _vacant.Count; k++)
+        {
+            var vh = _vacant[k];
+            if (vh.Village != v || vh.Condition < Config.VacantMinCondition) continue;
+            float sc = vh.Capacity * vh.Condition;
+            if (sc > bestScore) { bestScore = sc; best = k; }
+        }
+        if (best >= 0)
+        {
+            var vh = _vacant[best];
+            float price = HousePrice(vh);
+            float reserve = hh.Need[parent] * DaysToHarvest();
+            if (hh.Food[parent] - price >= reserve)
+            {
+                hh.Food[parent] -= price;
+                if (hh.IsAlive(vh.Heir) && hh.FoundedDay[vh.Heir] == vh.HeirFounded) hh.Food[vh.Heir] += price;
+                _vacant[best] = _vacant[^1];
+                _vacant.RemoveAt(_vacant.Count - 1);
+                int nh = NewHousehold(vh.X, vh.Y, 0f, vh.Capacity, v);
+                TookPlots(v, ClaimFields(nh, 3));
+                Stats.HouseSales++;
+                return nh;
+            }
+        }
+        var (x, y) = HouseSpotOnRoad(v);
+        if (x < 0) return -1;
+        int h = NewHousehold(x, y, 0f, Config.HutCapacity, v);
+        PayBuild(parent);
+        TookPlots(v, ClaimFields(h, 3));
+        Stats.HousesBuilt++;
+        return h;
+    }
+
+    /// <summary>빈집 값: 새로 짓는 값 × 크기 비율 × 상태 × 할인.</summary>
+    private float HousePrice(VacantHouse vh) =>
+        Config.HouseBuildCost * vh.Capacity / (float)Config.HutCapacity * vh.Condition * Config.VacantPriceFactor;
+
+    /// <summary>새 집을 짓는 값. 본가가 낼 수 있는 만큼 낸다(모자라면 손으로 지은 셈).</summary>
+    private void PayBuild(int parent)
+    {
+        var hh = Households;
+        if (hh.IsAlive(parent)) hh.Food[parent] = MathF.Max(0f, hh.Food[parent] - Config.HouseBuildCost);
+    }
+
+    /// <summary>빈집은 해마다 낡는다. 다 낡으면 무너져 터가 빈다.</summary>
+    private void DecayVacant()
+    {
+        for (int k = _vacant.Count - 1; k >= 0; k--)
+        {
+            var vh = _vacant[k];
+            vh.Condition -= 1f / Config.VacantLifeYears;
+            if (vh.Condition > 0f) { _vacant[k] = vh; continue; }
+            Map.MarkHouse(vh.X, vh.Y, false);
+            _vacant[k] = _vacant[^1];
+            _vacant.RemoveAt(_vacant.Count - 1);
+            Stats.HousesCollapsed++;
+        }
     }
 
     /// <summary>갈 곳이 없으면 본가 옆에 집을 짓고 본가 땅을 반 나눈다.</summary>
@@ -1021,14 +1183,16 @@ public sealed class World
             return;
         }
         // 어른이 없다: 아이들을 혈연이 가장 가까운 가구로 보내고 가구를 없앤다.
+        int heir = -1;
         foreach (int k in MembersOf(h))
         {
             int target = ClosestKinHousehold(k, h);
+            if (heir < 0 && target >= 0) heir = target;
             Leave(k);
             Join(k, target);
         }
-        // 남은 사람이 없거나 아이만 있던 가구는 없앤다.
-        RemoveHousehold(h);
+        // 남은 사람이 없거나 아이만 있던 가구는 없앤다. 아이들을 맡은 집이 빈집을 물려받는다.
+        RemoveHousehold(h, heir);
         Stats.Dissolved++;
     }
 
@@ -1058,6 +1222,7 @@ public sealed class World
         p.WifeCount[man]++;
         p.CoupleScore[woman] = coupleScore;
         int target = p.Household[man], old = p.Household[woman];
+        if (Households.IsAlive(old) && Households.IsAlive(target)) Contact(Households.Village[old], Households.Village[target]);
         if (old != target && Households.IsAlive(old))
         {
             // 재혼하는 어머니는 같이 살던 12세 미만 자식을 데려간다.

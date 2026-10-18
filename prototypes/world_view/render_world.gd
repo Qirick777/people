@@ -10,6 +10,8 @@ const VS := preload("res://prototypes/building_look/village.gd")
 const OUT := "res://docs/images/"
 const T := 8.0                       # 타일 크기(m)
 const ISO := Vector3(-1.0, 1.25, 1.0)
+const SCRUB := 12                   # 이만큼 묵으면 덤불 (SimConfig.ScrubYears)
+const FOREST_YEARS := 35
 
 enum Tile { SEA, LAKE, RIVER, GRASS, FOREST, MARSH, HILLS, MOUNTAIN, ROAD }
 
@@ -21,7 +23,8 @@ var H: int
 var heights: PackedFloat32Array
 var types: PackedInt32Array
 var fields: PackedInt32Array      # 밭 주인 가구 id, 없으면 -1
-var roads: PackedByteArray        # 길(물 위면 다리)
+var roads: PackedByteArray        # 길 0 없음 / 1 오솔길 / 2 큰길 (물 위면 다리)
+var wild: PackedInt32Array        # 버려진 밭이 묵은 해 + 1 (0 = 해당 없음)
 var rng := RandomNumberGenerator.new()
 
 
@@ -31,17 +34,22 @@ func _init() -> void:
 	data = JSON.parse_string(FileAccess.get_file_as_string("res://prototypes/world_view/" + file))
 	W = int(data["w"]); H = int(data["h"])
 	var tiles: Array = data["tiles"]
-	heights.resize(W * H); types.resize(W * H); fields.resize(W * H); roads.resize(W * H)
+	heights.resize(W * H); types.resize(W * H); fields.resize(W * H); roads.resize(W * H); wild.resize(W * H)
 	for i in tiles.size():
 		types[i] = int(tiles[i][0]); heights[i] = float(tiles[i][1]); fields[i] = int(tiles[i][2]); roads[i] = int(tiles[i][3])
+		wild[i] = int(tiles[i][4]) if tiles[i].size() > 4 else 0
 	rng.seed = 7
 	BM.flat = true
 	BB.round_r = 0.07
 	_setup()
 	_terrain()
 	_trees()
+	_paths()
+	_scrub()
 	_crops()
 	_houses()
+	_multi(_box(Vector3(1, 1, 1)), Color(0.55, 0.52, 0.47), _ruin_walls)
+	_multi(_box(Vector3(1, 1, 1)), Color(0.36, 0.27, 0.19), _ruin_beams)
 	_people()
 	await _shots(file.get_basename())
 	quit()
@@ -118,9 +126,19 @@ func _terrain() -> void:
 			var top := H_at(x, y)
 			var key: Variant = t
 			var c: Color = col.get(t, Color.MAGENTA)
-			if fields[i] >= 0 and t != Tile.FOREST:
+			if t == Tile.ROAD:
+				key = Tile.GRASS                                  # 길은 풀밭 위에 흙 띠로 따로 그린다
+				c = col[Tile.GRASS]
+			var yrs := wild[i] - 1
+			if fields[i] >= 0 and t != Tile.FOREST and yrs < SCRUB:
 				key = "field"
 				c = Color(0.5, 0.38, 0.26)
+			elif wild[i] > 0 and yrs < 3:
+				key = "fallow"                                    # 갓 버려진 밭: 잡초 난 흙
+				c = Color(0.5, 0.47, 0.3)
+			elif wild[i] > 0:
+				key = "meadow"                                    # 묵은 풀밭
+				c = Color(0.52, 0.62, 0.33)
 			if t in [Tile.RIVER, Tile.LAKE, Tile.SEA]:
 				# 물은 둑보다 낮게: 주변 땅 높이에서 0.6 m 아래
 				var lo := top
@@ -164,7 +182,7 @@ func _bridges() -> void:
 						if not seen.has(ni):
 							seen[ni] = true
 							comp.append(n)
-					elif roads[ni] == 1 or not (types[ni] in [Tile.RIVER, Tile.LAKE, Tile.SEA]):
+					elif roads[ni] > 0 or not (types[ni] in [Tile.RIVER, Tile.LAKE, Tile.SEA]):
 						hi = maxf(hi, H_at(n.x, n.y))
 			if hi < -1e8: hi = H_at(x, y) + 0.6
 			for c in comp:
@@ -180,7 +198,57 @@ func _bridges() -> void:
 
 func _bridge(x: int, y: int) -> bool:
 	var i := idx(x, y)
-	return roads[i] == 1 and types[i] in [Tile.RIVER, Tile.LAKE, Tile.SEA]
+	return roads[i] > 0 and types[i] in [Tile.RIVER, Tile.LAKE, Tile.SEA]
+
+
+## 길: 풀밭 위에 흙 띠. 오솔길은 좁고 큰길은 넓다. 가운데 판과 이웃 길 칸 쪽으로 뻗는 띠를 깐다.
+func _paths() -> void:
+	var path_xf := []
+	var major_xf := []
+	var dirs := [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+	for y in H:
+		for x in W:
+			var i := idx(x, y)
+			if roads[i] == 0 or types[i] in [Tile.RIVER, Tile.LAKE, Tile.SEA]: continue
+			var wdt := 6.5 if roads[i] == 2 else 3.2
+			var list: Array = major_xf if roads[i] == 2 else path_xf
+			var top := H_at(x, y) + 0.06
+			var center := Vector3((x + 0.5) * T, top, (y + 0.5) * T)
+			list.append(Transform3D(Basis.from_scale(Vector3(wdt, 0.12, wdt)), center))
+			for d in dirs:
+				var n: Vector2i = Vector2i(x, y) + d
+				if n.x < 0 or n.y < 0 or n.x >= W or n.y >= H or roads[idx(n.x, n.y)] == 0: continue
+				var w2 := minf(wdt, 6.5 if roads[idx(n.x, n.y)] == 2 else 3.2)
+				var sz := Vector3(T * 0.5, 0.12, w2) if d.x != 0 else Vector3(w2, 0.12, T * 0.5)
+				list.append(Transform3D(Basis.from_scale(sz), center + Vector3(d.x, 0, d.y) * T * 0.25))
+	var unit := _box(Vector3(1, 1, 1))
+	_multi(unit, Color(0.71, 0.6, 0.42), path_xf)
+	_multi(unit, Color(0.66, 0.53, 0.36), major_xf)
+
+
+## 덤불: 오래 묵은 밭에 키 작은 나무 덩어리. 숲이 될 때가 가까울수록 빽빽하다.
+func _scrub() -> void:
+	var bushes := []
+	var saplings := []
+	for y in H:
+		for x in W:
+			var i := idx(x, y)
+			var yrs := wild[i] - 1
+			if wild[i] == 0 or yrs < SCRUB or types[i] == Tile.FOREST: continue
+			var k := clampf(float(yrs - SCRUB) / float(FOREST_YEARS - SCRUB), 0.0, 1.0)
+			var n := 1 + int(k * 4.0)
+			for j in n:
+				var p := pos(x, y) + Vector3(rng.randf_range(-3, 3), 0, rng.randf_range(-3, 3))
+				var s := rng.randf_range(1.0, 1.8) * (0.7 + k * 0.6)
+				if k > 0.5 and rng.randf() < 0.4:
+					var h := rng.randf_range(1.5, 2.5)
+					saplings.append(Transform3D(Basis.from_scale(Vector3(s * 1.2, s * 1.1, s * 1.2)), p + Vector3(0, h, 0)))
+					bushes.append(Transform3D(Basis.from_scale(Vector3(0.3, h, 0.3)), p + Vector3(0, h * 0.5, 0)))
+				else:
+					bushes.append(Transform3D(Basis.from_scale(Vector3(s, s * 0.7, s)), p + Vector3(0, s * 0.35, 0)))
+	var unit := _box(Vector3(1, 1, 1))
+	_multi(unit, Color(0.4, 0.55, 0.27), bushes)
+	_multi(unit, Color(0.38, 0.58, 0.3), saplings)
 
 
 func _trees() -> void:
@@ -220,7 +288,7 @@ func _crops() -> void:
 		for x in W:
 			var i := idx(x, y)
 			var o := fields[i]
-			if o < 0 or types[i] == Tile.FOREST: continue
+			if o < 0 or types[i] == Tile.FOREST or wild[i] - 1 >= SCRUB: continue
 			var hsh := (o * 2654435761) & 0x7fffffff
 			var along_x := (hsh % 2) == 0
 			var kind := (hsh / 2) % 3                       # 익은 밀, 푸른 작물, 어린 싹
@@ -250,6 +318,10 @@ func _houses() -> void:
 	var houses: Array = data["houses"]
 	for hd in houses:
 		var x := int(hd[0]); var y := int(hd[1]); var cap := int(hd[3]); var wealth := float(hd[4])
+		var cond: float = float(hd[5]) if hd.size() > 5 else 1.0
+		if int(hd[2]) == 0 and cond < 0.45:
+			_ruin(x, y, cond)
+			continue
 		var spec: Dictionary
 		if cap <= 4: spec = VS.hut() if wealth < 120 else VS.cottage()
 		elif cap <= 6: spec = VS.cottage()
@@ -266,6 +338,32 @@ func _houses() -> void:
 		node.rotation.y = (rng.randi() % 4) * PI * 0.5
 		node.position = pos(x, y)
 		world.add_child(node)
+
+
+## 무너져 가는 빈집: 낮은 벽 조각과 쓰러진 들보. 낡을수록 벽이 낮고 듬성하다.
+var _ruin_walls := []
+var _ruin_beams := []
+
+func _ruin(x: int, y: int, cond: float) -> void:
+	var c := pos(x, y)
+	var h := 0.4 + cond * 2.4
+	for side in 4:
+		for seg in 3:
+			if rng.randf() > 0.35 + cond: continue
+			var off := -2.0 + seg * 2.0
+			var p: Vector3
+			var sz: Vector3
+			match side:
+				0: p = Vector3(off, 0, -2.6); sz = Vector3(1.9, 0, 0.45)
+				1: p = Vector3(off, 0, 2.6); sz = Vector3(1.9, 0, 0.45)
+				2: p = Vector3(-2.6, 0, off); sz = Vector3(0.45, 0, 1.9)
+				_: p = Vector3(2.6, 0, off); sz = Vector3(0.45, 0, 1.9)
+			var hh := h * rng.randf_range(0.5, 1.0)
+			sz.y = hh
+			_ruin_walls.append(Transform3D(Basis.from_scale(sz), c + p + Vector3(0, hh * 0.5, 0)))
+	for k in 2:
+		var b := Basis(Vector3.UP, rng.randf_range(0, PI)).scaled(Vector3(4.5, 0.35, 0.35))
+		_ruin_beams.append(Transform3D(b, c + Vector3(rng.randf_range(-1.5, 1.5), 0.2, rng.randf_range(-1.5, 1.5))))
 
 
 func _people() -> void:

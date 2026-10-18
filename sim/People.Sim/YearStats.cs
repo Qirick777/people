@@ -7,7 +7,7 @@ namespace People.Sim;
 public sealed class YearStats
 {
     public int Year, Births, Deaths, HungerDeaths, InfantDeaths, MaternalDeaths, Stillbirths, MultipleBirths,
-        Marriages, Polygynous, Splits, Dissolved, DiseaseABirths, RecessiveBirths, FloodedPlots, Migrations, NewVillages, RoadTiles, Lanes, Swaps, Evicted, LoadBirths, CloseKinBirths, CloseKinLoadBirths, CousinBirths, CousinLoadBirths;
+        Marriages, Polygynous, Splits, Dissolved, DiseaseABirths, RecessiveBirths, FloodedPlots, Migrations, NewVillages, RoadTiles, Lanes, Swaps, Evicted, HousesBuilt, HouseSales, HousesCollapsed, RegrownForest, RoadsLost, LoadBirths, CloseKinBirths, CloseKinLoadBirths, CousinBirths, CousinLoadBirths;
     public float MarriageKinSum, Harvest, Weather, InbreedingSum;
     private int _womenDied45, _womenChildren45;
 
@@ -19,7 +19,7 @@ public sealed class YearStats
         "marriages,polygynous,mean_marriage_kin,splits,dissolved,weather,harvest,food_per_capita,generated_chunks," +
         "height,strength,fertility,looks,charisma,constitution,pref_height," +
         "twinning_freq,diseaseA_freq,diseaseA_births,completed_fertility,mean_birth_inbreeding,recessive_births," +
-        "villages,largest_village,near_water_households,flooded_plots,migrations,new_villages,road_tiles,lanes,swaps,evicted_fields,load_births,close_kin_births,close_kin_load_births,cousin_births,cousin_load_births,load_freq";
+        "villages,largest_village,near_water_households,flooded_plots,migrations,new_villages,road_tiles,lanes,swaps,evicted_fields,houses_built,house_sales,houses_collapsed,vacant_houses,regrown_forest,abandoned_fields,roads_lost,load_births,close_kin_births,close_kin_load_births,cousin_births,cousin_load_births,load_freq";
 
     public YearStats() => _csv.AppendLine(Header);
 
@@ -33,7 +33,7 @@ public sealed class YearStats
     public void Begin(int day, float weather)
     {
         Births = Deaths = HungerDeaths = InfantDeaths = MaternalDeaths = Stillbirths = MultipleBirths = 0;
-        Marriages = Polygynous = Splits = Dissolved = DiseaseABirths = RecessiveBirths = FloodedPlots = Migrations = NewVillages = RoadTiles = Lanes = Swaps = Evicted = LoadBirths = CloseKinBirths = CloseKinLoadBirths = CousinBirths = CousinLoadBirths = 0;
+        Marriages = Polygynous = Splits = Dissolved = DiseaseABirths = RecessiveBirths = FloodedPlots = Migrations = NewVillages = RoadTiles = Lanes = Swaps = Evicted = HousesBuilt = HouseSales = HousesCollapsed = RegrownForest = RoadsLost = LoadBirths = CloseKinBirths = CloseKinLoadBirths = CousinBirths = CousinLoadBirths = 0;
         MarriageKinSum = Harvest = InbreedingSum = 0;
         Weather = weather;
         _womenDied45 = _womenChildren45 = 0;
@@ -79,6 +79,6 @@ public sealed class YearStats
             F(alleles > 0 ? twinAlleles / (double)alleles : 0), F(alleles > 0 ? diseaseAlleles / (double)alleles : 0), DiseaseABirths,
             F(_womenDied45 > 0 ? _womenChildren45 / (double)_womenDied45 : double.NaN),
             F(Births > 0 ? InbreedingSum / Births : 0), RecessiveBirths,
-            villages.count, villages.largest, F(w.NearWaterFraction()), FloodedPlots, Migrations, NewVillages, RoadTiles, Lanes, Swaps, Evicted, LoadBirths, CloseKinBirths, CloseKinLoadBirths, CousinBirths, CousinLoadBirths, F(alleles > 0 ? loadAlleles / (double)(alleles * GenomeLayout.LoadLoci) : 0)));
+            villages.count, villages.largest, F(w.NearWaterFraction()), FloodedPlots, Migrations, NewVillages, RoadTiles, Lanes, Swaps, Evicted, HousesBuilt, HouseSales, HousesCollapsed, w.Vacant.Count, RegrownForest, w.Map.AbandonedCount, RoadsLost, LoadBirths, CloseKinBirths, CloseKinLoadBirths, CousinBirths, CousinLoadBirths, F(alleles > 0 ? loadAlleles / (double)(alleles * GenomeLayout.LoadLoci) : 0)));
     }
 }

@@ -77,6 +77,22 @@ public sealed class SimConfig
     // 6. 가구
     public int HutCapacity { get; init; } = 4;
     public int MaxCapacity { get; init; } = 20;
+    // 길: 다니는 만큼 닳아 생기고, 안 다니면 풀에 덮인다
+    public int MainStreetLength { get; init; } = 8;          // 마을을 세울 때 계획하는 큰길(중심에서 양쪽으로)
+    public float PlannedWear { get; init; } = 12f;           // 계획한 길에 처음 주는 닳음
+    public float HomeTripWear { get; init; } = 1f;           // 가구가 해마다 집 → 중심을 다니며 남기는 닳음
+    public float FieldTripWear { get; init; } = 1f;          // 밭 → 중심
+    public float ContactWear { get; init; } = 2f;            // 마을 사이 왕래 한 번(혼인, 이주)
+    public float WearKeep { get; init; } = 0.7f;             // 해마다 남는 닳음 비율(꾸준히 n 만큼 다니면 n/0.3 에 수렴)
+    public float WearRoadOn { get; init; } = 4f;             // 이 닳음을 넘으면 길이 생긴다(한 가구만으로는 3.3이라 안 생긴다)
+    public float WearRoadOff { get; init; } = 1.5f;          // 이 아래로 내려가면 길이 사라진다
+    public float WearMajor { get; init; } = 25f;             // 큰길
+    public int ScrubYears { get; init; } = 12;              // 버려진 밭이 이만큼 묵으면 덤불: 다시 부치려면 개간 한 해
+    public int ForestYears { get; init; } = 35;             // 이만큼 묵으면 숲으로 돌아간다
+    public float HouseBuildCost { get; init; } = 30f;        // 오두막 하나 짓는 값(식량). 본가가 낸다
+    public float VacantPriceFactor { get; init; } = 0.6f;     // 빈집 값 = 짓는 값 × 크기 비율 × 상태 × 이 값
+    public float VacantMinCondition { get; init; } = 0.3f;    // 이보다 낡은 빈집은 사지 않는다
+    public float VacantLifeYears { get; init; } = 30f;        // 빈집이 무너지기까지 걸리는 해
     public float HouseUpgradeCost { get; init; } = 40f;
 
     public static SimConfig Default { get; } = new();

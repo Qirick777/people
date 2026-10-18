@@ -245,11 +245,14 @@ switch (cmd)
             for (int x = x0; x < x0 + rw; x++)
             {
                 if (x != x0 || y != y0) sb.Append(',');
-                if (!map.InBounds(x, y)) { sb.Append("[0,0,-1,0]"); continue; }
+                if (!map.InBounds(x, y)) { sb.Append("[0,0,-1,0,0]"); continue; }
                 int id = map.Id(x, y);
                 int owner = map.Owner(id);
-                int road = (map.Flags(id) & WorldMap.FlagRoad) != 0 ? 1 : 0;
-                sb.Append($"[{(int)map.Type(id)},{map.ElevationMeters(x, y).ToString("0.##", inv)},{owner},{road}]");
+                byte fl = map.Flags(id);
+                int road = (fl & WorldMap.FlagRoad) == 0 ? 0 : (fl & WorldMap.FlagMajor) != 0 ? 2 : 1;
+                // 묵은 정도: 0 = 해당 없음, 1 + 해 수 = 버려진 밭(주인이 다시 잡았지만 아직 개간 전이면 그대로)
+                int wild = (fl & WorldMap.FlagField) != 0 && (owner < 0 || map.Wild(id) > 0) ? 1 + map.Wild(id) : 0;
+                sb.Append($"[{(int)map.Type(id)},{map.ElevationMeters(x, y).ToString("0.##", inv)},{owner},{road},{wild}]");
             }
         sb.Append("],\"houses\":[");
         bool first = true;
@@ -261,7 +264,16 @@ switch (cmd)
             if (hx < 0 || hy < 0 || hx >= rw || hy >= rh) continue;
             if (!first) sb.Append(',');
             first = false;
-            sb.Append($"[{hx},{hy},{hh.Members[h]},{hh.Capacity[h]},{(hh.Food[h] + hh.LandValue[h]).ToString("0", inv)}]");
+            sb.Append($"[{hx},{hy},{hh.Members[h]},{hh.Capacity[h]},{(hh.Food[h] + hh.LandValue[h]).ToString("0", inv)},1]");
+        }
+        // 빈집: 사는 사람 0, 마지막 값은 상태(1 멀쩡 ~ 0 무너짐)
+        foreach (var vh in w.Vacant)
+        {
+            int hx = vh.X - x0, hy = vh.Y - y0;
+            if (hx < 0 || hy < 0 || hx >= rw || hy >= rh) continue;
+            if (!first) sb.Append(',');
+            first = false;
+            sb.Append($"[{hx},{hy},0,{vh.Capacity},0,{vh.Condition.ToString("0.##", inv)}]");
         }
         sb.Append("]}");
         string path = SArg("--out", "out/region.json");
