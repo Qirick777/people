@@ -234,7 +234,7 @@ public sealed partial class World
             float bs = 0f;
             foreach (int l in lords)
             {
-                if (l == h || (BelowOf(h) > 0 && WouldLoop(h, l))) continue;
+                if (l == h || (BelowOf(h) > 0 && WouldLoop(h, l)) || Restrained(l)) continue;   // 경고를 받아들인 집은 새 집을 받지 않는다
                 float dx = hh.X[l] - hh.X[h], dy = hh.Y[l] - hh.Y[h];
                 float d = MathF.Sqrt(dx * dx + dy * dy);
                 if (d > Config.ProtectRange) continue;

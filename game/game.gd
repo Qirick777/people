@@ -34,6 +34,9 @@ var org_panel: PanelContainer
 var org_box: VBoxContainer
 var org_title: Label
 var judge_button: Button
+var rise_button: Button
+var rise_panel: PanelContainer
+var rise_box: VBoxContainer
 var judge_panel: PanelContainer
 var judge_box: VBoxContainer
 var last_player := -1
@@ -75,7 +78,10 @@ func _process(dt: float) -> void:
 			acc -= days
 			if host.Advance(days):
 				_set_speed(0)
-				if int(host.PendingCount) > 0:
+				if int(host.DemandCount) > 0:
+					_set_hint("지배자가 우리 집에 요구를 해 왔다. 다툼 창에서 답한다.")
+					_open_rise()
+				elif int(host.PendingCount) > 0:
 					_set_hint("범인을 잡았다. 재판 창에서 판결한다.")
 					_open_judge()
 				else:
@@ -480,6 +486,83 @@ func _refresh_judge_button() -> void:
 	var n: int = host.PendingCount if host != null and host.Ready else 0
 	judge_button.text = "재판 %d" % n if n > 0 else "재판"
 	judge_button.add_theme_color_override("font_color", UI.RISK if n > 0 else UI.INK)
+	var d: int = host.DemandCount if host != null and host.Ready else 0
+	rise_button.text = "다툼 %d" % d if d > 0 else "다툼"
+	rise_button.add_theme_color_override("font_color", UI.RISK if d > 0 else UI.INK)
+
+
+func _open_rise() -> void:
+	for c in rise_box.get_children(): c.queue_free()
+	var demands: Array = host.Demands()
+	if not demands.is_empty():
+		rise_box.add_child(UI.label("받은 요구", 13, UI.MUTED, true))
+		for e in demands:
+			var box := VBoxContainer.new()
+			box.add_theme_constant_override("separation", 2)
+			var who: String = e["lord"] + (" (%s)" % e["realm"] if e["realm"] != "" else "")
+			box.add_child(UI.label(who, 15, UI.INK, true))
+			box.add_child(UI.label("%s · %s" % [e["date"], e["text"]], 13))
+			var row := HBoxContainer.new()
+			row.add_theme_constant_override("separation", 6)
+			var id := int(e["id"])
+			for o in [["받는다", true, false], ["거절한다", false, true]]:
+				var b := UI.action(o[0], "", -1.0, o[2])
+				b.custom_minimum_size = Vector2(140, 40)
+				var yes: bool = o[1]
+				b.pressed.connect(func():
+					host.AnswerDemand(id, yes)
+					for line in host.DrainChronicle(): _log(line)
+					_refresh_judge_button()
+					_refresh_family()
+					_open_rise())
+				row.add_child(b)
+			box.add_child(row)
+			rise_box.add_child(box)
+		rise_box.add_child(HSeparator.new())
+	var rows: Array = host.RiseRows()
+	var titles := {"lord": "내가 눈여겨보는 세력", "riser": "나를 눈여겨보는 지배자"}
+	for side in ["lord", "riser"]:
+		var any := false
+		for e in rows:
+			if e["side"] != side: continue
+			if not any:
+				rise_box.add_child(UI.label(titles[side], 13, UI.MUTED, true))
+				any = true
+			var head := HBoxContainer.new()
+			head.add_theme_constant_override("separation", 8)
+			var nm := UI.label(e["name"] + (" (%s)" % e["realm"] if e["realm"] != "" else ""), 15, UI.INK, true)
+			nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			head.add_child(nm)
+			head.add_child(UI.chip(e["suspicion"], Color(0.97, 0.86, 0.82), UI.RISK, 11))
+			var hid := int(e["house"]); var hx := int(e["x"]); var hy := int(e["y"])
+			var look := UI.ghost("보기")
+			look.pressed.connect(func():
+				rise_panel.visible = false
+				_look_at_house(hid, hx, hy))
+			head.add_child(look)
+			rise_box.add_child(head)
+			var info := "따르는 집 %d" % int(e["size"])
+			if e["stole"]: info += " · 내 집을 빼 갔다" if side == "lord" else " · 그의 집을 빼 왔다"
+			rise_box.add_child(UI.label(info, 12, UI.MUTED))
+			var grid := GridContainer.new()
+			grid.columns = 3
+			grid.add_theme_constant_override("h_separation", 6)
+			grid.add_theme_constant_override("v_separation", 6)
+			for m in e["moves"]:
+				var b := UI.action(m["name"], "", float(m["chance"]), m["harsh"])
+				b.custom_minimum_size = Vector2(200, 44)
+				var mid := int(m["id"]); var tgt := int(m["target"]); var act := int(m["actor"])
+				b.pressed.connect(func():
+					_set_hint(host.Interact(mid, act, tgt, -1, 0.0))
+					for line in host.DrainChronicle(): _log(line)
+					_refresh_judge_button()
+					_open_rise())
+				grid.add_child(b)
+			rise_box.add_child(grid)
+			rise_box.add_child(HSeparator.new())
+	if demands.is_empty() and rows.is_empty():
+		rise_box.add_child(UI.label("지금은 다툼이 없다. 세를 늘리면 위의 지배자가 알아챌 수 있고, 내 아래에서 세를 늘리는 집이 생기면 여기에 나온다.", 13, UI.MUTED))
+	rise_panel.visible = true
 
 
 func _open_judge() -> void:
@@ -779,6 +862,10 @@ func _build_ui() -> void:
 	judge_button.tooltip_text = "내 땅에서 잡은 범인의 판결과 벌의 세기"
 	judge_button.pressed.connect(_open_judge)
 	tr.add_child(_center(judge_button))
+	rise_button = UI.ghost("다툼")
+	rise_button.tooltip_text = "세력 다툼: 받은 요구, 내가 눈여겨보는 세력, 나를 눈여겨보는 지배자"
+	rise_button.pressed.connect(_open_rise)
+	tr.add_child(_center(rise_button))
 	tr.add_child(_vsep())
 	stat_family = UI.stat("가문", "맡은 집 없음")
 	stat_kin = UI.stat("같은 성", "-")
@@ -905,6 +992,34 @@ func _build_ui() -> void:
 	jv.add_child(jsc)
 	judge_panel.visible = false
 	rootc.add_child(judge_panel)
+
+	# 다툼 창
+	rise_panel = UI.panel()
+	rise_panel.set_anchors_preset(Control.PRESET_CENTER)
+	rise_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	rise_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	rise_panel.custom_minimum_size = Vector2(660, 0)
+	var rv := VBoxContainer.new()
+	rv.add_theme_constant_override("separation", 6)
+	rise_panel.add_child(rv)
+	var rh := HBoxContainer.new()
+	var rt := UI.label("세력 다툼", 20, UI.INK, true)
+	rt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rh.add_child(rt)
+	var rc := UI.ghost("닫기")
+	rc.pressed.connect(func(): rise_panel.visible = false)
+	rh.add_child(rc)
+	rv.add_child(rh)
+	var rsc := ScrollContainer.new()
+	rsc.custom_minimum_size = Vector2(640, 500)
+	rsc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	rise_box = VBoxContainer.new()
+	rise_box.add_theme_constant_override("separation", 6)
+	rise_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rsc.add_child(rise_box)
+	rv.add_child(rsc)
+	rise_panel.visible = false
+	rootc.add_child(rise_panel)
 
 	# 오른쪽: 카드
 	card = Card.new()
@@ -1152,6 +1267,36 @@ func _run_autotest() -> void:
 		await _snap("live_crime.png")
 		print("autotest: 훔치기 ", host.Interact(sid, actor, int(pd["i"]), -1, 0.0))
 		break
+	# 다툼: 지배자가 있는 큰 세계를 새로 띄워, 의심받는 집을 맡고 요구가 올 때까지 돌린다
+	host.Boot(2, 200, 10)
+	while not host.Ready: await get_tree().create_timer(0.5).timeout
+	var riser: int = host.TopRiser()
+	var asked := false
+	for k in 200:
+		if riser < 0:
+			host.Advance(24)
+			riser = host.TopRiser()
+			continue
+		if int(host.Player) != riser:
+			host.SetPlayer(riser)
+		host.Advance(24)
+		if int(host.DemandCount) > 0:
+			asked = true
+			break
+		riser = host.TopRiser()
+	print("autotest: 다툼 상대 줄 %d · 요구 %d · %s" % [host.RiseRows().size(), int(host.DemandCount), host.DateText])
+	var pos: Vector2i = host.HousePos(int(host.Player))
+	if pos.x >= 0: _recenter(pos)
+	_refresh_family()
+	_refresh_judge_button()
+	card.visible = false
+	_open_rise()
+	await _snap("live_rise.png")
+	if asked:
+		var ds: Array = host.Demands()
+		host.AnswerDemand(int(ds[0]["id"]), false)
+		print("autotest: 요구 거절 → 남은 요구 %d, 줄 %d" % [int(host.DemandCount), host.RiseRows().size()])
+	rise_panel.visible = false
 	get_tree().quit()
 
 

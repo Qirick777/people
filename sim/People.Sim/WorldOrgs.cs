@@ -432,7 +432,9 @@ public sealed partial class World
             if (WouldLoop(h, vassal)) continue;
             _patron[h] = vassal;
             _patronFounded[h] = hh.FoundedDay[vassal];
+            Resnap(h);   // 주군이 스스로 맡긴 집: 오름으로 보지 않는다
         }
+        Resnap(vassal);
         EnsureRealmArrays();
         _legit[vassal] = (byte)Legitimacy.Granted;
         HeadsRelate(vassal, lord, 20f, 0f, 20f, MemoryType.Protected, 20);
@@ -462,7 +464,7 @@ public sealed partial class World
         var hh = Households; var p = People;
         int n = 0;
         for (int h = 0; h < hh.HighWater; h++)
-            if (hh.IsAlive(h) && PatronOf(h) == vassal) { _patron[h] = lord; _patronFounded[h] = hh.FoundedDay[lord]; n++; }
+            if (hh.IsAlive(h) && PatronOf(h) == vassal) { _patron[h] = lord; _patronFounded[h] = hh.FoundedDay[lord]; Resnap(h); n++; }
         HeadsRelate(vassal, lord, -40f, 10f, 0f, MemoryType.Betrayed, -40);
         var vh = hh.Head[vassal];
         if (p.IsValid(vh)) p.Loyalty[vh.Index] = MathF.Max(0f, p.Loyalty[vh.Index] - 0.3f);

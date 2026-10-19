@@ -478,6 +478,7 @@ public sealed partial class World
         ArrangeYear();
         FamilyYear();
         GroupYear();
+        RiseYear();
         CrimeYear();
         if (Layout) UpdateTraffic();
         UpgradeHouses();

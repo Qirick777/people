@@ -197,6 +197,7 @@ public sealed partial class World
         AddGroupDefs(d);
         AddOrgDefs(d);
         AddCrimeDefs(d);
+        AddRiseDefs(d);
         return d;
     }
 

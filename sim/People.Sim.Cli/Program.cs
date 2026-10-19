@@ -408,6 +408,33 @@ switch (cmd)
         }
         break;
     }
+    case "risediag":
+    {
+        // 오름의 다툼 진단: 알아챔, 반응, 끝(서임, 진압, 참주, 서약)과 지배자 성격별 선택
+        var map = WorldMap.Generate((uint)Arg("--seed", 1), Arg("--size", 48));
+        var w = new World((ulong)Arg("--seed", 1), map, Config());
+        w.SeedCouples(Arg("--couples", 10));
+        int years = Arg("--years", 300);
+        var sum = new Dictionary<string, long>();
+        void S(string k, long v) => sum[k] = sum.GetValueOrDefault(k) + v;
+        for (int y = 0; y < years; y++)
+        {
+            for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
+            var st = w.Stats;
+            S("알아챔", st.RiseNoticed); S("반응", st.RiseActs); S("끌어들임", st.Coopted); S("경고 받아들임", st.Warned); S("흔들어 빼앗은 집", st.Swayed);
+            S("서약 받음", st.OathsTaken); S("깎아내림", st.Slanders); S("진압 이김", st.RiseSuppressWins); S("진압 실패(참주)", st.Tyrants); S("서임", st.Invested);
+            S("스스로 서약", st.SworeUp); S("머리 위로", st.OverHead);
+        }
+        Console.WriteLine($"{years}년, 사람 {w.People.AliveCount}, 지금 눈여겨보는 세력 {w.Stats.Rivals}");
+        Console.WriteLine(string.Join(", ", sum.Select(e => $"{e.Key} {e.Value}")));
+        string[] tn = { "말솜씨", "신중", "공격성" };
+        for (int t = 0; t < 3; t++)
+        {
+            var row = w.RiseActLedger.Where(e => e.Key.trait == t).OrderByDescending(e => e.Value.n);
+            Console.WriteLine($"{tn[t]}: " + string.Join(", ", row.Select(e => $"{w.Def(e.Key.act).Name} {e.Value.n}(된 것 {e.Value.ok})")));
+        }
+        break;
+    }
     case "familydiag":
     {
         // C 묶음 진단: 첩을 들일 만한 남자, 미혼·과부 여자, 받아들일 확률, 약초꾼, 신앙심 분포

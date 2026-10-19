@@ -1,7 +1,8 @@
 namespace People.Sim;
 
 public enum InteractionId : byte { Chat, Compliment, Gossip, Gift, Affair, SexTrade, Persuade, Threaten, Probe, Propose, ArrangeMatch, Divorce,
-    TakeConcubine, Acknowledge, NameHeir, OrderSplit, Disown, ForcedMatch, Hush, BuyContraception, BuyAbortion, Recruit, Enfeoff, Revoke, Steal, Assault, Extort, Murder, Count }
+    TakeConcubine, Acknowledge, NameHeir, OrderSplit, Disown, ForcedMatch, Hush, BuyContraception, BuyAbortion, Recruit, Enfeoff, Revoke, Steal, Assault, Extort, Murder,
+    RiseCoopt, RiseWarn, RiseSway, RiseOath, RiseSlander, RiseSuppress, RiseInvest, RiseSwear, RiseOverHead, Count }
 
 public enum InteractionCategory : byte { Talk, Courtship, Family, Trade, Rule, Scheme }
 

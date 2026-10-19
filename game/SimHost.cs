@@ -659,4 +659,94 @@ public partial class SimHost : Node
             if (w.Households.IsAlive(h) && w.ClientCount(h) > 0 && (best < 0 || w.ClientCount(h) > w.ClientCount(best))) best = h;
         return best;
     }
+
+    // ------------------------------------------------------------------ 오름의 다툼
+
+    public int DemandCount => _w == null ? 0 : _w.Demands.Count();
+
+    private static readonly InteractionId[] LordMoves = { InteractionId.RiseCoopt, InteractionId.RiseWarn, InteractionId.RiseSway, InteractionId.RiseOath, InteractionId.RiseSlander, InteractionId.RiseSuppress, InteractionId.RiseInvest };
+    private static readonly InteractionId[] RiserMoves = { InteractionId.RiseSwear, InteractionId.RiseOverHead };
+
+    private static string SuspicionWord(float s) => s < 15 ? "눈여겨봄" : s < 35 ? "의심함" : s < 70 ? "크게 의심함" : "칼을 갈고 있음";
+
+    /// <summary>내 집에 온 요구: 번호, 지배자, 요구 글, 날짜.</summary>
+    public Godot.Collections.Array Demands()
+    {
+        var a = new Godot.Collections.Array();
+        if (!Ready) return a;
+        var w = _w!; var p = w.People;
+        foreach (var d in w.Demands)
+        {
+            var head = w.Households.Head[d.Lord];
+            a.Add(new Godot.Collections.Dictionary
+            {
+                ["id"] = d.Id,
+                ["lord"] = p.IsValid(head) ? Names.Full(w.Lineage, p.Uid[head.Index]) : "",
+                ["realm"] = w.RealmName(d.Lord),
+                ["text"] = w.DemandTextOf(d),
+                ["date"] = $"{d.Day / w.Config.DaysPerYear + 1}년",
+            });
+        }
+        return a;
+    }
+
+    public bool AnswerDemand(int id, bool accept) => _w != null && _w.AnswerDemand(id, accept);
+
+    /// <summary>
+    /// 다툼 상대: 내가 지배자로서 눈여겨보는 세력(side "lord")과 나를 눈여겨보는 지배자(side "riser").
+    /// 줄마다 상대 가장, 크기, 의심, 내가 쓸 수 있는 수(id, 이름, 확률, 험한 일).
+    /// </summary>
+    public Godot.Collections.Array RiseRows()
+    {
+        var a = new Godot.Collections.Array();
+        if (!Ready) return a;
+        var w = _w!; var p = w.People; var hh = w.Households;
+        int me = w.PlayerHousehold;
+        if (me < 0 || !p.IsValid(hh.Head[me])) return a;
+        int myHead = hh.Head[me].Index;
+        foreach (var r in w.Rivals.ToList())
+        {
+            if (r.Lord != me && r.Riser != me) continue;
+            bool asLord = r.Lord == me;
+            int other = asLord ? r.Riser : r.Lord;
+            if (!hh.IsAlive(other) || !p.IsValid(hh.Head[other])) continue;
+            int oh = hh.Head[other].Index;
+            var moves = new Godot.Collections.Array();
+            var ids = asLord ? LordMoves : RiserMoves;
+            var targets = new List<int> { oh };
+            if (!asLord && w.PatronOf(other) >= 0 && p.IsValid(hh.Head[w.PatronOf(other)])) targets.Add(hh.Head[w.PatronOf(other)].Index);   // 머리 위로 갈 곳
+            foreach (int t in targets)
+                foreach (var id in ids)
+                {
+                    var def = w.Def(id);
+                    var c = new InteractionContext { Actor = myHead, Target = t, Third = -1 };
+                    if (!def.Can(w, c)) continue;
+                    moves.Add(new Godot.Collections.Dictionary
+                    {
+                        ["id"] = (int)id, ["target"] = t, ["actor"] = myHead, ["name"] = def.Name + (t != oh ? $"({Names.Full(w.Lineage, p.Uid[t])})" : ""),
+                        ["chance"] = def.Accept(w, c), ["harsh"] = def.Harsh || def.Secret,
+                    });
+                }
+            a.Add(new Godot.Collections.Dictionary
+            {
+                ["side"] = asLord ? "lord" : "riser",
+                ["name"] = Names.Full(w.Lineage, p.Uid[oh]),
+                ["realm"] = w.RealmName(other),
+                ["size"] = Math.Max(w.BelowOf(other), w.ClientCount(other)),
+                ["suspicion"] = SuspicionWord(r.Suspicion),
+                ["stole"] = r.Stole,
+                ["moves"] = moves,
+                ["x"] = hh.X[other], ["y"] = hh.Y[other], ["house"] = other,
+            });
+        }
+        return a;
+    }
+
+    /// <summary>의심이 가장 큰 다툼의 올라서는 집(자동 점검용). 없으면 -1.</summary>
+    public int TopRiser()
+    {
+        if (!Ready) return -1;
+        var r = _w!.Rivals.Where(x => _w.Households.IsAlive(x.Riser)).OrderByDescending(x => x.Suspicion).FirstOrDefault();
+        return r?.Riser ?? -1;
+    }
 }
