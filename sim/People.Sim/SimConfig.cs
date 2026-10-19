@@ -98,6 +98,23 @@ public sealed class SimConfig
     public float TradeFee { get; init; } = 0.3f;             // 아낀 양 중 장사꾼 몫
     public float FarmSkillEffect { get; init; } = 0.5f;      // 수확 × (1 + 이 값 × (가구 농사 솜씨 − 기준))
     public float FarmSkillBaseline { get; init; } = 0.68f;   // 보통 농가의 솜씨(이때 수확이 기술 넣기 전과 같다)
+    // 4단계: 소작, 품삯, 빚
+    public float LeaseKeep { get; init; } = 1.6f;            // 땅 주인은 일손 × 필지 × 이 배수(쉬는 땅 포함)만 남기고 나머지를 내놓는다
+    public float TenantWant { get; init; } = 1.15f;          // 일손 × 필지 × 이 배수보다 땅이 적으면 빌린다
+    public float RentBase { get; init; } = 0.35f;            // 소작료(수확 몫) = 기준 + 기울기 × (빌리려는 양/내놓은 양 − 1)
+    public float RentSlope { get; init; } = 0.2f;
+    public float RentMin { get; init; } = 0.2f;
+    public float RentMax { get; init; } = 0.6f;
+    public float WageBase { get; init; } = 0.45f;            // 품삯 = 한 사람 한 해 수확 × (기준 + 기울기 × (수요/공급 − 1))
+    public float WageSlope { get; init; } = 0.2f;
+    public float WageMin { get; init; } = 0.3f;
+    public float WageMax { get; init; } = 0.75f;
+    public float DistressLevel { get; init; } = 0.4f;        // 수확까지 먹을 양의 이 몫보다 식량이 적으면 빌리거나 판다
+    public float DistressCover { get; init; } = 0.7f;        // 이 몫까지 채우려 한다
+    public float LoanInterest { get; init; } = 0.25f;
+    public int ForecloseYears { get; init; } = 2;            // 두 수확 넘게 못 갚으면 밭으로 받는다
+    public float DistressPrice { get; init; } = 0.6f;        // 급히 파는 땅값 = 땅 가치 × 이 값
+    public int StayLeaseSlack { get; init; } = 3;            // 빌릴 땅이 이만큼 남아 있으면 분가해도 마을에 남는다
     public int ScrubYears { get; init; } = 12;              // 버려진 밭이 이만큼 묵으면 덤불: 다시 부치려면 개간 한 해
     public int ForestYears { get; init; } = 35;             // 이만큼 묵으면 숲으로 돌아간다
     public float HouseBuildCost { get; init; } = 30f;        // 오두막 하나 짓는 값(식량). 본가가 낸다

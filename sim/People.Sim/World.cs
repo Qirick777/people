@@ -408,6 +408,7 @@ public sealed partial class World
         if (cal.DayOfSeason == 0)
         {
             Timed("부패", SpoilWithTrade);
+            Timed("빚과 땅 팔기", Distress);
             Timed("구애", Courtship);
         }
         Timed("식량 소비", Consume);
@@ -436,6 +437,9 @@ public sealed partial class World
         Splits();
         ClaimLand();
         if (Layout) Stats.Swaps += Map.Consolidate(Households, Households.HighWater, Config.SwapTolerance);
+        LeaseMarket();
+        ReleaseExcess();
+        WageMarket();
         if (Layout) UpdateTraffic();
         UpgradeHouses();
     }
@@ -523,14 +527,19 @@ public sealed partial class World
         var map = Map;
         float total = 0;
         var worked = new HashSet<int>();
+        EnsureLandArrays();
         for (int h = 0; h < hh.HighWater; h++)
         {
-            if (!hh.IsAlive(h) || hh.PlotCount[h] == 0) continue;
-            float capacity = hh.Labor[h] * Config.PlotsPerWorker;
+            if (!hh.IsAlive(h)) continue;
+            // 부치는 땅 = 빌려주지 않은 내 땅 + 빌린 땅. 일손 = 식구 + 산 품 − 판 품
+            var mine = WorkPlots(h);
+            if (mine.Count == 0) continue;
+            float capacity = MathF.Max(0f, hh.Labor[h] + _hiredIn[h] - _hiredOut[h]) * Config.PlotsPerWorker;
             float farmK = 1f + Config.FarmSkillEffect * (FarmSkillOf(h) - Config.FarmSkillBaseline);
-            var mine = map.PlotsOf(h);
             mine.Sort((a, b) => map.Fert(b).CompareTo(map.Fert(a)));
-            float yield = 0;
+            float yield = 0, tenantYield = 0;
+            int hv = hh.Village[h];
+            float rate = hv >= 0 && hv < _rentRate.Count ? _rentRate[hv] : 0f;
             for (int k = 0; k < mine.Count && capacity > 0; k++)
             {
                 float part = MathF.Min(1f, capacity);
@@ -563,11 +572,26 @@ public sealed partial class World
                         continue;
                     }
                 }
-                yield += Config.PlotYield * map.Fert(plot) * Weather * part * farmK;
+                float got = Config.PlotYield * map.Fert(plot) * Weather * part * farmK;
+                int owner = map.Owner(plot);
+                if (owner != h && owner >= 0)
+                {
+                    // 빌린 땅: 소작료를 땅 주인에게
+                    float rent = got * rate;
+                    hh.Food[owner] += rent;
+                    _incRent[owner] += rent;
+                    tenantYield += got - rent;
+                }
+                else yield += got;
             }
-            hh.Food[h] += yield;
-            total += yield;
+            hh.Food[h] += yield + tenantYield;
+            _incOwn[h] += yield;
+            _incTenant[h] += tenantYield;
+            total += yield + tenantYield;
         }
+        PayWages();
+        SettleDebts();
+        Classify();
         foreach (int plot in worked)
         {
             map.SetFert(plot, MathF.Max(0.1f, map.Fert(plot) - Config.FertilityDeclinePerYear));
@@ -596,9 +620,7 @@ public sealed partial class World
             // 일할 수 있는 양보다 넉넉히 잡는다. 남는 땅은 쉬게 되어 비옥도가 돌아온다(돌려짓기가 저절로 생긴다).
             int want = (int)MathF.Ceiling(hh.Labor[h] * Config.PlotsPerWorker * Config.LandReserve);
             if (hh.PlotCount[h] < want) ClaimFields(h, want - hh.PlotCount[h]);
-            // 일손이 줄어 부칠 수 없는 땅이 너무 많으면 덜 비옥한 것부터 내놓는다.
-            int keep = (int)MathF.Ceiling(hh.Labor[h] * Config.PlotsPerWorker * Config.LandRelease);
-            if (hh.PlotCount[h] > keep) Map.ReleaseWorst(h, hh.PlotCount[h] - keep, hh);
+            // 남는 땅은 소작 시장에 내놓고, 그래도 남으면 ReleaseExcess 가 내놓는다.
         }
     }
 
@@ -917,6 +939,12 @@ public sealed partial class World
             Stats.Migrations++;
             Stats.NewVillages++;
             return nh;
+        }
+        // 4) 갈 곳이 없으면: 빌릴 땅이 남은 마을에서 땅 없이 시작한다(소작농). 그것도 없으면 본가 땅을 나눈다.
+        if (v >= 0 && LeaseSlack(v) >= Config.StayLeaseSlack)
+        {
+            int nh = SettleIn(v, parent);
+            if (nh >= 0) { Stats.LandlessSettlers++; return nh; }
         }
         return SplitParentLand(parent, v);
     }

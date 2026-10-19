@@ -512,8 +512,9 @@ func _ui_shots(tag: String) -> void:
 	var bd := 1e9
 	for k in pickables.size():
 		var pd: Dictionary = pickables[k]["pd"]
-		if pd["job"] in ["농부", "아이"]: continue
+		if pd["job"] in ["농부", "아이", "자작농", "도제"]: continue
 		var d: float = pickables[k]["node"].global_position.distance_to(mid)
+		if pd["job"] == "소작농": d -= 1000.0   # 소작농을 먼저 보여 준다
 		if d < bd: bd = d; target = k
 	if target < 0: return
 	var tp: Vector3 = pickables[target]["node"].global_position
@@ -527,6 +528,7 @@ func _ui_shots(tag: String) -> void:
 		var n := 0
 		for pd in data.get("people", []):
 			if int(pd["h"]) == k: n += 1
+		if data["hinfo"][k].get("class", "") == "지주": n += 100   # 지주 집을 먼저 보여 준다
 		if n > most and house_pos[k].distance_to(mid) < 160: most = n; best_h = k
 	if best_h < 0: return
 	_aim_left(house_pos[best_h], 46.0)

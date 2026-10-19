@@ -308,7 +308,10 @@ switch (cmd)
             houseIndex[h] = houseIndex.Count;
             sb.Append($"[{hx},{hy},{hh.Members[h]},{hh.Capacity[h]},{(hh.Food[h] + hh.LandValue[h]).ToString("0", inv)},1]");
             int head = p.IsValid(hh.Head[h]) ? p.Uid[hh.Head[h].Index] : -1;
-            hinfo.Append($"{{\"head\":{J(Names.Full(lin, head))},\"family\":{J(Names.Family(lin.FamilyOf(head)))},\"food\":{hh.Food[h].ToString("0", inv)},\"plots\":{hh.PlotCount[h]},\"cap\":{hh.Capacity[h]},\"village\":{hh.Village[h]},\"founded\":{hh.FoundedDay[h] / w.Config.DaysPerYear}}}");
+            int lord = w.MainLandlordOf(h);
+            string lordName = lord >= 0 && p.IsValid(hh.Head[lord]) ? Names.Family(lin.FamilyOf(p.Uid[hh.Head[lord].Index])) : "";
+            hinfo.Append($"{{\"head\":{J(Names.Full(lin, head))},\"family\":{J(Names.Family(lin.FamilyOf(head)))},\"food\":{hh.Food[h].ToString("0", inv)},\"plots\":{hh.PlotCount[h]},\"cap\":{hh.Capacity[h]},\"village\":{hh.Village[h]},\"founded\":{hh.FoundedDay[h] / w.Config.DaysPerYear},");
+            hinfo.Append($"\"class\":{J(World.ClassName(w.ClassOf(h)))},\"leasedOut\":{w.LeasedOutCount(h)},\"leasedIn\":{w.LeasedInCount(h)},\"lord\":{J(lordName)},\"debt\":{w.DebtOf(h).ToString("0", inv)}}}");
         }
         // 빈집: 사는 사람 0, 마지막 값은 상태(1 멀쩡 ~ 0 무너짐)
         foreach (var vh in w.Vacant)
@@ -364,7 +367,9 @@ switch (cmd)
             if (!firstP) sb.Append(',');
             firstP = false;
             sb.Append($"{{\"h\":{hi},\"name\":{J(Names.Full(lin, uid))},\"family\":{J(Names.Family(lin.FamilyOf(uid)))},\"male\":{(male ? "true" : "false")},\"age\":{age},");
-            sb.Append($"\"job\":{J(age < 16 ? (master != "" ? "도제" : "아이") : Skills.JobName(job))},\"head\":{(hh.Head[p.Household[i]].Index == i ? "true" : "false")},");
+            string cls = World.ClassName(w.ClassOf(p.Household[i]));
+            string jobName = age < 16 ? (master != "" ? "도제" : "아이") : job != Job.Farmer ? Skills.JobName(job) : cls != "" ? cls : "농부";
+            sb.Append($"\"job\":{J(jobName)},\"head\":{(hh.Head[p.Household[i]].Index == i ? "true" : "false")},");
             sb.Append($"\"labels\":[{string.Join(",", Skills.Labels(p, i).Select(J))}],\"skills\":[{string.Join(",", skills)}],\"hints\":[{string.Join(",", hints.Select(J))}],");
             sb.Append($"\"health\":[{string.Join(",", health.Select(J))}],\"hair\":\"{hair}\",\"bald\":{(Genetics.Expressed(g, Marker.Baldness, male) && age >= 30 ? "true" : "false")},");
             sb.Append($"\"height\":{p.Get(i, Trait.Height).ToString("0.00", inv)},\"father\":{J(Parent(f))},\"mother\":{J(Parent(m))},\"spouse\":{J(spouse)},");

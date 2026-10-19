@@ -399,6 +399,12 @@ public sealed class WorldMap
         return n;
     }
 
+    /// <summary>필지 하나의 주인을 바꾼다(땅 팔기, 빚 대신 넘기기).</summary>
+    public void GivePlot(int id, int to, HouseholdStore hh) => SetOwner(id, to, hh);
+
+    /// <summary>필지 하나를 내놓는다.</summary>
+    public void Release(int id, HouseholdStore hh, bool single) => SetOwner(id, -1, hh);
+
     public List<int> PlotsOf(int household) =>
         household < _byOwner.Length && _byOwner[household] != null ? new List<int>(_byOwner[household]!) : new List<int>();
 
