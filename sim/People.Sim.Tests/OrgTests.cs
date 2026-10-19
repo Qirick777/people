@@ -59,3 +59,27 @@ public class OrgTests
         Assert.Equal(n, w.ClientCount(vassal));
     }
 }
+
+public class OrgNameTests
+{
+    [Fact]
+    public void ChosenNameStaysAndBranchesFollow()
+    {
+        var w = new World(3, 400);
+        w.SeedCouples(5);
+        for (int d = 0; d < 60 * w.Config.DaysPerYear; d++) w.Step();
+        var p = w.People;
+        var adults = Enumerable.Range(0, p.HighWater).Where(i => p.IsAliveIndex(i) && (w.Day - p.BirthDay[i]) / w.Config.DaysPerYear >= 16 && w.GroupsOf(i).Count() < World.GroupSlots).Take(11).ToList();
+        var g = w.FoundGroup(adults[0], GroupKind.Watch);
+        foreach (int i in adults.Skip(1)) w.JoinGroup(i, g);
+        var c = w.SplitUnit(g)!;
+        w.RenameGroup(g, "  북쪽 개울 형제단\n");
+        Assert.Equal("북쪽 개울 형제단", g.Name);
+        Assert.True(g.NameFixed);
+        Assert.Equal("북쪽 개울 형제단 1갈래", c.Name);
+        w.RenameGroup(g, new string('가', 40));
+        Assert.Equal(20, g.Name.Length);
+        for (int d = 0; d < 2 * w.Config.DaysPerYear; d++) w.Step();
+        Assert.Equal(new string('가', 20), g.Name);   // 해가 바뀌어도 지은 이름은 남는다
+    }
+}

@@ -113,7 +113,57 @@ public sealed partial class World
             }
         }
         SumSubtrees();
+        RefreshNames();
     }
+
+    // ------------------------------------------------------------------ 이름
+
+    /// <summary>세력 단계마다 붙는 말. 지은 이름이 없으면 단계가 오를 때 이름도 바뀐다.</summary>
+    public static string RealmWord(int tier) => tier switch { 2 => "영지", 3 => "대영지", 4 => "왕국", 1 => "무리", _ => "가문 군대" };
+
+    /// <summary>
+    /// 지은 이름이 없는 조직의 이름을 다시 붙인다.
+    /// 지배자의 조직은 '성 + 단계 말'(노스우드 영지), 갈래는 '위 조직 이름 + 몇째 갈래'.
+    /// </summary>
+    private void AutoName(Group g)
+    {
+        if (g.NameFixed) return;
+        if (g.Parent >= 0 && GroupById(g.Parent) is { } up)
+        {
+            int n = 1;
+            foreach (var c in ChildrenOf(up)) if (c.Id < g.Id) n++;
+            g.Name = $"{up.Name} {n}갈래";
+        }
+        else if (g.Home >= 0 && Households.IsAlive(g.Home) && People.IsValid(Households.Head[g.Home]))
+        {
+            string fam = Names.Family(Lineage.FamilyOf(People.Uid[Households.Head[g.Home].Index]));
+            g.Name = $"{fam} {RealmWord(TierOf(g.Home))}";
+        }
+    }
+
+    /// <summary>맨 위부터 아래로 이름을 맞춘다(위 이름이 바뀌면 갈래 이름도 따라간다).</summary>
+    public void RefreshNames()
+    {
+        void Walk(Group g, int d)
+        {
+            AutoName(g);
+            if (d < 16) foreach (var c in ChildrenOf(g).ToList()) Walk(c, d + 1);
+        }
+        foreach (var g in _groups.ToList()) if (g.Alive && g.Parent < 0) Walk(g, 0);
+    }
+
+    /// <summary>이름을 짓는다. 빈 이름이면 지은 이름을 버리고 저절로 붙는 이름으로 돌아간다.</summary>
+    public void RenameGroup(Group g, string name)
+    {
+        var clean = new string(name.Where(ch => !char.IsControl(ch)).ToArray()).Trim();
+        if (clean.Length > 20) clean = clean[..20];
+        if (clean.Length == 0) g.NameFixed = false;
+        else { g.Name = clean; g.NameFixed = true; }
+        RefreshNames();
+    }
+
+    /// <summary>집 h 의 세력 이름(조직이 없으면 빈 글).</summary>
+    public string RealmName(int h) => LordOrg(h, false)?.Name ?? "";
 
     // ------------------------------------------------------------------ 지배자의 조직
 
@@ -134,8 +184,8 @@ public sealed partial class World
         {
             Id = _groups.Count, Kind = GroupKind.Army, LeaderUid = People.Uid[head], Founded = Day, Village = Households.Village[h],
             Home = h, HomeFounded = Households.FoundedDay[h], Paid = true,
-            Name = $"{Names.Family(Lineage.FamilyOf(People.Uid[head]))} 가문의 군대",
         };
+        AutoName(o);
         _groups.Add(o);
         DefaultTask(o);
         _lordOrg[h] = o.Id;
@@ -155,6 +205,9 @@ public sealed partial class World
         foreach (var (person, l) in _employer)
             if (p.IsAliveIndex(person) && p.JobOf[person] == (byte)Job.Soldier)
                 (soldiers.TryGetValue(l, out var list) ? list : soldiers[l] = new()).Add(person);
+        // 무리 이상인 집은 군인이 없어도 조직(세력의 몸통)을 가진다
+        for (int h = 0; h < hh.HighWater; h++)
+            if (hh.IsAlive(h) && TierOf(h) >= 1 && !soldiers.ContainsKey(h)) LordOrg(h);
         foreach (var (lord, list) in soldiers)
         {
             var o = LordOrg(lord);
@@ -328,9 +381,9 @@ public sealed partial class World
         var c = new Group
         {
             Id = _groups.Count, Kind = g.Kind, LeaderUid = p.Uid[sub], Founded = Day, Village = g.Village, Parent = g.Id, Paid = g.Paid,
-            Name = $"{g.Name} {ChildrenOf(g).Count() + 1}갈래",
         };
         _groups.Add(c);
+        AutoName(c);
         foreach (var t in g.Tasks) c.Tasks.Add(t);
         int move = ms.Count / 2;
         LeaveGroup(sub, g); JoinGroup(sub, c);
@@ -563,6 +616,7 @@ public sealed partial class World
         }
         _domainVillages = null;
         DelegationYear();
+        RefreshNames();
         Stats.OrgUnits = _groups.Count(g => g.Alive && g.Parent >= 0);
         Stats.LordArmies = _lordOrg.Count;
     }

@@ -444,6 +444,7 @@ public partial class SimHost : Node
                     ["strength"] = g.Strength,
                     ["tasks"] = tasks == "" ? "맡은 일 없음" : tasks,
                     ["manual"] = g.Manual,
+                    ["named"] = g.NameFixed,
                     ["command"] = command,
                     ["canSplit"] = command && g.Members >= 9,
                     ["mineIn"] = mine.Any(i => w.InGroup(i, g)),
@@ -532,6 +533,17 @@ public partial class SimHost : Node
         if (g == null) return false;
         _w!.SetUnitTask(g, (Verb)verb, village);
         _w.Chronicle.Add((_w.Day, $"{g.Name}에 {World.VerbName((Verb)verb)}({VillageName(g.Village, village)})을(를) 맡겼다"));
+        return true;
+    }
+
+    /// <summary>조직 이름을 짓는다. 빈 글이면 저절로 붙는 이름으로 돌아간다.</summary>
+    public bool RenameOrg(int id, string name)
+    {
+        var g = Commandable(id);
+        if (g == null) return false;
+        string old = g.Name;
+        _w!.RenameGroup(g, name);
+        if (g.Name != old) _w.Chronicle.Add((_w.Day, $"{old}의 이름을 {g.Name}(으)로 지었다"));
         return true;
     }
 

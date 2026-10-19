@@ -24,6 +24,7 @@ public sealed class Group
     public int Home = -1, HomeFounded = -1;           // 이 조직이 붙은 지배자 집(세력의 조직이면)
     public bool Paid;                                 // 품삯 받는 군인 갈래(지배자가 고용한 사람들)
     public bool Manual;                               // 플레이어가 맡은 일을 정했다(AI 가 바꾸지 않는다)
+    public bool NameFixed;                            // 지은 이름(단계가 바뀌어도 그대로 간다)
     public readonly List<OrgTask> Tasks = new();
 }
 

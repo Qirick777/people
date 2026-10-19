@@ -443,6 +443,9 @@ func _open_orgs() -> void:
 					host.SplitOrg(id)
 					_open_orgs())
 				r.add_child(_center(sb))
+			var nb := UI.ghost("이름 짓기")
+			nb.pressed.connect(func(): _open_org_name(id, e["name"], e["named"]))
+			r.add_child(_center(nb))
 			var tb := UI.ghost("일 정하기")
 			tb.pressed.connect(func(): _open_org_tasks(id, e["name"]))
 			r.add_child(_center(tb))
@@ -454,6 +457,48 @@ func _open_orgs() -> void:
 				r.add_child(_center(ab))
 		org_box.add_child(r)
 	org_panel.visible = true
+
+
+func _open_org_name(id: int, name: String, named: bool) -> void:
+	org_title.text = name + " · 이름 짓기"
+	for c in org_box.get_children(): c.queue_free()
+	org_box.add_child(UI.label("세력이 커져도 지은 이름은 그대로 간다. 갈래 이름은 위 조직 이름을 따라간다.", 12, UI.MUTED))
+	var edit := LineEdit.new()
+	edit.text = name
+	edit.max_length = 20
+	edit.custom_minimum_size = Vector2(400, 36)
+	edit.add_theme_font_override("font", UI.font())
+	edit.add_theme_font_size_override("font_size", 16)
+	edit.add_theme_color_override("font_color", UI.INK)
+	edit.add_theme_color_override("caret_color", UI.INK)
+	edit.add_theme_color_override("font_selected_color", UI.INK)
+	edit.add_theme_color_override("selection_color", Color(0.24, 0.42, 0.45, 0.35))
+	var es := UI.box(Color(1, 0.98, 0.93), 6, UI.BORDER, 1)
+	es.content_margin_left = 10; es.content_margin_right = 10
+	edit.add_theme_stylebox_override("normal", es)
+	edit.add_theme_stylebox_override("focus", es)
+	org_box.add_child(edit)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	var ok := UI.action("이 이름으로", "", -1.0, false)
+	ok.custom_minimum_size = Vector2(200, 0)
+	var apply := func(t: String):
+		host.RenameOrg(id, t)
+		for line in host.DrainChronicle(): _log(line)
+		_open_orgs()
+	ok.pressed.connect(func(): apply.call(edit.text))
+	edit.text_submitted.connect(func(t: String): apply.call(t))
+	row.add_child(ok)
+	if named:
+		var back := UI.ghost("저절로 붙는 이름으로")
+		back.pressed.connect(func(): apply.call(""))
+		row.add_child(_center(back))
+	var cancel := UI.ghost("그만두기")
+	cancel.pressed.connect(_open_orgs)
+	row.add_child(_center(cancel))
+	org_box.add_child(row)
+	edit.grab_focus()
+	edit.select_all()
 
 
 func _open_org_tasks(id: int, name: String) -> void:
@@ -526,6 +571,7 @@ func _unhandled_input(ev: InputEvent) -> void:
 
 
 func _physics_process(dt: float) -> void:
+	if get_viewport().gui_get_focus_owner() is LineEdit: return   # 이름을 치는 동안은 화면을 움직이지 않는다
 	var v := Vector2.ZERO
 	if Input.is_physical_key_pressed(KEY_A): v.x -= 1
 	if Input.is_physical_key_pressed(KEY_D): v.x += 1
@@ -907,6 +953,13 @@ func _run_autotest() -> void:
 				host.SetOrgTask(int(orgs[0]["id"]), int(tt[1]["verb"]), int(tt[1]["village"]))
 				_open_orgs()
 				print("autotest: 일 정함 ", host.OrgPanel()[0]["tasks"])
+		if orgs.size() > 0 and orgs[0]["command"]:
+			_open_org_name(int(orgs[0]["id"]), orgs[0]["name"], false)
+			await _snap("live_org_name.png")
+			host.RenameOrg(int(orgs[0]["id"]), "북쪽 개울 형제단")
+			_open_orgs()
+			await _snap("live_orgs_named.png")
+			print("autotest: 이름 지음 ", host.OrgPanel()[0]["name"])
 		org_panel.visible = false
 	# 혈족 집: 족보 창을 열어 찍고, 첫 혈족 집으로 옮기기를 예약해 계절이 바뀌면 옮겨지는지 본다
 	card.visible = false
