@@ -240,6 +240,66 @@ public sealed partial class World
             Hire(lord, Job.Soldier, soldiersWanted - RetainerCount(lord, Job.Soldier));
             Hire(lord, Job.Collector, collectorsWanted - RetainerCount(lord, Job.Collector));
         }
+        BuildResidences();
+    }
+
+    // ------------------------------------------------------------------ 지배자의 집
+
+    // 집 등급: 0 보통 집, 1 영주 저택, 2 망루 달린 저택, 3 성. 넓은 집은 둘레 칸을 집터로 차지한다.
+    private byte[] _residence = new byte[256];
+    private readonly Dictionary<int, List<int>> _footprint = new();
+
+    public int ResidenceOf(int h) => h >= 0 && h < _residence.Length ? _residence[h] : 0;
+
+    private static int ResidenceRadius(int level) => level switch { >= 3 => 2, >= 1 => 1, _ => 0 };
+
+    /// <summary>
+    /// 거느린 집이 늘고 식량이 넉넉하면 지배자는 집을 고쳐 짓는다. 값은 목수에게 가고, 둘레 칸(밭이면 거둬서)을 집터로 쓴다.
+    /// </summary>
+    private void BuildResidences()
+    {
+        var hh = Households;
+        if (_residence.Length < hh.HighWater) Array.Resize(ref _residence, Math.Max(hh.HighWater, _residence.Length * 2));
+        foreach (var (lord, n) in _clientsOf)
+        {
+            if (!hh.IsAlive(lord)) continue;
+            int want = n >= Config.CastleClients ? 3 : n >= Config.TowerClients ? 2 : n >= Config.RulerClients ? 1 : 0;
+            int cur = _residence[lord];
+            if (want <= cur) continue;
+            int next = cur + 1;
+            float cost = next switch { 1 => Config.ManorCost, 2 => Config.TowerCost, _ => Config.CastleCost };
+            if (hh.Food[lord] < cost * 1.5f) continue;
+            PayCarpenter(lord, cost);
+            _residence[lord] = (byte)next;
+            hh.Capacity[lord] = Math.Max(hh.Capacity[lord], next switch { 1 => 12, 2 => 16, _ => 24 });
+            ClaimFootprint(lord, ResidenceRadius(next));
+            Stats.Residences++;
+        }
+    }
+
+    private void ClaimFootprint(int h, int r)
+    {
+        if (!Layout || r <= 0) return;
+        var hh = Households;
+        var list = _footprint.TryGetValue(h, out var l) ? l : _footprint[h] = new();
+        for (int dy = -r; dy <= r; dy++)
+            for (int dx = -r; dx <= r; dx++)
+            {
+                int x = hh.X[h] + dx, y = hh.Y[h] + dy;
+                if ((dx == 0 && dy == 0) || !Map.BuildableOrField(x, y)) continue;
+                if (Map.Evict(x, y, hh) >= 0) Stats.Evicted++;
+                Map.MarkHouse(x, y, true);
+                list.Add(Map.Id(x, y));
+            }
+    }
+
+    /// <summary>가구가 없어질 때: 큰 집은 빈집으로 남고(무너질 때 터도 함께 비운다), 등급 기록을 비운다.</summary>
+    private (int level, List<int>? footprint) TakeResidence(int h)
+    {
+        int level = ResidenceOf(h);
+        if (h < _residence.Length) _residence[h] = 0;
+        _footprint.Remove(h, out var fp);
+        return (level, fp);
     }
 
     /// <summary>지배자 혼자 챙길 수 있는 집 수. 말솜씨와 글이 넓힌다.</summary>
@@ -285,6 +345,7 @@ public sealed partial class World
                 if (!p.IsAliveIndex(i) || p.JobOf[i] != 0) continue;
                 int h = p.Household[i];
                 if (!hh.IsAlive(h) || (hh.Village[h] != lv && PatronOf(h) != lord)) continue;
+                if (ClientCount(h) > 0) continue;   // 다른 지배자 집안 사람은 쓰지 않는다
                 int age = AgeYears(i);
                 float sc;
                 if (job == Job.Soldier)

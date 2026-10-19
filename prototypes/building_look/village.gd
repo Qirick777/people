@@ -48,6 +48,24 @@ static func manor() -> Dictionary:
 		"doors": [[5, 4, 0, 1], [6, 12, 0, 1]],
 		"ground": "stone", "upper": "timber", "gable": "timber", "roof_mat": "slate", "pitch": 48.0, "chimney": true, "shutter": RED, "seed": 9}
 
+## 망루 달린 저택: 저택 옆에 돌 망루(성가퀴 지붕).
+static func manor_tower() -> Dictionary:
+	var sp := manor()
+	sp["blocks"].append({"x": 13, "z": 1, "w": 4, "d": 4, "floors": 4, "roof": "crenel", "ground": "stone", "upper": "stone", "no_windows": false})
+	sp["seed"] = 12
+	return sp
+
+## 성: 가운데 큰 탑(본성), 안채, 네 모서리 탑. 성벽은 render 쪽에서 curtain 으로 두른다(가로세로 30 m).
+static func castle() -> Dictionary:
+	return {"blocks": [
+		{"x": 11, "z": 11, "w": 8, "d": 8, "floors": 5, "roof": "crenel", "ground": "stone", "upper": "stone"},
+		{"x": 3, "z": 4, "w": 8, "d": 5, "floors": 2, "ground": "stone", "upper": "timber", "gable": "timber"},
+		{"x": 0, "z": 0, "w": 4, "d": 4, "floors": 3, "roof": "crenel", "ground": "stone", "upper": "stone", "no_windows": true},
+		{"x": 26, "z": 0, "w": 4, "d": 4, "floors": 3, "roof": "crenel", "ground": "stone", "upper": "stone", "no_windows": true},
+		{"x": 0, "z": 26, "w": 4, "d": 4, "floors": 3, "roof": "crenel", "ground": "stone", "upper": "stone", "no_windows": true},
+		{"x": 26, "z": 26, "w": 4, "d": 4, "floors": 3, "roof": "crenel", "ground": "stone", "upper": "stone", "no_windows": true}],
+		"doors": [[14, 19, 0, 1]], "ground": "stone", "upper": "stone", "roof_mat": "slate", "pitch": 48.0, "shutter": RED, "seed": 13}
+
 static func town_hall() -> Dictionary:
 	return {"blocks": [{"x": 0, "z": 0, "w": 14, "d": 5, "floors": 2}, {"x": 0, "z": 5, "w": 4, "d": 5, "floors": 2, "ridge": "z"},
 		{"x": 10, "z": 5, "w": 4, "d": 5, "floors": 2, "ridge": "z"}, {"x": 0, "z": 10, "w": 14, "d": 4, "floors": 2},

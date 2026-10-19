@@ -216,9 +216,11 @@ func show_house(hd: Array, house: Dictionary, members: Array) -> void:
 	var vacant := int(hd[2]) == 0
 	var cap := int(hd[3])
 	var kind := "오두막" if cap <= 4 else "살림집" if cap <= 8 else "큰 농가" if cap <= 12 else "대저택"
+	var res: int = int(hd[6]) if hd.size() > 6 else 0
+	if res > 0: kind = ["", "영주 저택", "망루 달린 저택", "성"][res]
 	if vacant:
 		var cond := float(hd[5])
-		_header("빈집", "%s · 정원 %d명" % [kind, cap])
+		_header("빈 성" if res >= 3 else "빈집", "%s · 정원 %d명" % [kind, cap])
 		_section("상태")
 		_skill_bar("상태", cond)
 		body.add_child(_label("대가 끊겨 비었다. 사는 사람이 없으면 해마다 낡아 무너진다.", 13, MUTED, false, true))

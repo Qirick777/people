@@ -309,8 +309,16 @@ switch (cmd)
         var vl = w.VillageList;
         int best = Enumerable.Range(0, vl.Count).Where(v => vl.Alive[v]).OrderByDescending(v => vl.Households[v]).First();
         int rw = Arg("--w", 120), rh = Arg("--h", 90);
-        int x0 = vl.CenterX[best] - rw / 2, y0 = vl.CenterY[best] - rh / 2;
-        map.EnsureAround(vl.CenterX[best], vl.CenterY[best], Math.Max(rw, rh));
+        int fx = vl.CenterX[best], fy = vl.CenterY[best];
+        if (SArg("--focus", "village") == "ruler")
+        {
+            // 가장 많이 거느린 지배자의 집을 가운데로
+            int lord = Enumerable.Range(0, w.Households.HighWater).Where(w.Households.IsAlive).OrderByDescending(w.ClientCount).First();
+            fx = w.Households.X[lord]; fy = w.Households.Y[lord];
+            Console.WriteLine($"지배자 집: 따르는 집 {w.ClientCount(lord)}, 집 등급 {w.ResidenceOf(lord)}, 식량 {w.Households.Food[lord]:F0}");
+        }
+        int x0 = fx - rw / 2, y0 = fy - rh / 2;
+        map.EnsureAround(fx, fy, Math.Max(rw, rh));
         var inv = CultureInfo.InvariantCulture;
         var sb = new System.Text.StringBuilder();
         sb.Append($"{{\"x0\":{x0},\"y0\":{y0},\"w\":{rw},\"h\":{rh},\"tiles\":[");
@@ -343,7 +351,7 @@ switch (cmd)
             if (!first) { sb.Append(','); hinfo.Append(','); }
             first = false;
             houseIndex[h] = houseIndex.Count;
-            sb.Append($"[{hx},{hy},{hh.Members[h]},{hh.Capacity[h]},{(hh.Food[h] + hh.LandValue[h]).ToString("0", inv)},1]");
+            sb.Append($"[{hx},{hy},{hh.Members[h]},{hh.Capacity[h]},{(hh.Food[h] + hh.LandValue[h]).ToString("0", inv)},1,{w.ResidenceOf(h)}]");
             int head = p.IsValid(hh.Head[h]) ? p.Uid[hh.Head[h].Index] : -1;
             int lord = w.MainLandlordOf(h);
             string lordName = lord >= 0 && p.IsValid(hh.Head[lord]) ? Names.Family(lin.FamilyOf(p.Uid[hh.Head[lord].Index])) : "";
@@ -361,7 +369,7 @@ switch (cmd)
             if (hx < 0 || hy < 0 || hx >= rw || hy >= rh) continue;
             if (!first) sb.Append(',');
             first = false;
-            sb.Append($"[{hx},{hy},0,{vh.Capacity},0,{vh.Condition.ToString("0.##", inv)}]");
+            sb.Append($"[{hx},{hy},0,{vh.Capacity},0,{vh.Condition.ToString("0.##", inv)},{vh.Residence}]");
             hinfo.Append((hinfo.Length > 0 ? "," : "") + $"{{\"head\":\"\",\"family\":\"\",\"food\":0,\"plots\":0,\"cap\":{vh.Capacity},\"village\":{vh.Village},\"founded\":0}}");
         }
         sb.Append("],\"hinfo\":[").Append(hinfo);

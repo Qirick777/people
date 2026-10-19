@@ -232,8 +232,9 @@ public sealed partial class World
     /// <summary>빈집. 대가 끊긴 가구의 집은 바로 사라지지 않고 남아 낡는다.</summary>
     public struct VacantHouse
     {
-        public int X, Y, Capacity, Village, Heir, HeirFounded;
+        public int X, Y, Capacity, Village, Heir, HeirFounded, Residence;
         public float Condition;   // 1 = 멀쩡, 0 = 무너짐
+        public List<int>? Footprint;   // 큰 집이 차지한 둘레 칸
     }
 
     private readonly List<VacantHouse> _vacant = new();
@@ -245,13 +246,19 @@ public sealed partial class World
         var hh = Households;
         VillageList.Leave(hh.Village[h]);
         Map.Release(h, hh);
+        var (level, fp) = TakeResidence(h);
         if (Layout && hh.Village[h] >= 0)
             _vacant.Add(new VacantHouse
             {
                 X = hh.X[h], Y = hh.Y[h], Capacity = hh.Capacity[h], Village = hh.Village[h], Condition = 1f,
                 Heir = heir, HeirFounded = heir >= 0 && hh.IsAlive(heir) ? hh.FoundedDay[heir] : -1,
+                Residence = level, Footprint = fp,
             });
-        else Map.MarkHouse(hh.X[h], hh.Y[h], false);
+        else
+        {
+            Map.MarkHouse(hh.X[h], hh.Y[h], false);
+            if (fp != null) foreach (int id in fp) { var (fx, fy) = Map.Pos(id); Map.MarkHouse(fx, fy, false); }
+        }
         hh.Remove(h);
     }
 
@@ -985,6 +992,12 @@ public sealed partial class World
                 _vacant[best] = _vacant[^1];
                 _vacant.RemoveAt(_vacant.Count - 1);
                 int nh = NewHousehold(vh.X, vh.Y, 0f, vh.Capacity, v);
+                if (vh.Residence > 0)
+                {
+                    if (_residence.Length <= nh) Array.Resize(ref _residence, Math.Max(nh + 1, _residence.Length * 2));
+                    _residence[nh] = (byte)vh.Residence;
+                    if (vh.Footprint != null) _footprint[nh] = vh.Footprint;
+                }
                 TookPlots(v, ClaimFields(nh, 3));
                 Stats.HouseSales++;
                 return nh;
@@ -1015,9 +1028,10 @@ public sealed partial class World
         for (int k = _vacant.Count - 1; k >= 0; k--)
         {
             var vh = _vacant[k];
-            vh.Condition -= 1f / Config.VacantLifeYears;
+            vh.Condition -= 1f / (Config.VacantLifeYears * (1 + vh.Residence));   // 돌로 지은 큰 집은 오래 버틴다
             if (vh.Condition > 0f) { _vacant[k] = vh; continue; }
             Map.MarkHouse(vh.X, vh.Y, false);
+            if (vh.Footprint != null) foreach (int id in vh.Footprint) { var (fx, fy) = Map.Pos(id); Map.MarkHouse(fx, fy, false); }
             _vacant[k] = _vacant[^1];
             _vacant.RemoveAt(_vacant.Count - 1);
             Stats.HousesCollapsed++;

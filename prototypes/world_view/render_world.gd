@@ -326,8 +326,12 @@ func _houses() -> void:
 	for hd in houses:
 		var x := int(hd[0]); var y := int(hd[1]); var cap := int(hd[3]); var wealth := float(hd[4])
 		var cond: float = float(hd[5]) if hd.size() > 5 else 1.0
+		var res: int = int(hd[6]) if hd.size() > 6 else 0
 		if int(hd[2]) == 0 and cond < 0.45:
-			_ruin(x, y, cond)
+			_ruin(x, y, cond, res)
+			continue
+		if res > 0:
+			_residence(x, y, res)
 			continue
 		var spec: Dictionary
 		if cap <= 4: spec = VS.hut() if wealth < 120 else VS.cottage()
@@ -351,9 +355,45 @@ func _houses() -> void:
 var _ruin_walls := []
 var _ruin_beams := []
 
-func _ruin(x: int, y: int, cond: float) -> void:
+## 지배자의 집: 1 영주 저택, 2 망루 달린 저택, 3 성(성벽과 모서리 탑).
+func _residence(x: int, y: int, res: int) -> void:
+	var spec: Dictionary = VS.manor() if res == 1 else VS.manor_tower() if res == 2 else VS.castle()
+	var b := BB.build(spec)
+	var ext := 0
+	for bl in spec["blocks"]: ext = max(ext, max(bl["x"] + bl["w"], bl["z"] + bl["d"]))
+	if res >= 3:
+		var stone := BM.get_mat("stone", 0.0)
+		var e := float(ext)
+		BB.curtain(b, Vector2(2, 2), Vector2(e - 2, 2), 1.2, 5.0, stone)
+		BB.curtain(b, Vector2(2, e - 2), Vector2(e * 0.5 - 2.5, e - 2), 1.2, 5.0, stone)
+		BB.curtain(b, Vector2(e * 0.5 + 2.5, e - 2), Vector2(e - 2, e - 2), 1.2, 5.0, stone)
+		BB.curtain(b, Vector2(2, 2), Vector2(2, e - 2), 1.2, 5.0, stone)
+		BB.curtain(b, Vector2(e - 2, 2), Vector2(e - 2, e - 2), 1.2, 5.0, stone)
+	var node := Node3D.new()
+	node.add_child(b)
+	b.position = Vector3(-ext * 0.5, 0, -ext * 0.5)
+	node.rotation.y = (rng.randi() % 4) * PI * 0.5
+	node.position = pos(x, y)
+	world.add_child(node)
+	# 깃발: 지배자 집 표시
+	var pole := MeshInstance3D.new()
+	pole.mesh = _box(Vector3(0.25, 1, 0.25))
+	var top := 9.0 if res == 1 else 15.0 if res == 2 else 19.0
+	pole.scale = Vector3(1, 4.0, 1)
+	pole.position = pos(x, y) + Vector3(0, top + 2.0, 0)
+	pole.material_override = BM.flat_mat(Color(0.35, 0.25, 0.17))
+	world.add_child(pole)
+	var flag := MeshInstance3D.new()
+	flag.mesh = _box(Vector3(2.4, 1.4, 0.12))
+	flag.position = pos(x, y) + Vector3(1.3, top + 3.3, 0)
+	flag.material_override = BM.flat_mat(Color(0.72, 0.18, 0.16))
+	world.add_child(flag)
+
+
+func _ruin(x: int, y: int, cond: float, res := 0) -> void:
 	var c := pos(x, y)
-	var h := 0.4 + cond * 2.4
+	var h := (0.4 + cond * 2.4) * (1.0 + res * 0.8)
+	var sc := 1.0 + res * 1.5
 	for side in 4:
 		for seg in 3:
 			if rng.randf() > 0.35 + cond: continue
@@ -366,8 +406,8 @@ func _ruin(x: int, y: int, cond: float) -> void:
 				2: p = Vector3(-2.6, 0, off); sz = Vector3(0.45, 0, 1.9)
 				_: p = Vector3(2.6, 0, off); sz = Vector3(0.45, 0, 1.9)
 			var hh := h * rng.randf_range(0.5, 1.0)
-			sz.y = hh
-			_ruin_walls.append(Transform3D(Basis.from_scale(sz), c + p + Vector3(0, hh * 0.5, 0)))
+			sz = Vector3(sz.x * sc if sz.x > 1 else sz.x * (1.0 + res * 0.5), hh, sz.z * sc if sz.z > 1 else sz.z * (1.0 + res * 0.5))
+			_ruin_walls.append(Transform3D(Basis.from_scale(sz), c + p * sc + Vector3(0, hh * 0.5, 0)))
 	for k in 2:
 		var b := Basis(Vector3.UP, rng.randf_range(0, PI)).scaled(Vector3(4.5, 0.35, 0.35))
 		_ruin_beams.append(Transform3D(b, c + Vector3(rng.randf_range(-1.5, 1.5), 0.2, rng.randf_range(-1.5, 1.5))))
@@ -533,7 +573,7 @@ func _ui_shots(tag: String) -> void:
 		var n := 0
 		for pd in data.get("people", []):
 			if int(pd["h"]) == k: n += 1
-		if data["hinfo"][k].get("class", "") == "지배자": n += 200   # 지배자 집을 먼저 보여 준다
+		if data["hinfo"][k].get("class", "") == "지배자": n += 200 + 100 * (int(data["houses"][k][6]) if data["houses"][k].size() > 6 else 0)   # 지배자 집, 큰 집을 먼저
 		elif data["hinfo"][k].get("class", "") == "지주": n += 100
 		if n > most and house_pos[k].distance_to(mid) < 160: most = n; best_h = k
 	if best_h < 0: return

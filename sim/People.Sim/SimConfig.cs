@@ -129,6 +129,11 @@ public sealed class SimConfig
     public int CollectorSpanBase { get; init; } = 10;        // 징수관 하나가 맡는 집(글을 알면 +15까지)
     public float CollectorCut { get; init; } = 0.1f;         // 징수관 몫(욕심만큼 더 떼어 먹는다)
     public int RulerClients { get; init; } = 5;              // 따르는 집이 이만큼이면 지배자
+    public int TowerClients { get; init; } = 60;             // 이만큼 거느리면 망루 달린 저택
+    public int CastleClients { get; init; } = 300;           // 이만큼 거느리면 성
+    public float ManorCost { get; init; } = 200f;            // 영주 저택 짓는 값(식량)
+    public float TowerCost { get; init; } = 800f;
+    public float CastleCost { get; init; } = 2500f;
     public int ScrubYears { get; init; } = 12;              // 버려진 밭이 이만큼 묵으면 덤불: 다시 부치려면 개간 한 해
     public int ForestYears { get; init; } = 35;             // 이만큼 묵으면 숲으로 돌아간다
     public float HouseBuildCost { get; init; } = 30f;        // 오두막 하나 짓는 값(식량). 본가가 낸다
