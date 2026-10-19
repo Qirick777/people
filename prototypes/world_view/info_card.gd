@@ -197,6 +197,7 @@ func show_person(pd: Dictionary, house: Dictionary) -> void:
 	var line := "%s 가문의 집 · %s · 땅 %d필지 · 식량 %s" % [house["family"], house.get("class", ""), int(house["plots"]), _food_word(house)]
 	if int(house.get("leasedIn", 0)) > 0: line += " · %s 가문 땅 %d필지를 부침" % [house.get("lord", ""), int(house["leasedIn"])]
 	if float(house.get("debt", 0)) > 0.5: line += " · 빚 %d" % int(float(house["debt"]))
+	if house.get("patron", "") != "": line += " · %s 가문의 보호" % house["patron"]
 	body.add_child(_label(line, 14, INK, false, true))
 	visible = true
 
@@ -233,6 +234,11 @@ func show_house(hd: Array, house: Dictionary, members: Array) -> void:
 		_row("빌린 땅", "%d필지 · 지주 %s 가문" % [int(house["leasedIn"]), house.get("lord", "")])
 	_row("식량", _food_word(house))
 	if float(house.get("debt", 0)) > 0.5: _row("빚", "식량 %d" % int(float(house["debt"])))
+	_row("상속", "맏이가 잇는다" if house.get("policy", "장자") == "장자" else "아들들에게 나눈다")
+	if int(house.get("clients", 0)) > 0:
+		_row("거느림", "따르는 집 %d · 군인 %d · 징수관 %d" % [int(house["clients"]), int(house.get("soldiers", 0)), int(house.get("collectors", 0))])
+	if house.get("patron", "") != "":
+		_row("보호", "%s 가문에 공납" % house["patron"])
 	_section("식구 %d명" % members.size())
 	for m in members:
 		var r := HBoxContainer.new()

@@ -4,6 +4,9 @@ namespace People.Sim;
 /// 태어난 모든 사람의 기록(족보). 죽어도 남는다. 번호는 Uid(태어난 순서).
 /// 혈연 계산을 위해 4대 조상(2+4+8+16 = 30명)을 미리 펼쳐 둔다.
 /// </summary>
+/// <summary>가문 상속 방식. 장자 상속은 땅을 지키고, 균분은 분가하는 아들에게 땅을 나눠 준다.</summary>
+public enum InheritPolicy : byte { Primogeniture, Partible }
+
 public sealed class Lineage
 {
     public const int AncestorSlots = 30;
@@ -18,7 +21,10 @@ public sealed class Lineage
     private int[] _children = new int[1024];
     private byte[] _job = new byte[1024];
     private int[] _family = new int[1024];   // 가문(성). 아버지에게서, 아버지가 없으면 어머니에게서. 시작 인구는 저마다 새 가문
-    public int Families { get; private set; }   // 살면서 마지막으로 맡은 일(족보에 남는 직업)
+    public int Families { get; private set; }
+    private readonly List<byte> _policy = new();   // 가문 상속 방식(Inheritance)
+    public InheritPolicy PolicyOf(int family) => family >= 0 && family < _policy.Count ? (InheritPolicy)_policy[family] : InheritPolicy.Primogeniture;
+    public void SetPolicy(int family, InheritPolicy p) { while (_policy.Count <= family) _policy.Add(0); _policy[family] = (byte)p; }   // 살면서 마지막으로 맡은 일(족보에 남는 직업)
     private int[] _ancestors = new int[1024 * AncestorSlots];
 
     public int Father(int uid) => _father[uid];

@@ -261,6 +261,43 @@ switch (cmd)
             Console.WriteLine($"  농부 {(p.Male[i] ? "남" : "여")} {(w.Day - p.BirthDay[i]) / w.Config.DaysPerYear}세 {string.Join(", ", Skills.Labels(p, i))} | {Sk(i)}");
         break;
     }
+    case "families":
+    {
+        // 상속 방식별로 가문이 어떻게 됐는지 비교한다(시작 가문 = 성 하나).
+        var map = WorldMap.Generate((uint)Arg("--seed", 1), Arg("--size", 48));
+        var w = new World((ulong)Arg("--seed", 1), map, Config());
+        w.SeedCouples(Arg("--couples", 10));
+        int years = Arg("--years", 300);
+        for (int d = 0; d < years * w.Config.DaysPerYear; d++) w.Step();
+        var p = w.People; var hh = w.Households; var lin = w.Lineage;
+        var members = new Dictionary<int, int>();
+        for (int i = 0; i < p.HighWater; i++) if (p.IsAliveIndex(i)) { int f = lin.FamilyOf(p.Uid[i]); members[f] = members.GetValueOrDefault(f) + 1; }
+        var rows = new Dictionary<int, (int hhs, int plots, int landlords, int rulers, int tenants)>();
+        for (int h = 0; h < hh.HighWater; h++)
+        {
+            if (!hh.IsAlive(h) || !p.IsValid(hh.Head[h])) continue;
+            int f = lin.FamilyOf(p.Uid[hh.Head[h].Index]);
+            var r = rows.GetValueOrDefault(f);
+            var c = w.ClassOf(h);
+            rows[f] = (r.hhs + 1, r.plots + hh.PlotCount[h], r.landlords + (c == LandClass.Landlord ? 1 : 0), r.rulers + (c == LandClass.Ruler ? 1 : 0), r.tenants + (c == LandClass.Tenant ? 1 : 0));
+        }
+        Console.WriteLine($"{years}년, 인구 {p.AliveCount}");
+        foreach (var pol in new[] { InheritPolicy.Primogeniture, InheritPolicy.Partible })
+        {
+            var fams = Enumerable.Range(0, lin.Families).Where(f => lin.PolicyOf(f) == pol).ToList();
+            int alive = fams.Count(f => members.GetValueOrDefault(f) > 0);
+            int people = fams.Sum(f => members.GetValueOrDefault(f));
+            var rs = fams.Where(rows.ContainsKey).Select(f => rows[f]).ToList();
+            int hhs = rs.Sum(r => r.hhs), plots = rs.Sum(r => r.plots);
+            Console.WriteLine($"{(pol == InheritPolicy.Partible ? "균분" : "장자")}: 시작 가문 {fams.Count}, 살아남은 가문 {alive}, 사람 {people}, 가장 수 {hhs}, 가구당 땅 {(hhs > 0 ? plots / (float)hhs : 0):F1}, 지주 {rs.Sum(r => r.landlords)}, 지배자 {rs.Sum(r => r.rulers)}, 소작농 {rs.Sum(r => r.tenants)}");
+        }
+        foreach (var f in members.OrderByDescending(kv => kv.Value).Take(6))
+        {
+            var r = rows.GetValueOrDefault(f.Key);
+            Console.WriteLine($"  {Names.Family(f.Key)} ({(lin.PolicyOf(f.Key) == InheritPolicy.Partible ? "균분" : "장자")}): {f.Value}명, 가구 {r.hhs}, 땅 {r.plots}, 지주 {r.landlords}, 지배자 {r.rulers}, 소작농 {r.tenants}");
+        }
+        break;
+    }
     case "export":
     {
         // 정착을 돌린 뒤 가장 큰 마을 주변을 화면용 JSON 으로 내보낸다(Godot 이 읽어 그린다).
@@ -311,6 +348,10 @@ switch (cmd)
             int lord = w.MainLandlordOf(h);
             string lordName = lord >= 0 && p.IsValid(hh.Head[lord]) ? Names.Family(lin.FamilyOf(p.Uid[hh.Head[lord].Index])) : "";
             hinfo.Append($"{{\"head\":{J(Names.Full(lin, head))},\"family\":{J(Names.Family(lin.FamilyOf(head)))},\"food\":{hh.Food[h].ToString("0", inv)},\"plots\":{hh.PlotCount[h]},\"cap\":{hh.Capacity[h]},\"village\":{hh.Village[h]},\"founded\":{hh.FoundedDay[h] / w.Config.DaysPerYear},");
+            int patron = w.PatronOf(h);
+            string patronName = patron >= 0 && p.IsValid(hh.Head[patron]) ? Names.Family(lin.FamilyOf(p.Uid[hh.Head[patron].Index])) : "";
+            string policy = head >= 0 && lin.PolicyOf(lin.FamilyOf(head)) == InheritPolicy.Partible ? "균분" : "장자";
+            hinfo.Append($"\"patron\":{J(patronName)},\"clients\":{w.ClientCount(h)},\"soldiers\":{w.RetainerCount(h, Job.Soldier)},\"collectors\":{w.RetainerCount(h, Job.Collector)},\"policy\":\"{policy}\",");
             hinfo.Append($"\"class\":{J(World.ClassName(w.ClassOf(h)))},\"leasedOut\":{w.LeasedOutCount(h)},\"leasedIn\":{w.LeasedInCount(h)},\"lord\":{J(lordName)},\"debt\":{w.DebtOf(h).ToString("0", inv)}}}");
         }
         // 빈집: 사는 사람 0, 마지막 값은 상태(1 멀쩡 ~ 0 무너짐)

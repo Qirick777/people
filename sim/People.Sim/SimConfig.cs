@@ -115,6 +115,20 @@ public sealed class SimConfig
     public int ForecloseYears { get; init; } = 2;            // 두 수확 넘게 못 갚으면 밭으로 받는다
     public float DistressPrice { get; init; } = 0.6f;        // 급히 파는 땅값 = 땅 가치 × 이 값
     public int StayLeaseSlack { get; init; } = 3;            // 빌릴 땅이 이만큼 남아 있으면 분가해도 마을에 남는다
+    // 5단계: 약탈, 보호, 공납
+    public float RaidAggression { get; init; } = 0.55f;      // 가장의 공격성이 이보다 높아야 약탈을 생각한다
+    public float RaidRange { get; init; } = 120f;            // 약탈 거리(타일, 약 1 km)
+    public float RaidDeath { get; init; } = 0.3f;            // 진 쪽에서 한 사람이 죽을 확률
+    public float DangerKeep { get; init; } = 0.6f;           // 마을 위험이 해마다 남는 비율
+    public float DangerThreshold { get; init; } = 0.8f;      // 위험이 이보다 크면 보호를 찾는다
+    public float LordMinPower { get; init; } = 1.5f;         // 보호해 줄 수 있는 집의 싸움 힘(남자 서너 명)
+    public float ProtectRange { get; init; } = 160f;         // 보호 거리(타일)
+    public float ProtectShare { get; init; } = 0.4f;         // 약탈 때 지배자 힘 중 한 집을 지키러 오는 몫
+    public float TributeRate { get; init; } = 0.12f;         // 공납: 수확의 몫
+    public float SoldierWage { get; init; } = 30f;           // 군인 한 해 품삯(식량)
+    public int CollectorSpanBase { get; init; } = 10;        // 징수관 하나가 맡는 집(글을 알면 +15까지)
+    public float CollectorCut { get; init; } = 0.1f;         // 징수관 몫(욕심만큼 더 떼어 먹는다)
+    public int RulerClients { get; init; } = 5;              // 따르는 집이 이만큼이면 지배자
     public int ScrubYears { get; init; } = 12;              // 버려진 밭이 이만큼 묵으면 덤불: 다시 부치려면 개간 한 해
     public int ForestYears { get; init; } = 35;             // 이만큼 묵으면 숲으로 돌아간다
     public float HouseBuildCost { get; init; } = 30f;        // 오두막 하나 짓는 값(식량). 본가가 낸다

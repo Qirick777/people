@@ -104,6 +104,8 @@ public sealed partial class World
         var id = People.Add(male, birth, PersonId.None, PersonId.None, household);
         Join(id.Index, household);
         People.Uid[id.Index] = Lineage.Add(male, birth, -1, -1);
+        // 시작 가문마다 상속 방식을 정한다(반반). 자손은 가문의 방식을 따른다.
+        Lineage.SetPolicy(Lineage.FamilyOf(People.Uid[id.Index]), _rng.NextBool() ? InheritPolicy.Partible : InheritPolicy.Primogeniture);
         Genetics.Randomize(People.Genome(id.Index), male, ref _rng);
         People.ComputePhenotype(id.Index);
         SeedSkills(id.Index, ageYears);
@@ -440,6 +442,7 @@ public sealed partial class World
         LeaseMarket();
         ReleaseExcess();
         WageMarket();
+        ProtectionYear();
         if (Layout) UpdateTraffic();
         UpgradeHouses();
     }
@@ -590,6 +593,7 @@ public sealed partial class World
             total += yield + tenantYield;
         }
         PayWages();
+        CollectTribute();
         SettleDebts();
         Classify();
         foreach (int plot in worked)
@@ -676,6 +680,10 @@ public sealed partial class World
                 hh.Food[nh] = food;
                 hh.Members[h] -= moved;
                 hh.Head[nh] = me;
+                int sonsLeft = 0;
+                for (int k = hh.FirstMember[h]; k >= 0; k = p.HhNext[k])
+                    if (p.Male[k] && AgeYears(k) >= 16 && hh.Head[h].Index != k) sonsLeft++;
+                InheritOnSplit(h, nh, sonsLeft);
                 Stats.Splits++;
             }
         }

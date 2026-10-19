@@ -178,7 +178,8 @@ public sealed partial class World
         {
             if (!vl.Alive[v]) continue;
             int n = vl.Households[v];
-            for (int j = 1; j < (int)Job.Count; j++)
+            // 마을 수요로 정하는 일(목수·약초꾼·장사꾼). 군인·징수관은 지배자가 고용한다(WorldPower).
+            for (int j = 1; j <= (int)Job.Trader; j++)
             {
                 var job = (Job)j;
                 int slots = job switch

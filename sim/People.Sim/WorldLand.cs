@@ -1,7 +1,7 @@
 namespace People.Sim;
 
 /// <summary>가구가 어디서 먹고사는지 읽은 이름표(수입원이 가장 큰 쪽).</summary>
-public enum LandClass : byte { Owner, Landlord, Tenant, Laborer, None }
+public enum LandClass : byte { Owner, Landlord, Tenant, Laborer, Ruler, None }
 
 /// <summary>
 /// 4단계: 땅과 일손의 거래. 소작(땅을 빌려준다), 품삯(일손을 산다), 흉년의 식량 빌리기와 땅 팔기.
@@ -48,7 +48,7 @@ public sealed partial class World
     }
     public static string ClassName(LandClass c) => c switch
     {
-        LandClass.Owner => "자작농", LandClass.Landlord => "지주", LandClass.Tenant => "소작농", LandClass.Laborer => "일꾼", _ => "",
+        LandClass.Owner => "자작농", LandClass.Landlord => "지주", LandClass.Tenant => "소작농", LandClass.Laborer => "일꾼", LandClass.Ruler => "지배자", _ => "",
     };
 
     private void EnsureLandArrays()
@@ -264,8 +264,12 @@ public sealed partial class World
                     continue;
                 }
                 // 2) 밭 팔기: 가장 여유 있는 집이 산다. 욕심 많은 가장일수록 잘 산다. 흉값이라 싸다.
-                if (lender < 0 || hh.PlotCount[h] <= 1) continue;
-                if (!_rng.Chance(0.3f + 0.6f * HeadTrait(lender, Trait.Ambition))) continue;
+                // 3) 그래도 모자라면: 거친 가장은 남의 곡식을 털러 간다.
+                if (lender < 0 || hh.PlotCount[h] <= 1 || !_rng.Chance(0.3f + 0.6f * HeadTrait(lender, Trait.Ambition)))
+                {
+                    TryRaid(h, deficit);
+                    continue;
+                }
                 var mine = Map.PlotsOf(h).Where(x => !_tiller.ContainsKey(x)).ToList();
                 mine.Sort((a, b) => Map.BaseFert(a).CompareTo(Map.BaseFert(b)));
                 foreach (int plot in mine)
@@ -279,6 +283,7 @@ public sealed partial class World
                     Map.GivePlot(plot, lender, hh);
                     Stats.LandSales++;
                 }
+                if (deficit > 1f) TryRaid(h, deficit);
             }
         }
     }
@@ -333,7 +338,8 @@ public sealed partial class World
             if (!hh.IsAlive(h)) continue;
             float own = _incOwn[h], rent = _incRent[h], ten = _incTenant[h], wage = _incWage[h];
             LandClass c;
-            if (rent > own && rent > ten && rent > wage) c = LandClass.Landlord;
+            if (IsRuler(h)) c = LandClass.Ruler;
+            else if (rent > own && rent > ten && rent > wage) c = LandClass.Landlord;
             else if (ten > own && ten >= wage) c = LandClass.Tenant;
             else if (wage > own && wage > ten) c = LandClass.Laborer;
             else if (own > 0) c = LandClass.Owner;

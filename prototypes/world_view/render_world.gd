@@ -403,6 +403,10 @@ func _person_node(pd: Dictionary) -> Node3D:
 	var female: bool = not pd["male"]
 	var hair_col := {"red": Color(0.72, 0.32, 0.16), "blond": Color(0.88, 0.74, 0.45), "dark": Color(0.13, 0.1, 0.09),
 		"brown": Color(0.38, 0.25, 0.15), "grey": Color(0.78, 0.76, 0.72)}
+	if pd["job"] == "군인":
+		var sd := {"female": false, "skin": Color(0.86, 0.68, 0.55), "hair_color": hair_col.get(pd["hair"], hair_col["brown"]),
+			"height": 0.98 + 0.1 * float(pd["height"]), "build": 1.1, "outfit": BH.outfit("soldier", BH.MADDER), "hat": "kettle", "hair": "short"}
+		return BH.build(sd, true)
 	var skins := [Color(0.93, 0.78, 0.67), Color(0.86, 0.68, 0.55), Color(0.78, 0.6, 0.46)]
 	var d := {"female": female, "skin": skins[rng.randi() % skins.size()], "hair_color": hair_col.get(pd["hair"], hair_col["brown"]),
 		"height": 0.94 + 0.12 * float(pd["height"]), "build": rng.randf_range(0.9, 1.1)}
@@ -514,7 +518,8 @@ func _ui_shots(tag: String) -> void:
 		var pd: Dictionary = pickables[k]["pd"]
 		if pd["job"] in ["농부", "아이", "자작농", "도제"]: continue
 		var d: float = pickables[k]["node"].global_position.distance_to(mid)
-		if pd["job"] == "소작농": d -= 1000.0   # 소작농을 먼저 보여 준다
+		if pd["job"] == "군인": d -= 2000.0     # 군인을 먼저 보여 준다
+		elif pd["job"] == "소작농": d -= 1000.0
 		if d < bd: bd = d; target = k
 	if target < 0: return
 	var tp: Vector3 = pickables[target]["node"].global_position
@@ -528,7 +533,8 @@ func _ui_shots(tag: String) -> void:
 		var n := 0
 		for pd in data.get("people", []):
 			if int(pd["h"]) == k: n += 1
-		if data["hinfo"][k].get("class", "") == "지주": n += 100   # 지주 집을 먼저 보여 준다
+		if data["hinfo"][k].get("class", "") == "지배자": n += 200   # 지배자 집을 먼저 보여 준다
+		elif data["hinfo"][k].get("class", "") == "지주": n += 100
 		if n > most and house_pos[k].distance_to(mid) < 160: most = n; best_h = k
 	if best_h < 0: return
 	_aim_left(house_pos[best_h], 46.0)
