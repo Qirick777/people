@@ -1,6 +1,6 @@
 namespace People.Sim;
 
-public enum GroupKind : byte { Watch, Bandits, Brotherhood }
+public enum GroupKind : byte { Watch, Bandits, Brotherhood, Army }
 
 /// <summary>
 /// 모임 하나. 섬김 나무와 따로, 사람들이 가로로 묶인다. 우두머리는 uid 로 적는다.
@@ -14,9 +14,17 @@ public sealed class Group
     public int Sanction = -1, SanctionFounded = -1;   // 인정한 지배자 집
     public bool Exposed;                              // 도적 떼: 정체가 알려졌다
     public bool Alive = true;
-    public int Members;
-    public float Strength;                            // 모인 사람들의 싸움 힘(해마다 다시 센다)
+    public int Members;                               // 이 갈래에 바로 딸린 사람
+    public int Total;                                 // 아래 갈래까지 모두
+    public float Strength;                            // 아래 갈래까지 모은 싸움 힘(해마다 다시 센다)
+    public float OwnStrength;                         // 바로 딸린 사람의 싸움 힘
     public string Name = "";
+    // 조직 틀(P1.5): 위 조직, 붙은 지배자 집, 맡은 일
+    public int Parent = -1;                           // 위 조직(없으면 독립)
+    public int Home = -1, HomeFounded = -1;           // 이 조직이 붙은 지배자 집(세력의 조직이면)
+    public bool Paid;                                 // 품삯 받는 군인 갈래(지배자가 고용한 사람들)
+    public bool Manual;                               // 플레이어가 맡은 일을 정했다(AI 가 바꾸지 않는다)
+    public readonly List<OrgTask> Tasks = new();
 }
 
 /// <summary>
@@ -29,7 +37,7 @@ public sealed partial class World
     private readonly List<Group> _groups = new();
     public IReadOnlyList<Group> Groups => _groups;
 
-    public static string GroupKindName(GroupKind k) => k switch { GroupKind.Watch => "자경단", GroupKind.Bandits => "도적 떼", _ => "신도회" };
+    public static string GroupKindName(GroupKind k) => k switch { GroupKind.Watch => "자경단", GroupKind.Bandits => "도적 떼", GroupKind.Army => "군대", _ => "신도회" };
 
     public Group? GroupById(int id) => id >= 0 && id < _groups.Count && _groups[id].Alive ? _groups[id] : null;
 
@@ -80,6 +88,7 @@ public sealed partial class World
         var g = new Group { Id = _groups.Count, Kind = kind, LeaderUid = People.Uid[leader], Founded = Day, Village = Households.IsAlive(h) ? Households.Village[h] : -1 };
         g.Name = $"{Names.Family(Lineage.FamilyOf(People.Uid[leader]))} {GroupKindName(kind)}";
         _groups.Add(g);
+        DefaultTask(g);
         JoinGroup(leader, g);
         Stats.GroupsFounded++;
         Chron(leader, $"{SubjName(leader)} {g.Name}을(를) 세웠다");
@@ -167,7 +176,7 @@ public sealed partial class World
     {
         var p = People; var hh = Households;
         // 1) 사람 수와 힘을 다시 세고, 우두머리가 없으면 잇거나 흩어진다
-        foreach (var g in _groups) if (g.Alive) { g.Members = 0; g.Strength = 0f; }
+        foreach (var g in _groups) if (g.Alive) { g.Members = 0; g.Strength = 0f; g.OwnStrength = 0f; }
         var leaderAlive = new HashSet<int>();
         var byGroup = new Dictionary<int, List<int>>();
         for (int i = 0; i < p.HighWater; i++)
@@ -178,7 +187,7 @@ public sealed partial class World
                 var g = GroupById(p.GroupIds[i * GroupSlots + k]);
                 if (g == null) { p.GroupIds[i * GroupSlots + k] = -1; continue; }
                 g.Members++;
-                g.Strength += FightPower(i);
+                g.OwnStrength += FightPower(i);
                 if (p.Uid[i] == g.LeaderUid) leaderAlive.Add(g.Id);
                 (byGroup.TryGetValue(g.Id, out var l) ? l : byGroup[g.Id] = new()).Add(i);
             }
@@ -187,20 +196,30 @@ public sealed partial class World
         {
             if (!g.Alive) continue;
             var members = byGroup.GetValueOrDefault(g.Id);
-            if (!leaderAlive.Contains(g.Id) && members != null && members.Count > 0)
+            if (g.Home >= 0)
+            {
+                // 지배자의 조직: 우두머리는 지배자 가장(회원 칸 밖). 집이 끊기면 닫는다.
+                if (!hh.IsAlive(g.Home) || hh.FoundedDay[g.Home] != g.HomeFounded) { g.Alive = false; Stats.GroupsDissolved++; }
+                continue;
+            }
+            // 갈래 우두머리가 갈래를 떠났으면(군인을 그만둠 등) 남은 사람 가운데서 새로 세운다
+            bool lost = !leaderAlive.Contains(g.Id) || (g.Parent >= 0 && members != null && !members.Any(m => p.Uid[m] == g.LeaderUid));
+            if (lost && members != null && members.Count > 0)
             {
                 // 말솜씨와 싸움 힘이 큰 어른이 잇는다
                 int next = members.Where(Adult).OrderByDescending(m => p.Get(m, Trait.Charisma) + FightPower(m)).DefaultIfEmpty(-1).First();
                 if (next >= 0) g.LeaderUid = p.Uid[next];
             }
-            if (g.Members < 2 || !members!.Any(m => p.Uid[m] == g.LeaderUid))
+            bool tooSmall = g.Parent >= 0 ? g.Members == 0 || (g.Members < 2 && Day - g.Founded >= 2 * Config.DaysPerYear) : g.Members < 2;
+            if (tooSmall || !members!.Any(m => p.Uid[m] == g.LeaderUid))
             {
-                g.Alive = false;
-                Stats.GroupsDissolved++;
+                if (g.Parent >= 0 && GroupById(g.Parent) != null && members != null) MergeInto(g, _groups[g.Parent], members);
+                else { g.Alive = false; Stats.GroupsDissolved++; }
                 continue;
             }
             if (g.Sanction >= 0 && (!hh.IsAlive(g.Sanction) || hh.FoundedDay[g.Sanction] != g.SanctionFounded)) g.Sanction = -1;
         }
+        SumSubtrees();
         // 2) 마을마다: 생기고, 들고, 나간다
         var byVillage = new Dictionary<int, List<int>>();
         for (int i = 0; i < p.HighWater; i++)
@@ -256,13 +275,14 @@ public sealed partial class World
                 Social.Add(p, a, p.Uid[b], 3f);
                 Social.Add(p, b, p.Uid[a], 3f);
             }
-            if (g.Kind == GroupKind.Brotherhood) Charity(members);
+            if (g.Tasks.Any(t => t.Verb == Verb.Charity)) Charity(members);
         }
-        // 4) 지배자의 태도
-        foreach (var g in _groups) if (g.Alive) LordStance(g);
-        Stats.Watches = _groups.Count(g => g.Alive && g.Kind == GroupKind.Watch);
-        Stats.Bandits = _groups.Count(g => g.Alive && g.Kind == GroupKind.Bandits);
-        Stats.Brotherhoods = _groups.Count(g => g.Alive && g.Kind == GroupKind.Brotherhood);
+        // 4) 지배자의 태도, 지배자의 군대, 일 나누기와 갈래 짜기
+        foreach (var g in _groups.ToList()) if (g.Alive && g.Parent < 0 && g.Home < 0) LordStance(g);
+        OrgYear();
+        Stats.Watches = _groups.Count(g => g.Alive && g.Parent < 0 && g.Kind == GroupKind.Watch);
+        Stats.Bandits = _groups.Count(g => g.Alive && g.Parent < 0 && g.Kind == GroupKind.Bandits);
+        Stats.Brotherhoods = _groups.Count(g => g.Alive && g.Parent < 0 && g.Kind == GroupKind.Brotherhood);
         Stats.GroupMembers = _groups.Where(g => g.Alive).Sum(g => g.Members);
     }
 
@@ -334,6 +354,8 @@ public sealed partial class World
     {
         g.Sanction = lord;
         g.SanctionFounded = Households.FoundedDay[lord];
+        var up = LordOrg(lord);
+        if (up != null && RootOf(up).Id != g.Id) g.Parent = up.Id;   // 지배자 조직의 갈래가 된다
         int leader = FindAlive(g.LeaderUid);
         if (leader >= 0) HeadsRelate(People.Household[leader], lord, 10f, 0f, 10f, MemoryType.Protected, 10);
         Stats.Sanctioned++;
@@ -360,7 +382,11 @@ public sealed partial class World
     {
         float s = 0f;
         foreach (var g in _groups)
-            if (g.Alive && g.Kind == GroupKind.Watch && g.Village == v) s += g.Strength * (g.Sanction >= 0 ? 0.6f : 0.4f);
+        {
+            if (!g.Alive) continue;
+            foreach (var t in g.Tasks)
+                if (t.Verb == Verb.Guard && t.Village == v) s += g.OwnStrength * t.Weight * (g.Paid || g.Parent >= 0 || g.Sanction >= 0 ? 0.6f : 0.4f);
+        }
         return s;
     }
 
@@ -369,9 +395,12 @@ public sealed partial class World
     {
         foreach (var g in _groups.ToList())
         {
-            if (!g.Alive || g.Kind != GroupKind.Bandits || !_rng.Chance(0.3f)) continue;
+            if (!g.Alive) continue;
+            float w = 0f;
+            foreach (var t in g.Tasks) if (t.Verb == Verb.Raid) w += t.Weight;
+            if (w <= 0f || !_rng.Chance(0.3f * w)) continue;
             int leader = FindAlive(g.LeaderUid);
-            if (leader < 0 || IsPlayer(leader)) continue;
+            if (leader < 0 || (IsPlayer(leader) && !g.Manual)) continue;
             TryRaid(People.Household[leader], 10f + 8f * g.Members, g);
         }
     }

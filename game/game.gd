@@ -30,6 +30,9 @@ var kin_title: Label
 var tree_panel: PanelContainer
 var tree_box: VBoxContainer
 var range_button: Button
+var org_panel: PanelContainer
+var org_box: VBoxContainer
+var org_title: Label
 var last_player := -1
 var autotest := false
 
@@ -407,6 +410,73 @@ func _open_tree() -> void:
 	tree_panel.visible = true
 
 
+func _open_orgs() -> void:
+	org_title.text = "조직"
+	for c in org_box.get_children(): c.queue_free()
+	var rows: Array = host.OrgPanel()
+	if rows.is_empty():
+		org_box.add_child(UI.label("내 집과 이어진 조직이 없다. 식구를 골라 자기 자신을 누르면 모임을 세울 수 있다.", 13, UI.MUTED))
+	for e in rows:
+		var depth := int(e["depth"])
+		if depth == 0 and org_box.get_child_count() > 0: org_box.add_child(HSeparator.new())
+		var r := HBoxContainer.new()
+		r.add_theme_constant_override("separation", 8)
+		var pad := Control.new()
+		pad.custom_minimum_size = Vector2(22 * depth, 0)
+		r.add_child(pad)
+		r.add_child(_center(UI.chip(e["label"], Color(0.85, 0.92, 0.9) if not e["manual"] else Color(0.98, 0.88, 0.7), UI.ACT, 11)))
+		var tv := VBoxContainer.new()
+		tv.add_theme_constant_override("separation", -2)
+		tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tv.add_child(UI.label(e["name"], 14, UI.INK, depth == 0))
+		var info := "%s · 바로 %d명" % [e["leader"], int(e["members"])]
+		if int(e["total"]) != int(e["members"]): info += " · 모두 %d명" % int(e["total"])
+		info += " · 힘 %.0f" % float(e["strength"])
+		tv.add_child(UI.label(info, 12, UI.MUTED))
+		tv.add_child(UI.label(("정한 일: " if e["manual"] else "맡은 일: ") + e["tasks"], 12, UI.INK))
+		r.add_child(tv)
+		if e["command"]:
+			var id := int(e["id"])
+			if e["canSplit"]:
+				var sb := UI.ghost("갈래 나누기")
+				sb.pressed.connect(func():
+					host.SplitOrg(id)
+					_open_orgs())
+				r.add_child(_center(sb))
+			var tb := UI.ghost("일 정하기")
+			tb.pressed.connect(func(): _open_org_tasks(id, e["name"]))
+			r.add_child(_center(tb))
+			if e["manual"]:
+				var ab := UI.ghost("AI에게")
+				ab.pressed.connect(func():
+					host.OrgAuto(id)
+					_open_orgs())
+				r.add_child(_center(ab))
+		org_box.add_child(r)
+	org_panel.visible = true
+
+
+func _open_org_tasks(id: int, name: String) -> void:
+	org_title.text = name + " · 일 정하기"
+	for c in org_box.get_children(): c.queue_free()
+	var back := UI.ghost("← 조직으로")
+	back.pressed.connect(_open_orgs)
+	org_box.add_child(back)
+	var verb_now := -1
+	for t in host.OrgTaskTargets(id):
+		var verb := int(t["verb"])
+		if verb != verb_now:
+			verb_now = verb
+			org_box.add_child(UI.label(t["verbName"], 13, UI.MUTED, true))
+		var b := UI.action(t["verbName"] + " · " + t["place"], "%d집" % int(t["houses"]), -1.0, t["harsh"])
+		var vv := int(t["village"])
+		b.pressed.connect(func():
+			host.SetOrgTask(id, verb, vv)
+			for line in host.DrainChronicle(): _log(line)
+			_open_orgs())
+		org_box.add_child(b)
+
+
 func _center(c: Control) -> Control:
 	c.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	return c
@@ -559,6 +629,10 @@ func _build_ui() -> void:
 	marry_button = Button.new()
 	marry_button.pressed.connect(_toggle_marry)
 	tr.add_child(_center(marry_button))
+	var ob := UI.ghost("조직")
+	ob.tooltip_text = "내 집의 군대와 모임, 그 갈래"
+	ob.pressed.connect(_open_orgs)
+	tr.add_child(_center(ob))
 	tr.add_child(_vsep())
 	stat_family = UI.stat("가문", "맡은 집 없음")
 	stat_kin = UI.stat("같은 성", "-")
@@ -628,6 +702,35 @@ func _build_ui() -> void:
 	tv.add_child(sc)
 	tree_panel.visible = false
 	rootc.add_child(tree_panel)
+
+	# 조직 창
+	org_panel = UI.panel()
+	org_panel.set_anchors_preset(Control.PRESET_CENTER)
+	org_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	org_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	org_panel.custom_minimum_size = Vector2(640, 0)
+	var ov := VBoxContainer.new()
+	ov.add_theme_constant_override("separation", 6)
+	org_panel.add_child(ov)
+	var oh := HBoxContainer.new()
+	org_title = UI.label("조직", 20, UI.INK, true)
+	org_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	oh.add_child(org_title)
+	var oc := UI.ghost("닫기")
+	oc.pressed.connect(func(): org_panel.visible = false)
+	oh.add_child(oc)
+	ov.add_child(oh)
+	ov.add_child(UI.label("갈래마다 우두머리가 바로 부리는 사람과 맡은 일. 일을 정한 갈래는 AI 가 바꾸지 않는다.", 12, UI.MUTED))
+	var osc := ScrollContainer.new()
+	osc.custom_minimum_size = Vector2(620, 520)
+	osc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	org_box = VBoxContainer.new()
+	org_box.add_theme_constant_override("separation", 4)
+	org_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	osc.add_child(org_box)
+	ov.add_child(osc)
+	org_panel.visible = false
+	rootc.add_child(org_panel)
 
 	# 오른쪽: 카드
 	card = Card.new()
@@ -790,6 +893,21 @@ func _run_autotest() -> void:
 		print("autotest: 자경단에 들인 이웃 %d명" % recruited)
 		_show_person(_pd_of(actor))
 		await _snap("live_groups.png")
+		# 조직 창: 갈래 나무와 일 정하기
+		card.visible = false
+		_open_orgs()
+		await _snap("live_orgs.png")
+		var orgs: Array = host.OrgPanel()
+		print("autotest: 조직 줄 %d개" % orgs.size())
+		if orgs.size() > 0 and orgs[0]["command"]:
+			_open_org_tasks(int(orgs[0]["id"]), orgs[0]["name"])
+			await _snap("live_org_tasks.png")
+			var tt: Array = host.OrgTaskTargets(int(orgs[0]["id"]))
+			if tt.size() > 1:
+				host.SetOrgTask(int(orgs[0]["id"]), int(tt[1]["verb"]), int(tt[1]["village"]))
+				_open_orgs()
+				print("autotest: 일 정함 ", host.OrgPanel()[0]["tasks"])
+		org_panel.visible = false
 	# 혈족 집: 족보 창을 열어 찍고, 첫 혈족 집으로 옮기기를 예약해 계절이 바뀌면 옮겨지는지 본다
 	card.visible = false
 	_refresh_family()

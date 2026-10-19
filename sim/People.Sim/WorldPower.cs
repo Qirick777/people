@@ -99,7 +99,7 @@ public sealed partial class World
             if (aggr < Config.RaidAggression) return;
             if (!_rng.Chance((aggr - Config.RaidAggression) / (1f - Config.RaidAggression) * 0.8f)) return;
         }
-        float power = HouseholdPower(h) + (gang != null ? 0.8f * gang.Strength : 0f);   // 도적 떼는 함께 턴다
+        float power = HouseholdPower(h) + (gang != null ? 0.8f * gang.OwnStrength : 0f);   // 떼는 함께 턴다(이 갈래의 힘)
         if (power < 0.3f) return;
         int days = DaysToHarvest();
         int best = -1;

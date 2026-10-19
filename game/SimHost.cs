@@ -396,8 +396,150 @@ public partial class SimHost : Node
         string an = Names.Full(w.Lineage, p.Uid[actor]), tn = Names.Full(w.Lineage, p.Uid[target]);
         string about = third >= 0 && p.IsAliveIndex(third) ? $"({Names.Full(w.Lineage, p.Uid[third])}" + (amount > 0 ? $", {amount:0})" : ")") : "";
         var r = w.Interact((InteractionId)id, new InteractionContext { Actor = actor, Target = target, Third = third, Amount = amount });
-        string text = $"{World.Subj(an)} {tn}에게 {def.Name}{about}: " + (r.Accepted ? "받아들였다" : "거절당했다") + (r.Pregnant ? " (아이가 들어섰다)" : "");
+        string outcome = r.Accepted ? "받아들였다" : "거절당했다";
+        if (def.Id == InteractionId.Enfeoff && r.Accepted) outcome = $"집 {r.Amount:0}곳을 맡겼다";
+        else if (def.Id == InteractionId.Revoke) outcome = r.Accepted ? "집을 돌려받았다" : "거부하고 떨어져 나갔다";
+        string text = $"{World.Subj(an)} {tn}에게 {def.Name}{about}: " + outcome + (r.Pregnant ? " (아이가 들어섰다)" : "");
         w.Chronicle.Add((w.Day, text));
         return text;
+    }
+
+    // ------------------------------------------------------------------ 조직 창
+
+    /// <summary>
+    /// 내 집과 이어진 조직들(내 집의 군대, 식구가 들거나 이끄는 모임)의 맨 위부터 갈래까지.
+    /// 줄마다 깊이, 이름, 우두머리, 사람 수, 힘, 맡은 일, 내가 부릴 수 있는지.
+    /// </summary>
+    public Godot.Collections.Array OrgPanel()
+    {
+        var a = new Godot.Collections.Array();
+        if (!Ready) return a;
+        var w = _w!; var p = w.People;
+        int h = w.PlayerHousehold;
+        if (!w.Households.IsAlive(h)) return a;
+        w.RecountOrgs();
+        var mine = w.MembersOf(h).ToList();
+        var mineUids = new HashSet<int>(mine.Select(i => p.Uid[i]));
+        var roots = new List<Group>();
+        void AddRoot(Group g) { var r = w.RootOf(g); if (!roots.Contains(r)) roots.Add(r); }
+        var lo = w.LordOrg(h, false);
+        if (lo != null) AddRoot(lo);
+        foreach (int i in mine) foreach (var g in w.GroupsOf(i)) AddRoot(g);
+        foreach (var root in roots)
+        {
+            bool command = mineUids.Contains(root.LeaderUid) || root.Home == h;
+            void Walk(Group g, int depth)
+            {
+                int leader = FindAlive(g.LeaderUid);
+                var tasks = string.Join(", ", g.Tasks.OrderByDescending(t => t.Weight).Select(t => $"{World.VerbName(t.Verb)}({VillageName(g.Village, t.Village)})"));
+                a.Add(new Godot.Collections.Dictionary
+                {
+                    ["id"] = g.Id,
+                    ["depth"] = depth,
+                    ["label"] = w.UnitLabel(g),
+                    ["name"] = g.Name,
+                    ["leader"] = leader >= 0 ? Names.Full(w.Lineage, g.LeaderUid) : "우두머리 없음",
+                    ["members"] = g.Members,
+                    ["total"] = g.Total,
+                    ["strength"] = g.Strength,
+                    ["tasks"] = tasks == "" ? "맡은 일 없음" : tasks,
+                    ["manual"] = g.Manual,
+                    ["command"] = command,
+                    ["canSplit"] = command && g.Members >= 9,
+                    ["mineIn"] = mine.Any(i => w.InGroup(i, g)),
+                });
+                foreach (var c in w.ChildrenOf(g).ToList()) Walk(c, depth + 1);
+            }
+            Walk(root, 0);
+        }
+        return a;
+    }
+
+    private int FindAlive(int uid)
+    {
+        var p = _w!.People;
+        for (int i = 0; i < p.HighWater; i++) if (p.IsAliveIndex(i) && p.Uid[i] == uid) return i;
+        return -1;
+    }
+
+    /// <summary>마을 이름: 번호와, 기준 마을에서 본 방향·거리.</summary>
+    private string VillageName(int from, int v)
+    {
+        var vl = _w!.VillageList;
+        if (v < 0 || v >= vl.Count) return "마을 없음";
+        if (v == from) return "제 마을";
+        if (from < 0 || from >= vl.Count) return $"{v}번 마을";
+        int dx = vl.CenterX[v] - vl.CenterX[from], dy = vl.CenterY[v] - vl.CenterY[from];
+        int d = (int)MathF.Sqrt(dx * dx + dy * dy);
+        string dir = MathF.Abs(dx) > 2 * MathF.Abs(dy) ? (dx > 0 ? "동" : "서") : MathF.Abs(dy) > 2 * MathF.Abs(dx) ? (dy > 0 ? "남" : "북")
+                   : (dy > 0 ? "남" : "북") + (dx > 0 ? "동" : "서");
+        return $"{v}번 마을, {dir}쪽 {d}칸";
+    }
+
+    private Group? Commandable(int id)
+    {
+        if (!Ready) return null;
+        var w = _w!; var p = w.People;
+        var g = w.GroupById(id);
+        int h = w.PlayerHousehold;
+        if (g == null || !w.Households.IsAlive(h)) return null;
+        var root = w.RootOf(g);
+        if (root.Home == h) return g;
+        foreach (int i in w.MembersOf(h)) if (p.Uid[i] == root.LeaderUid) return g;
+        return null;
+    }
+
+    /// <summary>갈래를 쪼갠다(바로 딸린 사람의 절반). 새 갈래 번호, 못 쪼개면 -1.</summary>
+    public int SplitOrg(int id)
+    {
+        var g = Commandable(id);
+        var c = g != null ? _w!.SplitUnit(g) : null;
+        if (c == null) return -1;
+        _w!.RecountOrgs();
+        _w!.Chronicle.Add((_w.Day, $"{g!.Name}에서 {c.Name}을(를) 떼어 냈다"));
+        return c.Id;
+    }
+
+    /// <summary>맡길 수 있는 일: (일, 마을, 이름). 지킴·쫓기·돌봄·털기를 가까운 마을 여섯 곳에.</summary>
+    public Godot.Collections.Array OrgTaskTargets(int id)
+    {
+        var a = new Godot.Collections.Array();
+        var g = Commandable(id);
+        if (g == null) return a;
+        var vl = _w!.VillageList;
+        int from = g.Village;
+        var vs = new List<(int v, float d)>();
+        for (int v = 0; v < vl.Count; v++)
+        {
+            if (!vl.Alive[v]) continue;
+            float d = from >= 0 && from < vl.Count ? MathF.Sqrt(MathF.Pow(vl.CenterX[v] - vl.CenterX[from], 2) + MathF.Pow(vl.CenterY[v] - vl.CenterY[from], 2)) : 0f;
+            vs.Add((v, d));
+        }
+        vs.Sort((x, y) => x.d.CompareTo(y.d));
+        foreach (var verb in new[] { Verb.Guard, Verb.Chase, Verb.Charity, Verb.Raid })
+            foreach (var (v, _) in vs.Take(6))
+                a.Add(new Godot.Collections.Dictionary
+                {
+                    ["verb"] = (int)verb, ["village"] = v, ["verbName"] = World.VerbName(verb),
+                    ["place"] = VillageName(from, v), ["houses"] = vl.Households[v], ["harsh"] = verb == Verb.Raid,
+                });
+        return a;
+    }
+
+    public bool SetOrgTask(int id, int verb, int village)
+    {
+        var g = Commandable(id);
+        if (g == null) return false;
+        _w!.SetUnitTask(g, (Verb)verb, village);
+        _w.Chronicle.Add((_w.Day, $"{g.Name}에 {World.VerbName((Verb)verb)}({VillageName(g.Village, village)})을(를) 맡겼다"));
+        return true;
+    }
+
+    public bool OrgAuto(int id)
+    {
+        var g = Commandable(id);
+        if (g == null) return false;
+        _w!.ClearManual(g);
+        return true;
     }
 }
