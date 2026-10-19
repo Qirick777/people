@@ -75,7 +75,7 @@ func _ui_shots(tag: String) -> void:
 	var hp: Array = scene.house_pos
 	for k in hp.size():
 		var n: int = scene.members_of(k).size()
-		if data["hinfo"][k].get("class", "") == "지배자": n += 200 + 100 * (int(data["houses"][k][6]) if data["houses"][k].size() > 6 else 0)   # 지배자 집, 큰 집을 먼저
+		if data["hinfo"][k].get("tier", "") in ["영주", "대영주", "군주"]: n += 200 + 100 * (int(data["houses"][k][6]) if data["houses"][k].size() > 6 else 0)   # 지배자 집, 큰 집을 먼저
 		elif data["hinfo"][k].get("class", "") == "지주": n += 100
 		if n > most and hp[k].distance_to(mid) < 160: most = n; best_h = k
 	if best_h < 0: return

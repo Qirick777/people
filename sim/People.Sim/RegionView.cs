@@ -55,7 +55,10 @@ public static class RegionView
             string patronName = patron >= 0 && p.IsValid(hh.Head[patron]) ? Names.Family(lin.FamilyOf(p.Uid[hh.Head[patron].Index])) : "";
             string policy = head >= 0 && lin.PolicyOf(lin.FamilyOf(head)) == InheritPolicy.Partible ? "균분" : "장자";
             hinfo.Append($"\"patron\":{J(patronName)},\"clients\":{w.ClientCount(h)},\"soldiers\":{w.RetainerCount(h, Job.Soldier)},\"collectors\":{w.RetainerCount(h, Job.Collector)},\"policy\":\"{policy}\",");
-            hinfo.Append($"\"class\":{J(World.ClassName(w.ClassOf(h)))},\"leasedOut\":{w.LeasedOutCount(h)},\"leasedIn\":{w.LeasedInCount(h)},\"lord\":{J(lordName)},\"debt\":{w.DebtOf(h).ToString("0", inv)}}}");
+            int tier = w.TierOf(h), top = w.TopOf(h);
+            string topName = top >= 0 && top != h && top != patron && p.IsValid(hh.Head[top]) ? Names.Family(lin.FamilyOf(p.Uid[hh.Head[top].Index])) : "";
+            hinfo.Append($"\"tier\":{J(World.TierName(tier))},\"below\":{w.BelowOf(h)},\"top\":{J(topName)},\"legit\":{J(tier >= 2 ? World.LegitName(w.LegitOf(h)) : "")},");
+            hinfo.Append($"\"class\":{J(tier >= 1 ? World.TierName(tier) : World.ClassName(w.ClassOf(h)))},\"leasedOut\":{w.LeasedOutCount(h)},\"leasedIn\":{w.LeasedInCount(h)},\"lord\":{J(lordName)},\"debt\":{w.DebtOf(h).ToString("0", inv)}}}");
         }
         // 빈집: 사는 사람 0, 마지막 값은 상태(1 멀쩡 ~ 0 무너짐)
         foreach (var vh in w.Vacant)
@@ -113,7 +116,8 @@ public static class RegionView
             if (!firstP) sb.Append(',');
             firstP = false;
             sb.Append($"{{\"h\":{hi},\"i\":{i},\"uid\":{uid},\"pregnant\":{(p.PregnantUntil[i] >= 0 ? "true" : "false")},\"hungry\":{(p.HungryToday[i] ? "true" : "false")},\"loyalty\":{p.Loyalty[i].ToString("0.00", inv)},\"fanatic\":{(p.Fanatic[i] != 0 ? "true" : "false")},\"honor\":{p.Honor[i].ToString("0.00", inv)},\"name\":{J(Names.Full(lin, uid))},\"family\":{J(Names.Family(lin.FamilyOf(uid)))},\"male\":{(male ? "true" : "false")},\"age\":{age},");
-            string cls = World.ClassName(w.ClassOf(p.Household[i]));
+            int ptier = w.TierOf(p.Household[i]);
+            string cls = ptier >= 1 ? World.TierName(ptier) : World.ClassName(w.ClassOf(p.Household[i]));
             string jobName = age < 16 ? (master != "" ? "도제" : "아이") : job == Job.SexWorker && male ? "남창" : job != Job.Farmer ? Skills.JobName(job) : cls != "" ? cls : "농부";
             sb.Append($"\"job\":{J(jobName)},\"head\":{(hh.Head[p.Household[i]].Index == i ? "true" : "false")},");
             sb.Append($"\"labels\":[{string.Join(",", Skills.Labels(p, i).Select(J))}],\"skills\":[{string.Join(",", skills)}],\"hints\":[{string.Join(",", hints.Select(J))}],");

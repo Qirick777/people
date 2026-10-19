@@ -300,8 +300,11 @@ func show_house(hd: Array, house: Dictionary, members: Array) -> void:
 	_row("상속", "맏이가 잇는다" if house.get("policy", "장자") == "장자" else "아들들에게 나눈다")
 	if int(house.get("clients", 0)) > 0:
 		_row("거느림", "따르는 집 %d · 군인 %d · 징수관 %d" % [int(house["clients"]), int(house.get("soldiers", 0)), int(house.get("collectors", 0))])
+	if house.get("tier", "") != "":
+		_row("세력", "%s · 아래 %d집" % [house["tier"], int(house.get("below", 0))])
+		if house.get("legit", "") != "": _row("칭호", house["legit"])
 	if house.get("patron", "") != "":
-		_row("보호", "%s 가문에 공납" % house["patron"])
+		_row("주군", "%s 가문" % house["patron"] + ("" if house.get("top", "") == "" else " (꼭대기 %s 가문)" % house["top"]))
 	_section("식구 %d명" % members.size())
 	for m in members:
 		var r := HBoxContainer.new()

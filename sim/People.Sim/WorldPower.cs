@@ -195,6 +195,9 @@ public sealed partial class World
             }
         }
 
+        RecountClients();
+        RecountTree();
+
         // 1) 지배자 후보: 마을마다 힘센 집 몇
         var power = new Dictionary<int, float>();
         for (int h = 0; h < hh.HighWater; h++)
@@ -225,7 +228,7 @@ public sealed partial class World
             float bs = 0f;
             foreach (int l in lords)
             {
-                if (l == h) continue;
+                if (l == h || (BelowOf(h) > 0 && WouldLoop(h, l))) continue;
                 float dx = hh.X[l] - hh.X[h], dy = hh.Y[l] - hh.Y[h];
                 float d = MathF.Sqrt(dx * dx + dy * dy);
                 if (d > Config.ProtectRange) continue;
@@ -239,8 +242,13 @@ public sealed partial class World
             Stats.NewClients++;
         }
 
+        // 2.5) 작은 지배자가 큰 지배자를 섬긴다(섬김 나무가 자란다)
+        RecountClients();
+        SeekLieges(power, lords);
+
         // 3) 지배자가 군인과 징수관을 쓴다. 공납 기대치(지난해 받은 것)만큼.
         RecountClients();
+        RecountTree();
         foreach (var (lord, n) in _clientsOf)
         {
             float tribute = _incTribute[lord];
@@ -269,10 +277,11 @@ public sealed partial class World
     {
         var hh = Households;
         if (_residence.Length < hh.HighWater) Array.Resize(ref _residence, Math.Max(hh.HighWater, _residence.Length * 2));
-        foreach (var (lord, n) in _clientsOf)
+        foreach (var (lord, _) in _clientsOf)
         {
             if (!hh.IsAlive(lord)) continue;
-            int want = n >= Config.CastleClients ? 3 : n >= Config.TowerClients ? 2 : n >= Config.RulerClients ? 1 : 0;
+            int n = BelowOf(lord);   // 아래 집 전부(봉신의 집까지)
+            int want = n >= Config.CastleClients ? 3 : n >= Config.TowerClients ? 2 : n >= Config.ManorBelow ? 1 : 0;
             int cur = _residence[lord];
             if (want <= cur) continue;
             int next = cur + 1;
@@ -394,6 +403,7 @@ public sealed partial class World
         {
             if (!hh.IsAlive(k) || PatronOf(k) != from) continue;
             if (k == to) { _patron[k] = -1; continue; }
+            if (WouldLoop(k, to)) { _patron[k] = -1; continue; }   // 상속자가 그 집 아래에 있었다
             _patron[k] = to;
             _patronFounded[k] = hh.FoundedDay[to];
             moved++;
@@ -421,6 +431,9 @@ public sealed partial class World
             intoCastle = true;
         }
         Stats.LordshipsInherited++;
+        EnsureRealmArrays();
+        _legit[to] = (byte)Legitimacy.Inherited;
+        _tier[to] = Math.Max(_tier[to], _tier[from]);
         RecountClients();
         if (moved > 0) ShakeLordship(to, Config.HeirLoss);
         return intoCastle;
@@ -551,7 +564,7 @@ public sealed partial class World
                 Stats.Skimmed += skim;
             }
             Stats.Uncollected += list.Count - idx;
-            _incTribute[lord] = got;
+            _incTribute[lord] += got;
             Stats.Tribute += got;
             // 군인 품삯
             foreach (var (person, l) in _employer)
@@ -563,6 +576,7 @@ public sealed partial class World
                 if (hh.IsAlive(sh)) { hh.Food[sh] += pay; _incWage[sh] += pay; }
             }
         }
+        PassTributeUp();
     }
 
     private float Dist2(int a, int b)
@@ -583,7 +597,7 @@ public sealed partial class World
     }
 
     /// <summary>지배자 이름표: 따르는 집이 이만큼 넘으면.</summary>
-    public bool IsRuler(int h) => ClientCount(h) >= Config.RulerClients;
+    public bool IsRuler(int h) => TierOf(h) >= 2;
 
     /// <summary>
     /// 상속: 균분 가문은 분가하는 아들에게 땅을 나눠 준다. 같은 마을에 남으면 밭을 넘기고,
