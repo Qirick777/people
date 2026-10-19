@@ -132,8 +132,14 @@ public sealed partial class World
             Stats.RaidsWon++;
             HeadsRelate(best, h, -40f, 20f, 0f, MemoryType.Raided, -60);
             Casualty(best, defense);
-            // 지켜 주지 못한 지배자는 떠난다(반쯤)
-            if (PatronOf(best) >= 0 && _rng.Chance(0.5f)) _patron[best] = -1;
+            // 지켜 주지 못한 지배자를 원망하고, 반쯤은 떠난다(충성할수록 덜)
+            int lordOf = PatronOf(best);
+            if (lordOf >= 0)
+            {
+                _raidedHouses.Add(best);
+                HeadsRelate(best, lordOf, -25f, 0f, 0f, MemoryType.Betrayed, -30);
+                if (_rng.Chance(0.5f * LeaveFactor(best))) _patron[best] = -1;
+            }
         }
         else
         {
@@ -209,7 +215,8 @@ public sealed partial class World
             if (cur >= 0)
             {
                 // 위험이 사라지면 공납을 그만둔다(고집 센 가장일수록 빨리)
-                if (danger < 0.2f && _rng.Chance(0.1f + 0.3f * HeadTrait(h, Trait.Stubbornness))) _patron[h] = -1;
+                if (danger < 0.2f && _rng.Chance((0.1f + 0.3f * HeadTrait(h, Trait.Stubbornness)) * LeaveFactor(h))) _patron[h] = -1;
+                else if (Disloyal(h)) { _patron[h] = -1; Stats.DisloyalLeft++; }
                 continue;
             }
             if (power.ContainsKey(h) || danger < Config.DangerThreshold) continue;
@@ -433,7 +440,7 @@ public sealed partial class World
         for (int k = 0; k < hh.HighWater; k++)
         {
             if (!hh.IsAlive(k) || PatronOf(k) != lord) continue;
-            if (_rng.Chance(loss)) { _patron[k] = -1; left++; }
+            if (_rng.Chance(loss * LeaveFactor(k))) { _patron[k] = -1; left++; }
         }
         Stats.ClientsLost += left;
         RecountClients();
@@ -536,7 +543,7 @@ public sealed partial class World
                 int span = CollectorSpan(c);
                 float collected = 0;
                 for (int k = 0; k < span && idx < list.Count; k++, idx++) collected += TakeTribute(list[idx], lord, 0f);
-                float skim = collected * (Config.CollectorCut + 0.15f * p.Get(c, Trait.Ambition));
+                float skim = collected * (Config.CollectorCut + 0.15f * p.Get(c, Trait.Ambition)) * SkimFactor(c);
                 int ch = p.Household[c];
                 if (hh.IsAlive(ch)) { hh.Food[ch] += skim; _incWage[ch] += skim; }
                 hh.Food[lord] += collected - skim;

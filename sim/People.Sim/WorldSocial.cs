@@ -446,6 +446,7 @@ public sealed partial class World
             Social.Decay(p, i, Config.RelationKeep);
             p.Honor[i] *= 0.95f; p.Notoriety[i] *= 0.95f; p.Stigma[i] *= 0.97f;
         }
+        LoyaltyYear();
         DetectSecrets();
     }
 }

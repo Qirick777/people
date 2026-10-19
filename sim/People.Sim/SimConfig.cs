@@ -149,6 +149,14 @@ public sealed class SimConfig
     public float MaleAppealFloor { get; init; } = 0.8f;      // 남자가 팔면 외모가 이보다 높을 때만 값이 생긴다
     public float SecretBaseRisk { get; init; } = 0.12f;      // 비밀이 해마다 들킬 기본 확률
     public int SecretForgetYears { get; init; } = 15;        // 이만큼 지난 비밀은 묻힌다
+    // 충성: 관계가 충성을 밀고, 충성이 관계를 받아들이는 눈을 바꾼다
+    public float LoyaltyScale { get; init; } = 60f;          // 이만큼의 관계를 "아주 좋다"로 본다
+    public float LoyaltyLinear { get; init; } = 0.03f;       // 충성 변화 = (선형 × x + 세제곱 × x³), x = 관계/LoyaltyScale(±1에서 자름)
+    public float LoyaltyCubic { get; init; } = 0.25f;
+    public float FanaticAt { get; init; } = 0.9f;            // 충성이 이만큼이면 광신
+    public float FanaticBreak { get; init; } = 80f;          // 광신을 깨는 의심(대상에게 당한 나쁜 일의 합)
+    public float DoubtKeep { get; init; } = 0.8f;            // 의심이 해마다 남는 비율
+    public float FanaticFallTo { get; init; } = 0.3f;        // 광신이 깨지면 충성이 여기로 떨어진다
     public int ScrubYears { get; init; } = 12;              // 버려진 밭이 이만큼 묵으면 덤불: 다시 부치려면 개간 한 해
     public int ForestYears { get; init; } = 35;             // 이만큼 묵으면 숲으로 돌아간다
     public float HouseBuildCost { get; init; } = 30f;        // 오두막 하나 짓는 값(식량). 본가가 낸다

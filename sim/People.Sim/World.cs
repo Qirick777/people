@@ -1252,6 +1252,7 @@ public sealed partial class World
         if (hungry) Stats.HungerDeaths++;
         if (age < 1) Stats.InfantDeaths++;
         Lineage.MarkDeath(p.Uid[i], Day);
+        if (p.Fanatic[i] != 0) Stats.FanaticsDied++;
 
         int h = p.Household[i];
         if (p.Male[i])

@@ -52,6 +52,14 @@ public static class Social
     public static void Add(PersonStore p, int i, int uid, float aff, float fear = 0f, float debt = 0f)
     {
         if (uid < 0) return;
+        if (uid == p.LoyalUid[i])
+        {
+            // 충성이 받아들이는 눈을 바꾼다. 광신이면 나쁜 일은 관계 대신 의심으로 쌓인다.
+            float l = p.Loyalty[i];
+            if (aff >= 0f) aff *= 0.5f + l;
+            else if (p.Fanatic[i] != 0) { p.Doubt[i] -= aff; aff = 0f; }
+            else aff *= 1.5f - l;
+        }
         int s = Ensure(p, i, uid);
         p.RelAff[s] = Math.Clamp(p.RelAff[s] + aff, -100f, 100f);
         p.RelFear[s] = Math.Clamp(p.RelFear[s] + fear, 0f, 100f);
@@ -71,14 +79,15 @@ public static class Social
         return s < 0 ? 0f : p.RelFear[s];
     }
 
-    /// <summary>해마다 관계가 흐려진다(0 쪽으로).</summary>
+    /// <summary>해마다 관계가 흐려진다(0 쪽으로). 광신하는 대상과의 관계는 흐려지지 않는다.</summary>
     public static void Decay(PersonStore p, int i, float keep)
     {
         int b = i * PersonStore.RelSlots;
+        int frozen = p.Fanatic[i] != 0 ? p.LoyalUid[i] : -1;
         for (int k = 0; k < PersonStore.RelSlots; k++)
         {
             int j = b + k;
-            if (p.RelUid[j] < 0) continue;
+            if (p.RelUid[j] < 0 || (frozen >= 0 && p.RelUid[j] == frozen)) continue;
             p.RelAff[j] *= keep; p.RelFear[j] *= keep; p.RelDebt[j] *= keep;
             if (MathF.Abs(p.RelAff[j]) + p.RelFear[j] + MathF.Abs(p.RelDebt[j]) < 0.5f) p.RelUid[j] = -1;
         }

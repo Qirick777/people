@@ -333,6 +333,35 @@ switch (cmd)
         Console.WriteLine($"하룻밤 값: {Q(pr)}");
         break;
     }
+    case "loyaldiag":
+    {
+        // 충성 대상이 있는 어른을 가장(지배자를 섬김)과 식구(자기 집 가장을 섬김)로 나눠 관계·충성 분포를 본다.
+        var map = WorldMap.Generate((uint)Arg("--seed", 1), Arg("--size", 48));
+        var w = new World((ulong)Arg("--seed", 1), map, Config());
+        w.SeedCouples(Arg("--couples", 10));
+        long nf = 0, nb = 0, nd = 0, nl = 0, nx = 0;
+        for (int y = 0; y < Arg("--years", 250); y++)
+        {
+            for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
+            nf += w.Stats.NewFanatics; nb += w.Stats.FanaticsBroken; nd += w.Stats.FanaticsDied; nl += w.Stats.DisloyalLeft; nx += w.Stats.FanaticsLost;
+        }
+        Console.WriteLine($"광신: 새로 {nf}, 깨짐 {nb}, 광신인 채 죽음 {nd}, 섬길 집이 사라짐 {nx}, 광신까지 평균 {(nf > 0 ? w.Stats.FanaticYearsSum / (double)nf : 0):F1}년 · 충성이 낮아 떠난 집 {nl}");
+        var p = w.People; var hh = w.Households;
+        var op = new[] { new List<float>(), new List<float>() }; var ly = new[] { new List<float>(), new List<float>() };
+        var fan = new int[2];
+        for (int i = 0; i < p.HighWater; i++)
+        {
+            if (!p.IsAliveIndex(i) || p.LoyalUid[i] < 0) continue;
+            int g = hh.Head[p.Household[i]].Index == i ? 0 : 1;
+            op[g].Add(Social.Opinion(p, i, p.LoyalUid[i])); ly[g].Add(p.Loyalty[i]);
+            if (p.Fanatic[i] != 0) fan[g]++;
+        }
+        string Q(List<float> l) { if (l.Count == 0) return "-"; l.Sort(); return $"n={l.Count} p10 {l[l.Count / 10]:F2} p50 {l[l.Count / 2]:F2} p90 {l[l.Count * 9 / 10]:F2} p99 {l[l.Count * 99 / 100]:F2}"; }
+        string[] name = { "가장→지배자/고용주", "식구→가장" };
+        for (int g = 0; g < 2; g++)
+            Console.WriteLine($"{name[g]}: 관계 {Q(op[g])}\n    충성 {Q(ly[g])}  광신 {fan[g]}");
+        break;
+    }
     case "export":
     {
         // 정착을 돌린 뒤 가장 큰 마을 주변을 화면용 JSON 으로 내보낸다(Godot 이 읽어 그린다).
