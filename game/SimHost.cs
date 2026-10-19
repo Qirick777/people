@@ -240,6 +240,40 @@ public partial class SimHost : Node
         return a;
     }
 
+    // ------------------------------------------------------------------ 모임(내 카드에서)
+
+    /// <summary>행동하는 사람이 스스로 할 수 있는 일: 모임 세우기, 나가기. key 는 "found:종류" 또는 "leave:번호".</summary>
+    public Godot.Collections.Array SelfActions(int actor)
+    {
+        var a = new Godot.Collections.Array();
+        if (_w == null || !_w.People.IsAliveIndex(actor) || Age(actor) < 16) return a;
+        var w = _w;
+        var mine = w.GroupsOf(actor).ToList();
+        if (mine.Count < World.GroupSlots)
+            foreach (GroupKind k in new[] { GroupKind.Watch, GroupKind.Brotherhood, GroupKind.Bandits })
+                if (!mine.Any(g => g.Kind == k))
+                    a.Add(new Godot.Collections.Dictionary { ["key"] = $"found:{(int)k}", ["name"] = $"{World.GroupKindName(k)} 세우기", ["note"] = k == GroupKind.Bandits ? "숨어서 함께 턴다. 들키면 진압당한다" : k == GroupKind.Watch ? "마을을 함께 지킨다" : "신앙으로 묶이고 굶는 회원을 돕는다", ["risky"] = k == GroupKind.Bandits });
+        foreach (var g in mine)
+            a.Add(new Godot.Collections.Dictionary { ["key"] = $"leave:{g.Id}", ["name"] = $"{g.Name}에서 나가기", ["note"] = w.IsLeader(actor, g) ? "우두머리가 나가면 다른 사람이 잇는다" : "", ["risky"] = false });
+        return a;
+    }
+
+    public string DoSelf(int actor, string key)
+    {
+        if (_w == null) return "";
+        var w = _w;
+        var parts = key.Split(':');
+        if (parts[0] == "found")
+        {
+            var g = w.FoundGroup(actor, (GroupKind)int.Parse(parts[1]));
+            return $"{g.Name}을(를) 세웠다. 이웃을 눌러 '모임에 들이기'로 사람을 모은다";
+        }
+        var gr = w.GroupById(int.Parse(parts[1]));
+        if (gr == null) return "";
+        w.LeaveGroup(actor, gr);
+        return $"{gr.Name}에서 나왔다";
+    }
+
     // ------------------------------------------------------------------ 상호작용
 
     private int Age(int i) => (_w!.Day - _w.People.BirthDay[i]) / _w.Config.DaysPerYear;

@@ -1,0 +1,378 @@
+namespace People.Sim;
+
+public enum GroupKind : byte { Watch, Bandits, Brotherhood }
+
+/// <summary>
+/// 모임 하나. 섬김 나무와 따로, 사람들이 가로로 묶인다. 우두머리는 uid 로 적는다.
+/// 지배자의 태도: 인정(Sanction 에 지배자 집), 억누르기(진압), 눈감기(아무것도 안 함).
+/// </summary>
+public sealed class Group
+{
+    public int Id;
+    public GroupKind Kind;
+    public int LeaderUid, Founded, Village;
+    public int Sanction = -1, SanctionFounded = -1;   // 인정한 지배자 집
+    public bool Exposed;                              // 도적 떼: 정체가 알려졌다
+    public bool Alive = true;
+    public int Members;
+    public float Strength;                            // 모인 사람들의 싸움 힘(해마다 다시 센다)
+    public string Name = "";
+}
+
+/// <summary>
+/// P3 모임: 가문(족보로 저절로), 자경단, 도적 떼, 신도회. 사람마다 모임 칸 셋.
+/// 생기고, 들고 나고, 우두머리를 잇고, 흩어진다. 도적 떼는 함께 털고, 자경단은 마을을 함께 지킨다.
+/// </summary>
+public sealed partial class World
+{
+    public const int GroupSlots = 3;
+    private readonly List<Group> _groups = new();
+    public IReadOnlyList<Group> Groups => _groups;
+
+    public static string GroupKindName(GroupKind k) => k switch { GroupKind.Watch => "자경단", GroupKind.Bandits => "도적 떼", _ => "신도회" };
+
+    public Group? GroupById(int id) => id >= 0 && id < _groups.Count && _groups[id].Alive ? _groups[id] : null;
+
+    public IEnumerable<Group> GroupsOf(int i)
+    {
+        for (int k = 0; k < GroupSlots; k++)
+        {
+            var g = GroupById(People.GroupIds[i * GroupSlots + k]);
+            if (g != null) yield return g;
+        }
+    }
+
+    public bool InGroup(int i, Group g)
+    {
+        for (int k = 0; k < GroupSlots; k++) if (People.GroupIds[i * GroupSlots + k] == g.Id) return true;
+        return false;
+    }
+
+    private Group? GroupOfKind(int i, GroupKind kind)
+    {
+        foreach (var g in GroupsOf(i)) if (g.Kind == kind) return g;
+        return null;
+    }
+
+    public bool JoinGroup(int i, Group g)
+    {
+        if (InGroup(i, g)) return true;
+        for (int k = 0; k < GroupSlots; k++)
+        {
+            int j = i * GroupSlots + k;
+            if (GroupById(People.GroupIds[j]) == null) { People.GroupIds[j] = g.Id; g.Members++; return true; }
+        }
+        return false;
+    }
+
+    public void LeaveGroup(int i, Group g)
+    {
+        for (int k = 0; k < GroupSlots; k++)
+        {
+            int j = i * GroupSlots + k;
+            if (People.GroupIds[j] == g.Id) { People.GroupIds[j] = -1; g.Members--; }
+        }
+    }
+
+    public Group FoundGroup(int leader, GroupKind kind)
+    {
+        int h = People.Household[leader];
+        var g = new Group { Id = _groups.Count, Kind = kind, LeaderUid = People.Uid[leader], Founded = Day, Village = Households.IsAlive(h) ? Households.Village[h] : -1 };
+        g.Name = $"{Names.Family(Lineage.FamilyOf(People.Uid[leader]))} {GroupKindName(kind)}";
+        _groups.Add(g);
+        JoinGroup(leader, g);
+        Stats.GroupsFounded++;
+        Chron(leader, $"{SubjName(leader)} {g.Name}을(를) 세웠다");
+        return g;
+    }
+
+    public bool IsLeader(int i, Group g) => People.Uid[i] == g.LeaderUid;
+
+    /// <summary>i 가 이끄는 모임 중 target 이 아직 들지 않은 첫 모임.</summary>
+    public Group? LedGroupFor(int i, int target)
+    {
+        foreach (var g in GroupsOf(i)) if (IsLeader(i, g) && !InGroup(target, g) && GroupOfKind(target, g.Kind) == null) return g;
+        return null;
+    }
+
+    private void AddGroupDefs(InteractionDef[] d)
+    {
+        d[(int)InteractionId.Recruit] = new InteractionDef
+        {
+            Id = InteractionId.Recruit, Name = "모임에 들이기", Category = InteractionCategory.Rule,
+            Can = (w, c) => w.Adult(c.Target) && w.LedGroupFor(c.Actor, c.Target) != null && w.GroupsOf(c.Target).Count() < GroupSlots,
+            // 그 모임을 바라는 마음 + 우두머리를 보는 눈
+            Accept = (w, c) =>
+            {
+                var g = w.LedGroupFor(c.Actor, c.Target)!;
+                float a = w.GroupWant(c.Target, g.Kind) + Social.Opinion(w.People, c.Target, w.People.Uid[c.Actor]) / 100f - 0.1f;
+                return Math.Clamp(a, 0.02f, 0.95f);
+            },
+            Success = (w, c, _) =>
+            {
+                var g = w.LedGroupFor(c.Actor, c.Target)!;
+                w.JoinGroup(c.Target, g);
+                Social.AddFrom(w.People, c.Target, c.Actor, 5f);
+            },
+        };
+    }
+
+    // ------------------------------------------------------------------ 가문(족보로 저절로 정해지는 모임)
+
+    /// <summary>가문마다 가문장(가장 나이 많은 남자 가장, 없으면 가장 나이 많은 가장)과 산 사람 수.</summary>
+    public Dictionary<int, (int head, int count)> Clans()
+    {
+        var p = People; var hh = Households;
+        var map = new Dictionary<int, (int head, int count)>();
+        for (int i = 0; i < p.HighWater; i++)
+        {
+            if (!p.IsAliveIndex(i)) continue;
+            int fam = Lineage.FamilyOf(p.Uid[i]);
+            var e = map.TryGetValue(fam, out var old) ? old : (head: -1, count: 0);
+            e.count++;
+            bool head = hh.IsAlive(p.Household[i]) && hh.Head[p.Household[i]].Index == i;
+            if (head)
+            {
+                int cur = e.head;
+                bool better = cur < 0 || (p.Male[i] && !p.Male[cur]) || (p.Male[i] == p.Male[cur] && p.BirthDay[i] < p.BirthDay[cur]);
+                if (better) e.head = i;
+            }
+            map[fam] = e;
+        }
+        return map;
+    }
+
+    // ------------------------------------------------------------------ 해마다
+
+    public float GroupWantPublic(int i, GroupKind kind) => GroupWant(i, kind);
+
+    private float GroupWant(int i, GroupKind kind)
+    {
+        var p = People;
+        int h = p.Household[i];
+        int age = AgeYears(i);
+        float need = Households.IsAlive(h) ? Math.Clamp(1f - Surplus(h), 0f, 1f) : 1f;
+        return kind switch
+        {
+            GroupKind.Watch => p.Male[i] && age >= 16 && age <= 50 ? 0.3f + 0.4f * p.Get(i, Trait.Aggression) + 0.3f * (1f - p.Get(i, Trait.Caution)) : 0f,
+            // 늘 가난한 처지(일꾼·소작·땅 없는 집)이거나 지금 굶는 거친 남자
+            GroupKind.Bandits => p.Male[i] && age >= 16 && age <= 45
+                ? MathF.Max(need, ClassOf(h) is LandClass.Laborer or LandClass.Tenant or LandClass.None ? 0.7f : 0f)
+                  * Math.Clamp((p.Get(i, Trait.Aggression) - 0.35f) * 2.5f, 0f, 1f) * (1f - 0.8f * p.Piety[i]) : 0f,
+            _ => age >= 16 ? MathF.Max(0f, p.Piety[i] - 0.6f) * 2.5f : 0f,
+        };
+    }
+
+    private void GroupYear()
+    {
+        var p = People; var hh = Households;
+        // 1) 사람 수와 힘을 다시 세고, 우두머리가 없으면 잇거나 흩어진다
+        foreach (var g in _groups) if (g.Alive) { g.Members = 0; g.Strength = 0f; }
+        var leaderAlive = new HashSet<int>();
+        var byGroup = new Dictionary<int, List<int>>();
+        for (int i = 0; i < p.HighWater; i++)
+        {
+            if (!p.IsAliveIndex(i)) continue;
+            for (int k = 0; k < GroupSlots; k++)
+            {
+                var g = GroupById(p.GroupIds[i * GroupSlots + k]);
+                if (g == null) { p.GroupIds[i * GroupSlots + k] = -1; continue; }
+                g.Members++;
+                g.Strength += FightPower(i);
+                if (p.Uid[i] == g.LeaderUid) leaderAlive.Add(g.Id);
+                (byGroup.TryGetValue(g.Id, out var l) ? l : byGroup[g.Id] = new()).Add(i);
+            }
+        }
+        foreach (var g in _groups)
+        {
+            if (!g.Alive) continue;
+            var members = byGroup.GetValueOrDefault(g.Id);
+            if (!leaderAlive.Contains(g.Id) && members != null && members.Count > 0)
+            {
+                // 말솜씨와 싸움 힘이 큰 어른이 잇는다
+                int next = members.Where(Adult).OrderByDescending(m => p.Get(m, Trait.Charisma) + FightPower(m)).DefaultIfEmpty(-1).First();
+                if (next >= 0) g.LeaderUid = p.Uid[next];
+            }
+            if (g.Members < 2 || !members!.Any(m => p.Uid[m] == g.LeaderUid))
+            {
+                g.Alive = false;
+                Stats.GroupsDissolved++;
+                continue;
+            }
+            if (g.Sanction >= 0 && (!hh.IsAlive(g.Sanction) || hh.FoundedDay[g.Sanction] != g.SanctionFounded)) g.Sanction = -1;
+        }
+        // 2) 마을마다: 생기고, 들고, 나간다
+        var byVillage = new Dictionary<int, List<int>>();
+        for (int i = 0; i < p.HighWater; i++)
+        {
+            if (!Adult(i) || !hh.IsAlive(p.Household[i]) || hh.Village[p.Household[i]] < 0) continue;
+            (byVillage.TryGetValue(hh.Village[p.Household[i]], out var l) ? l : byVillage[hh.Village[p.Household[i]]] = new()).Add(i);
+        }
+        foreach (var (v, folk) in byVillage)
+        {
+            float danger = DangerAt(v);
+            foreach (GroupKind kind in new[] { GroupKind.Watch, GroupKind.Bandits, GroupKind.Brotherhood })
+            {
+                // 이 마을의 그 종류 모임(가장 큰 것)
+                Group? here = null;
+                foreach (var g in _groups) if (g.Alive && g.Kind == kind && g.Village == v && (here == null || g.Members > here.Members)) here = g;
+                // 생길 조건: 자경단은 위험한 마을, 신도회는 신앙심 깊은 사람이 여럿, 도적 떼는 거칠고 가난한 사람이 여럿
+                if (here == null)
+                {
+                    float pressure = kind switch
+                    {
+                        GroupKind.Watch => MathF.Max(0f, danger - 0.6f) * 0.5f,
+                        _ => 0.25f,
+                    };
+                    if (!_rng.Chance(pressure)) continue;
+                    var cand = folk.Where(i => !IsPlayer(i) && GroupWant(i, kind) > 0.35f && GroupOfKind(i, kind) == null).ToList();
+                    if (cand.Count < 3) continue;
+                    int leader = cand.OrderByDescending(i => GroupWant(i, kind) + p.Get(i, Trait.Charisma) + (kind == GroupKind.Watch ? FightPower(i) : 0f)).First();
+                    here = FoundGroup(leader, kind);
+                    if (kind == GroupKind.Bandits) Stats.BanditGroups++;
+                }
+                // 들기와 나가기(하나의 사람이 한 해에 한 번)
+                int cap = kind == GroupKind.Brotherhood ? 40 : 12 + folk.Count / 20;
+                foreach (int i in folk)
+                {
+                    if (IsPlayer(i)) continue;
+                    float want = GroupWant(i, kind);
+                    bool inIt = InGroup(i, here);
+                    if (!inIt && here.Members < cap && GroupOfKind(i, kind) == null && _rng.Chance(MathF.Max(0f, want - 0.35f) * 0.5f)) JoinGroup(i, here);
+                    else if (inIt && !IsLeader(i, here) && want < 0.15f && _rng.Chance(0.3f)) LeaveGroup(i, here);
+                }
+                if (kind == GroupKind.Watch && danger < 0.1f && here.Sanction < 0 && _rng.Chance(0.1f)) { here.Alive = false; Stats.GroupsDissolved++; }
+            }
+        }
+        // 3) 모임 안: 서로 가까워지고, 신도회는 굶는 회원을 돕는다
+        foreach (var (gid, members) in byGroup)
+        {
+            var g = _groups[gid];
+            if (!g.Alive || members.Count < 2) continue;
+            for (int t = 0; t < Math.Min(6, members.Count); t++)
+            {
+                int a = members[_rng.NextInt(members.Count)], b = members[_rng.NextInt(members.Count)];
+                if (a == b || !p.IsAliveIndex(a) || !p.IsAliveIndex(b)) continue;
+                Social.Add(p, a, p.Uid[b], 3f);
+                Social.Add(p, b, p.Uid[a], 3f);
+            }
+            if (g.Kind == GroupKind.Brotherhood) Charity(members);
+        }
+        // 4) 지배자의 태도
+        foreach (var g in _groups) if (g.Alive) LordStance(g);
+        Stats.Watches = _groups.Count(g => g.Alive && g.Kind == GroupKind.Watch);
+        Stats.Bandits = _groups.Count(g => g.Alive && g.Kind == GroupKind.Bandits);
+        Stats.Brotherhoods = _groups.Count(g => g.Alive && g.Kind == GroupKind.Brotherhood);
+        Stats.GroupMembers = _groups.Where(g => g.Alive).Sum(g => g.Members);
+    }
+
+    /// <summary>신도회: 넉넉한 회원이 굶는 회원 집에 식량을 나눈다.</summary>
+    private void Charity(List<int> members)
+    {
+        var p = People; var hh = Households;
+        var hungry = members.Where(m => p.IsAliveIndex(m) && hh.IsAlive(p.Household[m]) && Surplus(p.Household[m]) < 0.6f).Select(m => p.Household[m]).Distinct().ToList();
+        if (hungry.Count == 0) return;
+        foreach (int m in members)
+        {
+            if (!p.IsAliveIndex(m)) continue;
+            int h = p.Household[m];
+            if (!hh.IsAlive(h) || Surplus(h) < 1.5f) continue;
+            int to = hungry[_rng.NextInt(hungry.Count)];
+            if (to == h) continue;
+            float give = MathF.Min(hh.Food[h] * 0.05f, 30f);
+            hh.Food[h] -= give;
+            hh.Food[to] += give;
+            Stats.CharityFood += give;
+            var head = hh.Head[to];
+            if (p.IsValid(head)) Social.Add(p, head.Index, p.Uid[m], 8f, 0f, 5f);
+        }
+    }
+
+    /// <summary>모임이 있는 곳의 지배자(우두머리 집의 주군, 없으면 우두머리 집 자체가 지배자일 수 있다).</summary>
+    private int ConcernedLord(Group g)
+    {
+        int leader = FindAlive(g.LeaderUid);
+        if (leader < 0) return -1;
+        return PatronOf(People.Household[leader]);
+    }
+
+    private int FindAlive(int uid)
+    {
+        if (_uidIndex.TryGetValue(uid, out int k) && People.IsAliveIndex(k) && People.Uid[k] == uid) return k;
+        for (int i = 0; i < People.HighWater; i++) if (People.IsAliveIndex(i) && People.Uid[i] == uid) { _uidIndex[uid] = i; return i; }
+        return -1;
+    }
+
+    /// <summary>
+    /// 지배자는 성격대로 모임을 대한다. 자경단은 인정하거나(경비대 아래로) 우두머리가 커지면 누른다.
+    /// 정체가 드러난 도적 떼는 힘이 되면 친다. 신도회는 신앙심 깊은 지배자가 인정한다.
+    /// </summary>
+    private void LordStance(Group g)
+    {
+        if (g.Sanction >= 0 && g.Kind != GroupKind.Bandits) return;
+        int lord = ConcernedLord(g);
+        if (lord < 0 || !Households.IsAlive(lord) || IsPlayer(Households.Head[lord].Index)) return;
+        float cha = HeadTrait(lord, Trait.Charisma), agg = HeadTrait(lord, Trait.Aggression);
+        var head = Households.Head[lord];
+        float piety = People.IsValid(head) ? People.Piety[head.Index] : 0.5f;
+        switch (g.Kind)
+        {
+            case GroupKind.Watch:
+                if (_rng.Chance(0.2f + 0.4f * cha)) Sanction(g, lord);
+                break;
+            case GroupKind.Brotherhood:
+                if (_rng.Chance(MathF.Max(0f, piety - 0.4f))) Sanction(g, lord);
+                break;
+            case GroupKind.Bandits:
+                if (!g.Exposed) return;
+                if (_rng.Chance(0.3f + 0.4f * agg)) Suppress(g, lord);
+                break;
+        }
+    }
+
+    private void Sanction(Group g, int lord)
+    {
+        g.Sanction = lord;
+        g.SanctionFounded = Households.FoundedDay[lord];
+        int leader = FindAlive(g.LeaderUid);
+        if (leader >= 0) HeadsRelate(People.Household[leader], lord, 10f, 0f, 10f, MemoryType.Protected, 10);
+        Stats.Sanctioned++;
+    }
+
+    /// <summary>도적 떼 진압: 지배자 힘 대 떼의 힘. 이기면 우두머리가 죽고 떼가 흩어진다.</summary>
+    private void Suppress(Group g, int lord)
+    {
+        float atk = LordPower(lord) * (0.7f + 0.6f * _rng.NextFloat());
+        float def = g.Strength * (0.7f + 0.6f * _rng.NextFloat());
+        Stats.Suppressions++;
+        if (atk > def)
+        {
+            int leader = FindAlive(g.LeaderUid);
+            if (leader >= 0) { Stats.RaidDeaths++; Die(leader, false); }
+            g.Alive = false;
+            Stats.GroupsDissolved++;
+            Stats.SuppressWins++;
+        }
+    }
+
+    /// <summary>마을 자경단의 지킬 힘(인정받았으면 더 단단하다).</summary>
+    private float WatchPower(int v)
+    {
+        float s = 0f;
+        foreach (var g in _groups)
+            if (g.Alive && g.Kind == GroupKind.Watch && g.Village == v) s += g.Strength * (g.Sanction >= 0 ? 0.6f : 0.4f);
+        return s;
+    }
+
+    /// <summary>계절마다: 도적 떼가 함께 턴다(굶지 않아도).</summary>
+    private void BanditSeason()
+    {
+        foreach (var g in _groups.ToList())
+        {
+            if (!g.Alive || g.Kind != GroupKind.Bandits || !_rng.Chance(0.3f)) continue;
+            int leader = FindAlive(g.LeaderUid);
+            if (leader < 0 || IsPlayer(leader)) continue;
+            TryRaid(People.Household[leader], 10f + 8f * g.Members, g);
+        }
+    }
+}

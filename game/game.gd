@@ -120,7 +120,14 @@ func _show_person(pd: Dictionary) -> void:
 	var me: int = host.Player
 	if me < 0: return
 	var target := int(pd["i"])
-	if actor < 0 or actor == target: return
+	if actor >= 0 and actor == target:
+		var own := []
+		for it in host.SelfActions(actor):
+			var key: String = it["key"]
+			own.append({"text": it["name"], "note": it["note"], "risky": it["risky"], "cb": func(): _do_self(key)})
+		card.add_actions("모임 세우기·나가기", own)
+		return
+	if actor < 0: return
 	if not pending.is_empty() and int(pending["target"]) == target:
 		_show_choices(target)
 		return
@@ -239,6 +246,11 @@ func _on_player_changed() -> void:
 	var pos: Vector2i = host.HousePos(last_player)
 	if pos.x >= 0 and (pos.x - origin.x < 8 or pos.y - origin.y < 8 or pos.x - origin.x >= REGION.x - 8 or pos.y - origin.y >= REGION.y - 8):
 		_recenter(pos)
+
+
+func _do_self(key: String) -> void:
+	_set_hint(host.DoSelf(actor, key))
+	_redraw()
 
 
 func _take_house(id: int) -> void:
@@ -760,6 +772,24 @@ func _run_autotest() -> void:
 		await _snap("live_dowry.png")
 		print("autotest: 혼담 상대 ", pd["name"], " / 내 식구 ", cands[0]["name"])
 		break
+	# 모임: 내 카드에서 자경단을 세우고, 이웃 몇을 끌어들인다
+	var me_pd := _pd_of(actor)
+	if not me_pd.is_empty():
+		_show_person(me_pd)
+		await _snap("live_self.png")
+		_do_self("found:0")
+		var recruited := 0
+		for e in scene.pickables:
+			var pd: Dictionary = e["pd"]
+			if mine.has(int(pd["i"])) or int(pd["age"]) < 16: continue
+			for t in 3:
+				var r: String = host.Interact(_id_of("모임에 들이기", int(pd["i"])), actor, int(pd["i"]), -1, 0.0) if _id_of("모임에 들이기", int(pd["i"])) >= 0 else ""
+				if r.ends_with("받아들였다"): recruited += 1; break
+			if recruited >= 3: break
+		_redraw()
+		print("autotest: 자경단에 들인 이웃 %d명" % recruited)
+		_show_person(_pd_of(actor))
+		await _snap("live_groups.png")
 	# 혈족 집: 족보 창을 열어 찍고, 첫 혈족 집으로 옮기기를 예약해 계절이 바뀌면 옮겨지는지 본다
 	card.visible = false
 	_refresh_family()

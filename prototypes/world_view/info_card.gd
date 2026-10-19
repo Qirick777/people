@@ -220,6 +220,14 @@ func show_person(pd: Dictionary, house: Dictionary) -> void:
 		_row("충성", lw)
 		if float(pd.get("honor", 0)) < -0.05: _row("평판", "추문이 돈다")
 		if pd.has("regard"): _row("나를", regard_word(float(pd["regard"])))
+	var groups: Array = pd.get("groups", [])
+	if groups.size() > 0 or pd.has("clan"):
+		_section("모임")
+		if pd.has("clan"):
+			var c: Array = pd["clan"]
+			_row("가문", "%s 가문 · %d명 · %s" % [c[0], int(c[2]), "가문장" if c[3] else "가문장 " + c[1]])
+		for g in groups:
+			_row(g[2], "%s · %s%s" % [g[0], g[1], " · 영주가 인정" if g[3] else ""])
 	if pd.has("talents"):
 		_section("떠본 결과")
 		for t in pd["talents"]: _row(t[0], "재능 " + t[1])

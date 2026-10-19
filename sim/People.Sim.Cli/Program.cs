@@ -395,6 +395,31 @@ switch (cmd)
         Console.WriteLine($"약초꾼 {healers}, 몸 파는 이 {workers}, 30집 넘는 마을 {bigV}, 임신 중 {adults.Count(i => p.PregnantUntil[i] >= 0)}");
         break;
     }
+    case "groupdiag":
+    {
+        // 모임 진단: 마을마다 도적 떼·자경단·신도회 후보 수(뜻이 0.35를 넘는 어른)
+        var map = WorldMap.Generate((uint)Arg("--seed", 1), Arg("--size", 48));
+        var w = new World((ulong)Arg("--seed", 1), map, Config());
+        w.SeedCouples(Arg("--couples", 10));
+        for (int d = 0; d < Arg("--years", 200) * w.Config.DaysPerYear; d++) w.Step();
+        var p = w.People; var hh = w.Households;
+        var cls = new Dictionary<string, int>();
+        var cand = new int[3];
+        var aggr = new List<float>();
+        for (int i = 0; i < p.HighWater; i++)
+        {
+            if (!p.IsAliveIndex(i) || (w.Day - p.BirthDay[i]) / w.Config.DaysPerYear < 16 || !hh.IsAlive(p.Household[i])) continue;
+            string c = World.ClassName(w.ClassOf(p.Household[i]));
+            cls[c] = cls.GetValueOrDefault(c) + 1;
+            if (p.Male[i]) aggr.Add(p.Get(i, Trait.Aggression));
+            for (int k = 0; k < 3; k++) if (w.GroupWantPublic(i, (GroupKind)k) > 0.35f) cand[k]++;
+        }
+        aggr.Sort();
+        Console.WriteLine("계층: " + string.Join(", ", cls.Select(kv => $"{(kv.Key == "" ? "없음" : kv.Key)} {kv.Value}")));
+        Console.WriteLine($"남자 공격성 p50 {aggr[aggr.Count / 2]:F2} p90 {aggr[aggr.Count * 9 / 10]:F2}");
+        Console.WriteLine($"뜻 0.35 넘는 어른: 자경단 {cand[0]}, 도적 떼 {cand[1]}, 신도회 {cand[2]}");
+        break;
+    }
     case "export":
     {
         // 정착을 돌린 뒤 가장 큰 마을 주변을 화면용 JSON 으로 내보낸다(Godot 이 읽어 그린다).

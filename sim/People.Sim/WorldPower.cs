@@ -89,14 +89,17 @@ public sealed partial class World
     /// 약탈: 굶을 처지인데 빌리지도 팔지도 못한 집 중 거친 가장이 있는 집이 이웃 마을의 여유 있는 집을 턴다.
     /// 지키는 쪽은 그 집 남자들과, 보호받는 집이면 지배자의 군인이 함께 막는다. 진 쪽에서 사람이 죽을 수 있다.
     /// </summary>
-    private void TryRaid(int h, float deficit)
+    private void TryRaid(int h, float deficit, Group? gang = null)
     {
         var hh = Households;
         var p = People;
-        float aggr = HeadTrait(h, Trait.Aggression);
-        if (aggr < Config.RaidAggression) return;
-        if (!_rng.Chance((aggr - Config.RaidAggression) / (1f - Config.RaidAggression) * 0.8f)) return;
-        float power = HouseholdPower(h);
+        if (gang == null)
+        {
+            float aggr = HeadTrait(h, Trait.Aggression);
+            if (aggr < Config.RaidAggression) return;
+            if (!_rng.Chance((aggr - Config.RaidAggression) / (1f - Config.RaidAggression) * 0.8f)) return;
+        }
+        float power = HouseholdPower(h) + (gang != null ? 0.8f * gang.Strength : 0f);   // 도적 떼는 함께 턴다
         if (power < 0.3f) return;
         int days = DaysToHarvest();
         int best = -1;
@@ -130,6 +133,7 @@ public sealed partial class World
             hh.Food[best] -= take;
             hh.Food[h] += take;
             Stats.RaidsWon++;
+            if (gang != null) { Stats.BanditRaids++; if (_rng.Chance(0.5f)) gang.Exposed = true; }   // 털린 집이 누구 짓인지 알아본다
             HeadsRelate(best, h, -40f, 20f, 0f, MemoryType.Raided, -60);
             Casualty(best, defense);
             // 지켜 주지 못한 지배자를 원망하고, 반쯤은 떠난다(충성할수록 덜)
@@ -152,6 +156,7 @@ public sealed partial class World
         float d = HouseholdPower(h);
         int lord = PatronOf(h);
         if (lord >= 0) d += Config.ProtectShare * LordPower(lord);
+        if (Households.Village[h] >= 0) d += WatchPower(Households.Village[h]);   // 마을 자경단
         return d;
     }
 

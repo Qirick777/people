@@ -59,6 +59,7 @@ public sealed class PersonStore
     // 충성 대상: 대상 가문, 그 가문의 지금 가장 uid, 광신 여부, 광신을 흔드는 의심(쌓이면 깨진다)
     public int[] LoyalFam, LoyalUid, LoyalIdx, LoyalSince, LoyalHouse, LoyalHouseFounded;   // LoyalIdx: 섬기는 가장의 사람 번호(LoyalUid 와 맞을 때만 유효)
     public byte[] Fanatic;
+    public int[] GroupIds;           // 모임 칸(사람마다 World.GroupSlots 개, -1 = 빈 칸)
     public bool[] Concubine;         // 여성: 남편의 첩(아내가 아님). 자식은 서자
     public int[] ContraUntil;        // 피임약이 듣는 마지막 날(-1 = 없음)
     public float[] Doubt;
@@ -114,6 +115,7 @@ public sealed class PersonStore
         MemWeight = new sbyte[capacity * MemSlots]; MemNext = new byte[capacity];
         Piety = new float[capacity]; Loyalty = new float[capacity]; Honor = new float[capacity];
         Notoriety = new float[capacity]; Stigma = new float[capacity];
+        GroupIds = new int[capacity * 3]; Array.Fill(GroupIds, -1);
         Concubine = new bool[capacity]; ContraUntil = new int[capacity];
         LoyalFam = new int[capacity]; LoyalUid = new int[capacity]; LoyalIdx = new int[capacity]; LoyalSince = new int[capacity]; LoyalHouse = new int[capacity]; LoyalHouseFounded = new int[capacity]; Fanatic = new byte[capacity]; Doubt = new float[capacity];
         PregnancyLegalFatherUid = new int[capacity];
@@ -176,6 +178,7 @@ public sealed class PersonStore
         RelAff.AsSpan(i * RelSlots, RelSlots).Clear(); RelFear.AsSpan(i * RelSlots, RelSlots).Clear(); RelDebt.AsSpan(i * RelSlots, RelSlots).Clear();
         MemType.AsSpan(i * MemSlots, MemSlots).Clear(); MemNext[i] = 0;
         Piety[i] = 0.5f; Loyalty[i] = 0.5f; Honor[i] = 0f; Notoriety[i] = 0f; Stigma[i] = 0f;
+        GroupIds.AsSpan(i * 3, 3).Fill(-1);
         Concubine[i] = false; ContraUntil[i] = -1;
         LoyalFam[i] = -1; LoyalUid[i] = -1; LoyalIdx[i] = -1; LoyalHouse[i] = -1; Fanatic[i] = 0; Doubt[i] = 0f;
         PregnancyLegalFatherUid[i] = -1;
@@ -270,6 +273,7 @@ public sealed class PersonStore
         Array.Resize(ref MemWeight, cap * MemSlots); Array.Resize(ref MemNext, cap);
         Array.Resize(ref Piety, cap); Array.Resize(ref Loyalty, cap); Array.Resize(ref Honor, cap);
         Array.Resize(ref Notoriety, cap); Array.Resize(ref Stigma, cap);
+        int oldG = GroupIds.Length; Array.Resize(ref GroupIds, cap * 3); GroupIds.AsSpan(oldG).Fill(-1);
         Array.Resize(ref Concubine, cap); Array.Resize(ref ContraUntil, cap);
         Array.Resize(ref LoyalFam, cap); Array.Resize(ref LoyalUid, cap); Array.Resize(ref LoyalIdx, cap); Array.Resize(ref LoyalSince, cap); Array.Resize(ref LoyalHouse, cap); Array.Resize(ref LoyalHouseFounded, cap); Array.Resize(ref Fanatic, cap); Array.Resize(ref Doubt, cap);
         Array.Resize(ref PregnancyLegalFatherUid, cap);

@@ -77,6 +77,7 @@ public static class RegionView
         for (int i = 0; i < p.HighWater; i++)
             if (p.IsAliveIndex(i) && !p.Male[i] && p.IsValid(p.Husband[i])) (wives.TryGetValue(p.Husband[i].Index, out var l) ? l : wives[p.Husband[i].Index] = new()).Add(i);
         bool firstP = true;
+        var clans = w.Clans();
         int ph = w.PlayerHousehold;
         int playerHead = ph >= 0 && p.IsValid(hh.Head[ph]) ? p.Uid[hh.Head[ph].Index] : -1;
         for (int i = 0; i < p.HighWater; i++)
@@ -126,6 +127,11 @@ public static class RegionView
             var right = lin.RightOf(uid);
             sb.Append($"\"right\":\"{(right == Birthright.Concubine ? "서자" : right == Birthright.Bastard && lin.Father(uid) < 0 && (f >= 0 || m >= 0) ? "사생아" : "")}\",");
             sb.Append($"\"heir\":{(w.HeirOf(p.Household[i]) == i ? "true" : "false")},\"concubine\":{(!male && p.Concubine[i] && p.IsValid(p.Husband[i]) ? "true" : "false")},\"disowned\":{(lin.Disowned(uid) ? "true" : "false")},");
+            // 모임과 가문
+            var gs = w.GroupsOf(i).Select(g => $"[{J(g.Name)},{J(w.IsLeader(i, g) ? "우두머리" : "회원")},{J(World.GroupKindName(g.Kind))},{(g.Sanction >= 0 ? "true" : "false")}]");
+            sb.Append($"\"groups\":[{string.Join(",", gs)}],");
+            if (clans.TryGetValue(lin.FamilyOf(uid), out var clan) && clan.head >= 0)
+                sb.Append($"\"clan\":[{J(Names.Family(lin.FamilyOf(uid)))},{J(Names.Full(lin, p.Uid[clan.head]))},{clan.count},{(clan.head == i ? "true" : "false")}],");
             if (playerHead >= 0 && p.Household[i] != ph)
                 sb.Append($"\"regard\":{Social.Opinion(p, i, playerHead).ToString("0", inv)},");
             if (w.PlayerProbed(uid))

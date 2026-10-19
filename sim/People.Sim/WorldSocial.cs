@@ -194,6 +194,7 @@ public sealed partial class World
         };
         AddTalkDefs(d);
         AddFamilyDefs(d);
+        AddGroupDefs(d);
         return d;
     }
 
