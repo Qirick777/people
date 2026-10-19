@@ -20,7 +20,7 @@ public class TalkTests
         var p = w.People; var hh = w.Households;
         for (int x = 0; x < p.HighWater; x++)
         {
-            if (!p.IsAliveIndex(x) || Age(w, x) < 16 || p.Male[x] || p.IsValid(p.Husband[x])) continue;
+            if (!p.IsAliveIndex(x) || Age(w, x) < 16 || p.Male[x]) continue;   // 셈만 본다(혼인 여부는 따지지 않는다)
             int h = p.Household[x];
             int head = hh.Head[h].Index;
             if (head == x) continue;

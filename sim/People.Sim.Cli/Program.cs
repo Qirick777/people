@@ -219,6 +219,9 @@ switch (cmd)
         Console.WriteLine($"settle: {years}년, 인구 {w.People.AliveCount}, 가구 {w.Households.AliveCount}, 마을 {w.Villages().count}, 청크 {map.GeneratedChunks}, {sw.Elapsed.TotalSeconds:F1}초");
         Console.WriteLine($"  물에서 80 m 안: 가구 {w.NearWaterFraction():P0}, 경작 가능 땅 {map.FarmableNearWaterFraction(10):P0}");
         Summary(w);
+        long tot = w.Stats.PopYears, big = w.Stats.PopBigYears;
+        int allTrades = w.Stats.SexTradesTotal;
+        if (big > 0 && tot > big) Console.WriteLine($"  하룻밤 거래(사람·해 천 명당): 30집 넘는 마을 {w.Stats.SexTradesBig * 1000.0 / big:F2}, 작은 마을 {(allTrades - w.Stats.SexTradesBig) * 1000.0 / (tot - big):F2}");
         Save(w, path);
         MapRender.Save(w, map, path.Replace(".csv", ".png"), 0, 0, map.Width, map.Height, 1);
         // 시작 지점 주변 확대
@@ -360,6 +363,36 @@ switch (cmd)
         string[] name = { "가장→지배자/고용주", "식구→가장" };
         for (int g = 0; g < 2; g++)
             Console.WriteLine($"{name[g]}: 관계 {Q(op[g])}\n    충성 {Q(ly[g])}  광신 {fan[g]}");
+        break;
+    }
+    case "familydiag":
+    {
+        // C 묶음 진단: 첩을 들일 만한 남자, 미혼·과부 여자, 받아들일 확률, 약초꾼, 신앙심 분포
+        var map = WorldMap.Generate((uint)Arg("--seed", 2), Arg("--size", 48));
+        var w = new World((ulong)Arg("--seed", 2), map, Config());
+        w.SeedCouples(Arg("--couples", 10));
+        for (int d = 0; d < Arg("--years", 150) * w.Config.DaysPerYear; d++) w.Step();
+        var p = w.People; var hh = w.Households;
+        int Age(int i) => (w.Day - p.BirthDay[i]) / w.Config.DaysPerYear;
+        var adults = Enumerable.Range(0, p.HighWater).Where(i => p.IsAliveIndex(i) && Age(i) >= 16 && hh.IsAlive(p.Household[i])).ToList();
+        var men = adults.Where(i => p.Male[i] && p.WifeCount[i] > 0).ToList();
+        var richMen = men.Where(i => { int h = p.Household[i]; return w.ClientCount(h) > 0 || hh.Food[h] + hh.LandValue[h] >= 500f * (p.WifeCount[i] + 1); }).ToList();
+        var single = adults.Where(i => !p.Male[i] && !p.IsValid(p.Husband[i]) && Age(i) <= 40).ToList();
+        var piety = adults.Select(i => p.Piety[i]).OrderBy(x => x).ToList();
+        Console.WriteLine($"어른 {adults.Count}, 혼인한 남자 {men.Count}, 첩 들일 재산 {richMen.Count} (욕심>0.5·신앙<0.5: {richMen.Count(i => p.Get(i, Trait.Ambition) > 0.5f && p.Piety[i] < 0.5f)})");
+        Console.WriteLine($"40세 이하 미혼·과부 여자 {single.Count}, 신앙심 p10 {piety[piety.Count / 10]:F2} p50 {piety[piety.Count / 2]:F2} p90 {piety[piety.Count * 9 / 10]:F2}");
+        var acc = new List<float>();
+        var cd = w.Def(InteractionId.TakeConcubine);
+        foreach (int m in richMen) foreach (int f in single.Take(40))
+        {
+            var c = new InteractionContext { Actor = m, Target = f, Third = -1 };
+            if (cd.Can(w, c)) acc.Add(cd.Accept(w, c));
+        }
+        acc.Sort();
+        if (acc.Count > 0) Console.WriteLine($"첩 받아들임: n={acc.Count} p50 {acc[acc.Count / 2]:F2} p90 {acc[acc.Count * 9 / 10]:F2}");
+        int healers = adults.Count(i => p.JobOf[i] == (byte)Job.Healer), workers = adults.Count(i => p.JobOf[i] == (byte)Job.SexWorker);
+        int bigV = Enumerable.Range(0, w.VillageList.Count).Count(v => w.VillageList.Alive[v] && w.VillageList.Households[v] >= 30);
+        Console.WriteLine($"약초꾼 {healers}, 몸 파는 이 {workers}, 30집 넘는 마을 {bigV}, 임신 중 {adults.Count(i => p.PregnantUntil[i] >= 0)}");
         break;
     }
     case "export":

@@ -113,6 +113,9 @@ public partial class SimHost : Node
                 ["male"] = p.Male[k],
                 ["head"] = head.Index == k,
                 ["pregnant"] = p.PregnantUntil[k] >= 0,
+                ["heir"] = w.HeirOf(h) == k,
+                ["concubine"] = !p.Male[k] && p.Concubine[k] && p.IsValid(p.Husband[k]),
+                ["right"] = w.Lineage.RightOf(p.Uid[k]) == Birthright.Concubine ? "서자" : "",
                 ["hungry"] = p.HungryToday[k],
             };
             members.Add(m);
@@ -158,8 +161,10 @@ public partial class SimHost : Node
                 ["id"] = k,
                 ["name"] = def.Name,
                 ["secret"] = def.Secret,
+                ["harsh"] = def.Harsh,
                 ["needsThird"] = def.NeedsThird,
                 ["thirdLabel"] = def.ThirdLabel,
+                ["hasAmounts"] = def.Amounts.Length > 0,
             };
             if (def.NeedsThird)
             {
@@ -189,7 +194,7 @@ public partial class SimHost : Node
         var w = _w!; var p = w.People; var hh = w.Households;
         var def = w.Def((InteractionId)id);
         var cands = new List<int>();
-        if (def.Id == InteractionId.ArrangeMatch)
+        if (def.Id is InteractionId.ArrangeMatch or InteractionId.ForcedMatch)
         {
             int h = p.Household[actor];
             if (hh.IsAlive(h)) cands.AddRange(w.MembersOf(h));

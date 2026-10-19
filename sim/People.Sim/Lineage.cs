@@ -3,6 +3,9 @@ namespace People.Sim;
 /// <summary>가문 상속 방식. 장자 상속은 땅을 지키고, 균분은 분가하는 아들에게 땅을 나눠 준다.</summary>
 public enum InheritPolicy : byte { Primogeniture, Partible }
 
+/// <summary>태어난 자리: 적자(혼인한 아내의 자식), 서자(첩의 자식), 사생아(족보 아버지가 없음).</summary>
+public enum Birthright : byte { Legit, Concubine, Bastard }
+
 /// <summary>
 /// 태어난 모든 사람의 기록(족보). 죽어도 남는다. 번호는 Uid(태어난 순서).
 /// 아버지는 둘을 둔다. 족보에 적힌 아버지(성·가문·상속이 따른다)와 진짜 아버지(유전과 혈연 계산이 따른다).
@@ -23,6 +26,8 @@ public sealed class Lineage
     private int[] _children = new int[1024];
     private byte[] _job = new byte[1024];
     private int[] _family = new int[1024];   // 가문(성). 아버지에게서, 아버지가 없으면 어머니에게서. 시작 인구는 저마다 새 가문
+    private byte[] _right = new byte[1024];  // Birthright
+    private bool[] _disowned = new bool[1024];
     public int Families { get; private set; }
     private readonly List<byte> _policy = new();   // 가문 상속 방식(Inheritance)
     public InheritPolicy PolicyOf(int family) => family >= 0 && family < _policy.Count ? (InheritPolicy)_policy[family] : InheritPolicy.Primogeniture;
@@ -38,6 +43,24 @@ public sealed class Lineage
     public int Death(int uid) => _death[uid];
     public int Children(int uid) => _children[uid];
     public int FamilyOf(int uid) => uid >= 0 ? _family[uid] : -1;
+    public Birthright RightOf(int uid) => uid >= 0 ? (Birthright)_right[uid] : Birthright.Bastard;
+    public void SetRight(int uid, Birthright r) { if (uid >= 0) _right[uid] = (byte)r; }
+    public bool Disowned(int uid) => uid >= 0 && _disowned[uid];
+    public void SetDisowned(int uid, bool v) { if (uid >= 0) _disowned[uid] = v; }
+
+    /// <summary>자식으로 인정한다: 족보 아버지를 father 로 적고 성을 따르게 하며 적자로 올린다.</summary>
+    public void Legitimize(int uid, int father)
+    {
+        if (uid < 0 || father < 0) return;
+        if (_father[uid] != father)
+        {
+            if (_father[uid] >= 0) _children[_father[uid]]--;
+            _father[uid] = father;
+            _children[father]++;
+            _family[uid] = _family[father];
+        }
+        _right[uid] = (byte)Birthright.Legit;
+    }
     public Job JobOf(int uid) => uid >= 0 ? (Job)_job[uid] : Job.Farmer;
     public void SetJob(int uid, Job j) { if (uid >= 0) _job[uid] = (byte)j; }
     public ReadOnlySpan<int> Ancestors(int uid) => _ancestors.AsSpan(uid * AncestorSlots, AncestorSlots);
@@ -57,6 +80,8 @@ public sealed class Lineage
         _children[u] = 0;
         _job[u] = 0;
         _family[u] = legalFatherUid >= 0 ? _family[legalFatherUid] : motherUid >= 0 ? _family[motherUid] : Families++;
+        _right[u] = (byte)(legalFatherUid >= 0 || (fatherUid < 0 && motherUid < 0) ? Birthright.Legit : Birthright.Bastard);
+        _disowned[u] = false;
         var a = _ancestors.AsSpan(u * AncestorSlots, AncestorSlots);
         a.Fill(-1);
         a[0] = fatherUid;
@@ -149,6 +174,8 @@ public sealed class Lineage
         Array.Resize(ref _children, cap);
         Array.Resize(ref _job, cap);
         Array.Resize(ref _family, cap);
+        Array.Resize(ref _right, cap);
+        Array.Resize(ref _disowned, cap);
         Array.Resize(ref _ancestors, cap * AncestorSlots);
     }
 }

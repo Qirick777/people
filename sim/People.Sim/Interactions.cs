@@ -1,6 +1,7 @@
 namespace People.Sim;
 
-public enum InteractionId : byte { Chat, Compliment, Gossip, Gift, Affair, SexTrade, Persuade, Threaten, Probe, Propose, ArrangeMatch, Divorce, Count }
+public enum InteractionId : byte { Chat, Compliment, Gossip, Gift, Affair, SexTrade, Persuade, Threaten, Probe, Propose, ArrangeMatch, Divorce,
+    TakeConcubine, Acknowledge, NameHeir, OrderSplit, Disown, ForcedMatch, Hush, BuyContraception, BuyAbortion, Count }
 
 public enum InteractionCategory : byte { Talk, Courtship, Family, Trade, Rule, Scheme }
 
@@ -28,6 +29,7 @@ public sealed class InteractionDef
     public string Name = "";
     public InteractionCategory Category;
     public bool Secret, Sexual, AllowPressure;
+    public bool Harsh;                       // 험한 일(위협, 의절, 억지 혼담): 화면에서 붉게 보인다
     public bool NeedsThird;                  // 세 번째 사람을 골라야 한다(험담·설득의 대상, 혼담의 내 식구)
     public string ThirdLabel = "";
     public float[] Amounts = Array.Empty<float>();   // 고를 수 있는 값(지참금 등). 비면 값을 고르지 않는다

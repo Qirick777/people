@@ -120,14 +120,17 @@ func _show_person(pd: Dictionary) -> void:
 	for it in host.Interactions(actor, target):
 		var id := int(it["id"])
 		if it["needsThird"]:
-			items.append({"text": it["name"], "note": it["thirdLabel"], "cb": func(): _begin(id, target)})
+			items.append({"text": it["name"], "note": it["thirdLabel"], "risky": it["harsh"], "cb": func(): _begin(id, target)})
+			continue
+		if it["hasAmounts"]:
+			items.append({"text": it["name"], "note": "얼마를 줄지 고른다", "risky": it["secret"], "cb": func(): _begin_amount(id, target)})
 			continue
 		if float(it["chance"]) < 0.01: continue       # 받아들일 리 없는 일은 보이지 않는다
 		var notes := []
 		if it.has("price"): notes.append("값 %d" % int(float(it["price"])))
 		if it.has("risk"): notes.append("한 해 들킬 위험 %d%%" % int(round(float(it["risk"]) * 100.0)))
 		elif it["secret"]: notes.append("몰래 하는 일")
-		items.append({"text": it["name"], "note": " · ".join(notes), "chance": float(it["chance"]), "risky": it["secret"], "cb": func(): _do(id, target)})
+		items.append({"text": it["name"], "note": " · ".join(notes), "chance": float(it["chance"]), "risky": it["secret"] or it["harsh"], "cb": func(): _do(id, target)})
 	card.add_actions("할 수 있는 일", items, "%s 하는 일 · 오른쪽 숫자는 받아들일 확률" % World_subj(_actor_name()))
 
 
@@ -149,7 +152,7 @@ func _show_choices(target: int) -> void:
 		var amt := float(o["amount"])
 		items.append({"text": o["name"], "note": "식량 %d" % int(amt) if amt > 0 else "", "chance": float(o["chance"]), "cb": func(): _finish(amt)})
 	items.append({"text": "그만둔다", "ghost": true, "cb": _cancel})
-	card.add_actions("얼마를 얹을까", items)
+	card.add_actions("얼마를 줄까" if third < 0 else "얼마를 얹을까", items)
 	card.scroll_end()
 
 
@@ -157,6 +160,11 @@ func _label_for(id: int) -> String:
 	for it in host.Interactions(actor, int(pending["target"])):
 		if int(it["id"]) == id: return "%s: %s" % [it["name"], it["thirdLabel"]]
 	return "누구를"
+
+
+func _begin_amount(id: int, target: int) -> void:
+	pending = {"id": id, "target": target, "third": -1}
+	_refresh_card()
 
 
 func _begin(id: int, target: int) -> void:
@@ -262,6 +270,9 @@ func _refresh_family() -> void:
 		txt.add_child(UI.label("%d세%s" % [int(m["age"]), " · 행동하는 사람" if on else ""], 12, UI.ACT if on else UI.MUTED))
 		row.add_child(txt)
 		if m["head"]: row.add_child(_center(UI.chip("가장", Color(0.95, 0.85, 0.55), Color(0.42, 0.3, 0.08), 11)))
+		if m["heir"]: row.add_child(_center(UI.chip("후계자", Color(0.85, 0.9, 0.7), Color(0.3, 0.4, 0.12), 11)))
+		if m["concubine"]: row.add_child(_center(UI.chip("첩", Color(0.9, 0.85, 0.95), Color(0.4, 0.25, 0.5), 11)))
+		if m["right"] != "": row.add_child(_center(UI.chip(m["right"], Color(0.9, 0.87, 0.82), Color(0.4, 0.33, 0.25), 11)))
 		if m["pregnant"]: row.add_child(_center(UI.chip("임신", Color(0.97, 0.82, 0.86), Color(0.55, 0.2, 0.3), 11)))
 		if m["hungry"]: row.add_child(_center(UI.chip("굶주림", Color(0.98, 0.8, 0.62), Color(0.55, 0.25, 0.1), 11)))
 		b.add_child(row)
@@ -560,6 +571,17 @@ func _run_autotest() -> void:
 			_begin(pid, ti)
 			await _snap("live_choose.png")
 			_cancel()
+	# 내 식구 카드: 집안 일(후계자, 분가, 의절 등)
+	for m in _members():
+		if int(m["i"]) != actor and int(m["age"]) >= 12:
+			_pick_member(int(m["i"]))
+			actor = -1
+			for mm in _members(): if mm["head"]: actor = int(mm["i"])
+			_refresh_family()
+			_show_person(scene.find_person(int(m["uid"])) if m.has("uid") else _pd_of(int(m["i"])))
+			for it in host.Interactions(actor, int(m["i"])): print("autotest: 식구에게 할 수 있는 일 ", it["name"])
+			await _snap("live_household.png")
+			break
 	# 혼담: 내 집의 혼인할 사람과 이웃의 혼인할 사람을 찾아 지참금 고르기를 띄운다
 	for e in scene.pickables:
 		var pd: Dictionary = e["pd"]
@@ -576,6 +598,12 @@ func _run_autotest() -> void:
 		print("autotest: 혼담 상대 ", pd["name"], " / 내 식구 ", cands[0]["name"])
 		break
 	get_tree().quit()
+
+
+func _pd_of(i: int) -> Dictionary:
+	for pd in data.get("people", []):
+		if int(pd["i"]) == i: return pd
+	return {}
 
 
 func _id_of(name: String, target: int) -> int:

@@ -114,11 +114,14 @@ public static class RegionView
             firstP = false;
             sb.Append($"{{\"h\":{hi},\"i\":{i},\"uid\":{uid},\"pregnant\":{(p.PregnantUntil[i] >= 0 ? "true" : "false")},\"hungry\":{(p.HungryToday[i] ? "true" : "false")},\"loyalty\":{p.Loyalty[i].ToString("0.00", inv)},\"fanatic\":{(p.Fanatic[i] != 0 ? "true" : "false")},\"honor\":{p.Honor[i].ToString("0.00", inv)},\"name\":{J(Names.Full(lin, uid))},\"family\":{J(Names.Family(lin.FamilyOf(uid)))},\"male\":{(male ? "true" : "false")},\"age\":{age},");
             string cls = World.ClassName(w.ClassOf(p.Household[i]));
-            string jobName = age < 16 ? (master != "" ? "도제" : "아이") : job != Job.Farmer ? Skills.JobName(job) : cls != "" ? cls : "농부";
+            string jobName = age < 16 ? (master != "" ? "도제" : "아이") : job == Job.SexWorker && male ? "남창" : job != Job.Farmer ? Skills.JobName(job) : cls != "" ? cls : "농부";
             sb.Append($"\"job\":{J(jobName)},\"head\":{(hh.Head[p.Household[i]].Index == i ? "true" : "false")},");
             sb.Append($"\"labels\":[{string.Join(",", Skills.Labels(p, i).Select(J))}],\"skills\":[{string.Join(",", skills)}],\"hints\":[{string.Join(",", hints.Select(J))}],");
             sb.Append($"\"health\":[{string.Join(",", health.Select(J))}],\"hair\":\"{hair}\",\"bald\":{(Genetics.Expressed(g, Marker.Baldness, male) && age >= 30 ? "true" : "false")},");
             sb.Append($"\"height\":{p.Get(i, Trait.Height).ToString("0.00", inv)},\"father\":{J(Parent(f))},\"mother\":{J(Parent(m))},\"spouse\":{J(spouse)},");
+            var right = lin.RightOf(uid);
+            sb.Append($"\"right\":\"{(right == Birthright.Concubine ? "서자" : right == Birthright.Bastard && lin.Father(uid) < 0 && (f >= 0 || m >= 0) ? "사생아" : "")}\",");
+            sb.Append($"\"heir\":{(w.HeirOf(p.Household[i]) == i ? "true" : "false")},\"concubine\":{(!male && p.Concubine[i] && p.IsValid(p.Husband[i]) ? "true" : "false")},\"disowned\":{(lin.Disowned(uid) ? "true" : "false")},");
             if (playerHead >= 0 && p.Household[i] != ph)
                 sb.Append($"\"regard\":{Social.Opinion(p, i, playerHead).ToString("0", inv)},");
             if (w.PlayerProbed(uid))

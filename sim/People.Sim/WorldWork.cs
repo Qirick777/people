@@ -236,7 +236,7 @@ public sealed partial class World
                 var m = p.Master[k];
                 if (!m.IsNone && (!p.IsValid(m) || p.JobOf[m.Index] == 0 || AgeYears(k) >= 16)) p.Master[k] = PersonId.None;
             }
-            for (int j = 1; j < (int)Job.Count; j++)
+            for (int j = 1; j <= (int)Job.Collector; j++)   // 몸 파는 일은 도제를 두지 않는다
             {
                 var list = holders[v * (int)Job.Count + j];
                 if (list == null) continue;
@@ -299,6 +299,7 @@ public sealed partial class World
                     {
                         if (k == i || AgeYears(k) < 16) continue;
                         var kj = (Job)p.JobOf[k];
+                        if (kj == Job.SexWorker) kj = Job.Farmer;
                         float sc = kj != Job.Farmer ? 2f + p.GetSkill(k, Skills.SkillOf(kj)) : p.GetSkill(k, Skill.Farming);
                         if (sc > best) { best = sc; teacher = k; sk = Skills.SkillOf(kj); }
                     }

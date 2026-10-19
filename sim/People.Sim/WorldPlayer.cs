@@ -67,5 +67,5 @@ public sealed partial class World
     /// <summary>이름 + 과/와</summary>
     public static string With(string s) => s + (Batchim(s) ? "과" : "와");
 
-    private static string SecretName(SecretType t) => t switch { SecretType.Affair => "불륜", SecretType.HiddenFather => "숨긴 아버지", _ => "하룻밤 거래" };
+    private static string SecretName(SecretType t) => t switch { SecretType.Affair => "불륜", SecretType.HiddenFather => "숨긴 아버지", SecretType.Abortion => "낙태", _ => "하룻밤 거래" };
 }

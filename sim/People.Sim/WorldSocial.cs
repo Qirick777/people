@@ -167,7 +167,8 @@ public sealed partial class World
                 float need = w.Households.IsAlive(th) ? Math.Clamp(1f - w.Surplus(th), 0f, 1f) : 1f;
                 float price = c.Amount > 0 ? c.Amount : w.SexPrice(c.Actor, c.Target);
                 float a = 0.05f + 0.7f * need + 0.2f * p.Get(c.Target, Trait.Ambition) - 0.35f * p.Piety[c.Target]
-                        - (w.Married(c.Target) ? 0.25f : 0f) + price / 30f + 0.3f * p.Stigma[c.Target];
+                        - (w.Married(c.Target) ? 0.25f : 0f) + price / 30f + 0.3f * p.Stigma[c.Target]
+                        + (p.JobOf[c.Target] == (byte)Job.SexWorker ? 0.5f : 0f);   // 업으로 하는 사람
                 return Math.Clamp(a, 0f, 0.95f);
             },
             Success = (w, c, r) =>
@@ -180,13 +181,19 @@ public sealed partial class World
                 if (hh.IsAlive(th)) hh.Food[th] += price;
                 Social.Remember(p, c.Actor, MemoryType.SexTrade, p.Uid[c.Target], w.Day, 0);
                 Social.Remember(p, c.Target, MemoryType.SexTrade, p.Uid[c.Actor], w.Day, 0);
-                w.AddSecret(SecretType.SexTrade, c.Actor, c.Target);
+                // 업으로 하는 사람과의 거래는 다들 아는 일이라 비밀이 아니다. 대신 파는 쪽에 낙인이 쌓인다.
+                if (p.JobOf[c.Target] == (byte)Job.SexWorker) p.Stigma[c.Target] = MathF.Min(1f, p.Stigma[c.Target] + 0.02f);
+                else w.AddSecret(SecretType.SexTrade, c.Actor, c.Target);
                 r.Pregnant = w.SexualAct(c.Actor, c.Target, 1);
                 w.Stats.SexTrades++;
+                w.Stats.SexTradesTotal++;
+                int sv = w.Households.IsAlive(th) ? w.Households.Village[th] : -1;
+                if (sv >= 0 && w.VillageList.Households[sv] >= w.Config.TradeVillage) w.Stats.SexTradesBig++;
                 w.Stats.SexTradeValue += price;
             },
         };
         AddTalkDefs(d);
+        AddFamilyDefs(d);
         return d;
     }
 
@@ -216,7 +223,11 @@ public sealed partial class World
         int legal = husband >= 0 ? p.Uid[husband] : -1;
         bool preg = false;
         for (int k = 0; k < acts && !preg; k++) preg = ActPregnancy(w, m, legal);
-        if (preg && legal != p.Uid[m]) AddSecret(SecretType.HiddenFather, w, m);
+        if (preg && legal != p.Uid[m])
+        {
+            if (legal >= 0) AddSecret(SecretType.HiddenFather, w, m);
+            _abortCheck.Add((w, p.Uid[w]));   // 혼인 밖에서 든 아이: 약초꾼을 찾을지 계절 끝에 정한다
+        }
         return preg;
     }
 
@@ -332,8 +343,13 @@ public sealed partial class World
         }
         if (aAlive) { p.Honor[a] -= 0.2f; Social.Remember(p, a, MemoryType.Exposed, s.B, Day, -30); }
         if (bAlive) { p.Honor[b] -= s.Type == SecretType.SexTrade ? 0.05f : 0.2f; Social.Remember(p, b, MemoryType.Exposed, s.A, Day, -30); }
-        // 몸을 판 쪽(B)은 낙인
+        // 몸을 판 쪽(B)은 낙인, 낙태한 여자(A)도 낙인
         if (s.Type == SecretType.SexTrade && bAlive) p.Stigma[b] = MathF.Min(1f, p.Stigma[b] + 0.3f);
+        if (s.Type == SecretType.Abortion && aAlive) p.Stigma[a] = MathF.Min(1f, p.Stigma[a] + 0.25f);
+        // 신앙심 깊은 가장은 집안 망신을 시킨 식구와 의절할 수 있다
+        foreach (int k in new[] { aAlive ? a : -1, bAlive ? b : -1 })
+            if (k >= 0 && Households.IsAlive(p.Household[k]) && Households.Head[p.Household[k]].Index != k && s.Type != SecretType.HiddenFather)
+                _disownCheck.Add(k);
     }
 
     /// <summary>
@@ -367,6 +383,8 @@ public sealed partial class World
                     if (lv >= 0) { Interact(InteractionId.Affair, new InteractionContext { Actor = i, Target = lv, Third = -1 }); continue; }
                     _lover.Remove(p.Uid[i]);
                 }
+                // 형편이 어려운 사람은 스스로 살 사람을 찾는다(흉년에 늘어난다). 본인이 고르는 일이고, 사는 쪽도 받아들여야 한다.
+                if (Adult(i) && TryOfferSelf(i, folk)) continue;
                 // 상대: 절반은 아는 사람, 절반은 마을 사람
                 int target = -1;
                 if (_rng.NextBool())
@@ -408,7 +426,7 @@ public sealed partial class World
                     ctx.Third = st >= 0 && st != target ? st : Disliked(i, v);
                 }
                 if ((InteractionId)pick == InteractionId.Persuade) ctx.Third = Liked(i, v);
-                // 하룻밤 거래: 형편이 어려운 집 사람 중에서 찾는다(파는 사람이 있는 곳으로)
+                // 하룻밤 거래: 몸 파는 사람이 있으면 그쪽을, 없으면 형편이 어려운 집 사람 중에서 찾는다
                 if ((InteractionId)pick == InteractionId.SexTrade)
                 {
                     int best = -1;
@@ -416,7 +434,9 @@ public sealed partial class World
                     for (int t = 0; t < 12; t++)
                     {
                         int c2 = folk[_rng.NextInt(folk.Count)];
-                        if (p.Male[c2] == p.Male[i] || !hh.IsAlive(p.Household[c2]) || Surplus(p.Household[c2]) > 0.9f) continue;
+                        if (p.Male[c2] == p.Male[i] || !hh.IsAlive(p.Household[c2])) continue;
+                        if (p.JobOf[c2] == (byte)Job.SexWorker && SexAppeal(i, c2) > 0.05f) { best = c2; break; }
+                        if (Surplus(p.Household[c2]) > 0.9f) continue;
                         float ap = SexAppeal(i, c2);
                         if (ap > bs) { bs = ap; best = c2; }
                     }
@@ -426,9 +446,51 @@ public sealed partial class World
                 Interact((InteractionId)pick, ctx);
             }
         }
+        AbortChecks();
     }
 
     private readonly Dictionary<int, int> _uidIndex = new();
+    private readonly List<int> _disownCheck = new();
+
+    private bool TryOfferSelf(int i, List<int> folk)
+    {
+        var p = People; var hh = Households;
+        int ih = p.Household[i];
+        float need = hh.IsAlive(ih) ? Math.Clamp(1f - Surplus(ih), 0f, 1f) : 0f;
+        bool worker = p.JobOf[i] == (byte)Job.SexWorker;
+        if (!worker && need < 0.4f) return false;
+        float drive = Config.SexOfferRate * (worker ? 1f + need : need) * (1f - p.Piety[i]) * (worker ? 3f : 1f) * (Married(i) ? 0.4f : 1f);
+        if (!_rng.Chance(drive)) return false;
+        int buyer = -1;
+        float most = 60f;
+        for (int t = 0; t < 12; t++)
+        {
+            int b = folk[_rng.NextInt(folk.Count)];
+            if (p.Male[b] == p.Male[i] || b == i || SpouseOf(b) == i || !hh.IsAlive(p.Household[b]) || SexAppeal(b, i) < 0.05f) continue;
+            if (hh.Food[p.Household[b]] > most) { most = hh.Food[p.Household[b]]; buyer = b; }
+        }
+        if (buyer < 0 || !_rng.Chance((1f - p.Piety[buyer]) * 0.6f * MathF.Min(1f, SexAppeal(buyer, i) * 2f))) return false;
+        Interact(InteractionId.SexTrade, new InteractionContext { Actor = buyer, Target = i, Third = -1 });
+        return true;
+    }
+
+    private void MaybeDisown(int k)
+    {
+        var p = People;
+        if (!p.IsAliveIndex(k) || !Households.IsAlive(p.Household[k])) return;
+        var head = Households.Head[p.Household[k]];
+        if (!p.IsValid(head) || head.Index == k || IsPlayer(k)) return;
+        int hi = head.Index;
+        float want = 0.25f * p.Piety[hi] * (0.5f + p.Get(hi, Trait.Stubbornness));
+        if (p.Piety[hi] > 0.6f && _rng.Chance(want)) Interact(InteractionId.Disown, new InteractionContext { Actor = hi, Target = k, Third = -1 });
+    }
+
+    private void AbortChecks()
+    {
+        foreach (var (w, u) in _abortCheck)
+            if (People.IsAliveIndex(w) && People.Uid[w] == u && People.PregnantUntil[w] >= 0) MaybeAbort(w);
+        _abortCheck.Clear();
+    }
 
     /// <summary>uid 의 사람이 살아서 마을 v 에 있으면 그 번호(없으면 -1).</summary>
     private int FindAlive(int uid, int v)
@@ -484,5 +546,7 @@ public sealed partial class World
         DetectSecrets();
         foreach (var (v, s) in _divorceCheck) MaybeDivorce(v, s);
         _divorceCheck.Clear();
+        foreach (int k in _disownCheck) MaybeDisown(k);
+        _disownCheck.Clear();
     }
 }

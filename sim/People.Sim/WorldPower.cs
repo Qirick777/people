@@ -374,8 +374,8 @@ public sealed partial class World
             int u = p.Uid[hh.Head[k].Index];
             bool same = Lineage.FamilyOf(u) == fam;
             float r = Lineage.Relatedness(u, dead);
-            if (!same && r < 0.06f) continue;
-            float sc = r + (same ? 0.3f : 0f) + (p.Male[hh.Head[k].Index] ? 0.05f : 0f);
+            if ((!same && r < 0.06f) || Lineage.Disowned(u)) continue;
+            float sc = r + (same ? 0.3f : 0f) + (p.Male[hh.Head[k].Index] ? 0.05f : 0f) - (Lineage.RightOf(u) != Birthright.Legit ? 0.15f : 0f);
             if (sc > bs) { bs = sc; best = k; }
         }
         return best;

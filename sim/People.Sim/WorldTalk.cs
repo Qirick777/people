@@ -42,11 +42,13 @@ public sealed partial class World
     {
         var p = People;
         var (man, woman) = Pair(a, b);
-        if (p.WifeCount[man] > 0) Stats.Polygynous++;
+        bool second = p.WifeCount[man] > 0;   // 아내가 이미 있으면 첩이 된다(아내는 한 사람)
+        if (second) { Stats.Polygynous++; Stats.Concubines++; }
         Stats.Marriages++;
         Stats.MarriageKinSum += Lineage.Relatedness(p.Uid[man], p.Uid[woman]);
         float couple = Math.Clamp((MateScore(man, woman) + MateScore(woman, man)) * 0.5f, 0f, 1f);
         Marry(man, woman, couple);
+        if (second) p.Concubine[woman] = true;
     }
 
     /// <summary>두 사람을 갈라 세운다. 아내는 가장 가까운 혈족 집으로 가고, 아이들은 남편 집에 남는다.</summary>
@@ -58,6 +60,7 @@ public sealed partial class World
         Chron(man, $"{With(Names.Full(Lineage, p.Uid[man]))} {Subj(Names.Full(Lineage, p.Uid[woman]))} 갈라섰다");
         Chron(woman, $"{With(Names.Full(Lineage, p.Uid[man]))} {Subj(Names.Full(Lineage, p.Uid[woman]))} 갈라섰다");
         p.Husband[woman] = PersonId.None;
+        p.Concubine[woman] = false;
         if (p.WifeCount[man] > 0) p.WifeCount[man]--;
         Social.Add(p, man, p.Uid[woman], -40f);
         Social.Add(p, woman, p.Uid[man], -40f);
@@ -98,7 +101,7 @@ public sealed partial class World
         };
         d[(int)InteractionId.Threaten] = new InteractionDef
         {
-            Id = InteractionId.Threaten, Name = "위협", Category = InteractionCategory.Talk,
+            Id = InteractionId.Threaten, Name = "위협", Category = InteractionCategory.Talk, Harsh = true,
             Can = (w, c) => w.Adult(c.Actor),
             Accept = (w, c) =>
             {
@@ -139,7 +142,9 @@ public sealed partial class World
         d[(int)InteractionId.Propose] = new InteractionDef
         {
             Id = InteractionId.Propose, Name = "청혼", Category = InteractionCategory.Courtship,
-            Can = (w, c) => w.People.Male[c.Actor] != w.People.Male[c.Target] && w.CanMarry(w.Pair(c.Actor, c.Target).man, w.Pair(c.Actor, c.Target).woman),
+            // 아내는 한 사람뿐이다. 아내 있는 남자가 더 들이는 것은 "첩으로 들이기"다.
+            Can = (w, c) => w.People.Male[c.Actor] != w.People.Male[c.Target] && w.People.WifeCount[w.Pair(c.Actor, c.Target).man] == 0
+                            && w.CanMarry(w.Pair(c.Actor, c.Target).man, w.Pair(c.Actor, c.Target).woman),
             Accept = (w, c) => w.MarryAccept(c.Target, c.Actor),
             Success = (w, c, _) =>
             {
@@ -164,7 +169,8 @@ public sealed partial class World
                 var (m, f) = w.Pair(c.Third, c.Target);
                 return w.CanMarry(m, f) && hh.Food[ah] >= c.Amount;
             },
-            Accept = (w, c) => w.MatchAccept(c.Actor, c.Target, c.Third, c.Amount),
+            // 상대 집 가장의 셈 × 내 식구가 내키는 정도(내키지 않으면 잘 안 된다. 억지로 하려면 "억지 혼담")
+            Accept = (w, c) => w.MatchAccept(c.Actor, c.Target, c.Third, c.Amount) * w.Consent(c.Third, c.Target),
             Success = (w, c, _) =>
             {
                 var p = w.People; var hh = w.Households;
@@ -203,6 +209,9 @@ public sealed partial class World
     }
 
     private string SubjName(int i) => Subj(Names.Full(Lineage, People.Uid[i]));
+
+    /// <summary>혼담에 내 식구가 내키는 정도(0.3~1).</summary>
+    public float Consent(int mine, int other) => 0.3f + 0.7f * MarryAccept(mine, other);
 
     /// <summary>
     /// 혼담을 받는 쪽(상대 집 가장)의 셈: 당사자의 마음(반쯤), 집안 격(잘사는 집과 맺으면 좋다), 가장끼리의 사이, 명예, 낙인, 지참금.
@@ -249,6 +258,8 @@ public sealed partial class World
                 if (!_rng.Chance(0.5f)) continue;
                 // 비슷한 집의 혼인할 이성 몇을 보고 가장 받아들일 법한 쪽에 넣는다
                 float dowry = p.Male[mine] ? 0f : DowryFor(h);
+                // 거칠고 욕심 많은 가장은 자식 뜻을 묻지 않는다(억지 혼담)
+                bool force = p.Get(head.Index, Trait.Aggression) + p.Get(head.Index, Trait.Ambition) > 1.3f;
                 int best = -1;
                 float bs = 0.15f;
                 for (int t = 0; t < 20; t++)
@@ -260,12 +271,12 @@ public sealed partial class World
                         if (p.Male[k] == p.Male[mine] || AgeYears(k) < 16) continue;
                         var (m, f) = Pair(mine, k);
                         if (!CanMarry(m, f)) continue;
-                        float a = MatchAccept(head.Index, k, mine, dowry);
+                        float a = MatchAccept(head.Index, k, mine, dowry) * (force ? 1f : Consent(mine, k));
                         if (a > bs) { bs = a; best = k; }
                     }
                 }
                 if (best < 0) continue;
-                Interact(InteractionId.ArrangeMatch, new InteractionContext { Actor = head.Index, Target = best, Third = mine, Amount = dowry });
+                Interact(force ? InteractionId.ForcedMatch : InteractionId.ArrangeMatch, new InteractionContext { Actor = head.Index, Target = best, Third = mine, Amount = dowry });
             }
         }
     }

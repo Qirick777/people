@@ -71,6 +71,7 @@ static func _font(file: String) -> FontFile:
 
 
 func _clear() -> void:
+	scroll.scroll_vertical = 0
 	for c in body.get_children():
 		body.remove_child(c)
 		c.queue_free()
@@ -183,6 +184,10 @@ func show_person(pd: Dictionary, house: Dictionary) -> void:
 	var sex := "남" if pd["male"] else "여"
 	var role: String = pd["job"]
 	if pd["head"]: role += " · 가장"
+	if pd.get("heir", false): role += " · 후계자"
+	if pd.get("concubine", false): role += " · 첩"
+	if pd.get("right", "") != "": role += " · " + pd["right"]
+	if pd.get("disowned", false): role += " · 의절당함"
 	_header(pd["name"], "%s · %d세 · %s" % [sex, int(pd["age"]), role])
 	var labels: Array = pd["labels"]
 	if labels.size() > 0:

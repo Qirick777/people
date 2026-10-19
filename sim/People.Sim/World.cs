@@ -109,6 +109,7 @@ public sealed partial class World
         Genetics.Randomize(People.Genome(id.Index), male, ref _rng);
         People.ComputePhenotype(id.Index);
         SeedSkills(id.Index, ageYears);
+        People.Piety[id.Index] = 0.2f + 0.6f * _rng.NextFloat();   // 시작 인구의 신앙심은 사람마다 다르다
         if (ageYears >= 16) People.GrownUp[id.Index] = true;
         return id;
     }
@@ -370,13 +371,18 @@ public sealed partial class World
         p.Uid[child.Index] = Lineage.Add(male, Day, p.PregnancyFatherUid[mother], p.Uid[mother], legal);
         if (legal != p.PregnancyFatherUid[mother]) Stats.HiddenFatherBirths += legal >= 0 ? 1 : 0;
         if (legal < 0) Stats.Bastards++;
+        if (legal >= 0 && p.Concubine[mother] && p.IsValid(p.Husband[mother]) && p.Uid[p.Husband[mother].Index] == legal)
+        {
+            Lineage.SetRight(p.Uid[child.Index], Birthright.Concubine);   // 첩의 자식은 서자
+            Stats.ConcubineBirths++;
+        }
         if (legal != p.PregnancyFatherUid[mother]) LinkHiddenChild(p.Uid[mother], p.PregnancyFatherUid[mother], p.Uid[child.Index]);
         Social.Remember(p, mother, MemoryType.ChildBorn, p.Uid[child.Index], Day, 30);
         Social.Add(p, child.Index, p.Uid[mother], 40f);
         if (legal >= 0) Social.Add(p, child.Index, legal, 30f);
         // 가치는 집안에서 배운다: 부모 신앙심의 평균 근처
         float fp = legal >= 0 && p.IsValid(p.PregnancyFather[mother]) ? p.Piety[p.PregnancyFather[mother].Index] : p.Piety[mother];
-        p.Piety[child.Index] = Math.Clamp(0.5f * (fp + p.Piety[mother]) + (_rng.NextFloat() - 0.5f) * 0.2f, 0f, 1f);
+        p.Piety[child.Index] = Math.Clamp(0.5f * (fp + p.Piety[mother]) + (_rng.NextFloat() - 0.5f) * 0.5f, 0f, 1f);   // 집마다·사람마다 크게 다르다(퍼짐 약 0.2)
         Genetics.Inherit(p.FatherGenomeBuffer(mother), p.Genome(mother), p.Genome(child.Index),
             male, Config.MutationRate, ref _rng, Config.LoadMutationRate);
         int fatherUid = p.PregnancyFatherUid[mother];
@@ -467,6 +473,7 @@ public sealed partial class World
         WageMarket();
         ProtectionYear();
         ArrangeYear();
+        FamilyYear();
         if (Layout) UpdateTraffic();
         UpgradeHouses();
     }
@@ -685,34 +692,46 @@ public sealed partial class World
                 if (h != h0 || !hh.IsAlive(h) || hh.Head[h].Index == i) continue;
                 if (!hasChild[i] && hh.Crowding(h) <= 1.5f) continue;
 
-                // 집터: 마을에 빈 땅이 있으면 마을 안, 없으면 다른 마을이나 새 마을로. 다 안 되면 본가 땅을 나눈다.
-                int nh = SettleNewHousehold(h);
-                if (nh < 0) continue;
-                // 이 남자, 아내들, 그 사이 아이들을 옮긴다.
-                int moved = 0;
-                var me = p.IdAt(i);
-                foreach (int k in list)
-                {
-                    if (!p.IsAliveIndex(k) || p.Household[k] != h) continue;
-                    bool wife = !p.Male[k] && p.Husband[k] == me;
-                    bool child = AgeYears(k) < 16 && (p.Father[k] == me || (p.IsValid(p.Mother[k]) && p.Husband[p.Mother[k].Index] == me));
-                    if (k == i || wife || child) { MoveTo(k, nh); moved++; }
-                }
-                float n = MathF.Max(1, hh.Members[h]);
-                float food = hh.Food[h] * moved / n;
-                hh.Food[h] -= food;
-                hh.Food[nh] = food;
-                hh.Members[h] -= moved;
-                hh.Head[nh] = me;
-                int sonsLeft = 0;
-                for (int k = hh.FirstMember[h]; k >= 0; k = p.HhNext[k])
-                    if (p.Male[k] && AgeYears(k) >= 16 && hh.Head[h].Index != k) sonsLeft++;
-                InheritOnSplit(h, nh, sonsLeft);
-                if (h == PlayerHousehold) Chron(i, $"{Subj(Names.Full(Lineage, p.Uid[i]))} 분가해 새 집을 꾸렸다");
-                Stats.Splits++;
+                if (SplitOff(i, h, list) < 0) continue;
             }
         }
         RecountHouseholds();
+    }
+
+    /// <summary>
+    /// i 가 아내들과 그 사이 아이들을 데리고 집 h 에서 나와 새 집을 꾸린다. 새 집 번호(못 하면 -1).
+    /// 집터: 마을에 빈 땅이 있으면 마을 안, 없으면 다른 마을이나 새 마을로. 다 안 되면 본가 땅을 나눈다.
+    /// </summary>
+    private int SplitOff(int i, int h, List<int>? list = null)
+    {
+        var p = People;
+        var hh = Households;
+        list ??= MembersOf(h);
+        int nh = SettleNewHousehold(h);
+        if (nh < 0) return -1;
+        // 이 남자, 아내들, 그 사이 아이들을 옮긴다.
+        int moved = 0;
+        var me = p.IdAt(i);
+        foreach (int k in list)
+        {
+            if (!p.IsAliveIndex(k) || p.Household[k] != h) continue;
+            bool wife = !p.Male[k] && p.Husband[k] == me;
+            bool child = AgeYears(k) < 16 && (p.Father[k] == me || (p.IsValid(p.Mother[k]) && p.Husband[p.Mother[k].Index] == me));
+            if (k == i || wife || child) { MoveTo(k, nh); moved++; }
+        }
+        float n = MathF.Max(1, hh.Members[h]);
+        float food = hh.Food[h] * moved / n;
+        hh.Food[h] -= food;
+        hh.Food[nh] = food;
+        hh.Members[h] -= moved;
+        hh.Head[nh] = me;
+        int sonsLeft = 0;
+        for (int k = hh.FirstMember[h]; k >= 0; k = p.HhNext[k])
+            if (p.Male[k] && AgeYears(k) >= 16 && hh.Head[h].Index != k) sonsLeft++;
+        InheritOnSplit(h, nh, sonsLeft);
+        if (h == PlayerHousehold) Chron(i, $"{Subj(Names.Full(Lineage, p.Uid[i]))} 분가해 새 집을 꾸렸다");
+        Stats.Splits++;
+        return nh;
     }
 
     // ------------------------------------------------------------------ 마을 배치와 길
@@ -1195,7 +1214,8 @@ public sealed partial class World
         // 남자: 다산 유전과 나이(천천히 줄어든다)
         int mage = AgeYears(m);
         float maleK = (0.75f + 0.5f * p.Get(m, Trait.Fertility)) * (mage >= 60 ? 0.5f : mage >= 50 ? 0.7f : 1f);
-        return (0.5f + p.Get(w, Trait.Fertility)) * ageK * foodK * crowdK * maleK;
+        float contraK = p.ContraUntil[w] >= Day ? 1f - Config.ContraEffect : 1f;   // 약초꾼의 피임 약
+        return (0.5f + p.Get(w, Trait.Fertility)) * ageK * foodK * crowdK * maleK * contraK;
     }
 
     /// <summary>행위 한 번(부부 밖): 임신 판정. 되면 true. legalFather 는 족보에 적힐 아버지(-1 = 사생아).</summary>
@@ -1285,16 +1305,21 @@ public sealed partial class World
         var hh = Households;
         int best = -1, bestScore = int.MinValue;
         bool anyAdult = false;
+        int named = HeirOf(h);
         for (int k = hh.FirstMember[h]; k >= 0; k = p.HhNext[k])
         {
             int age = AgeYears(k);
             if (age >= 12) anyAdult = true;
-            int score = age + (p.Male[k] && age >= 16 ? 1000 : 0) + (age >= 16 ? 500 : 0);
+            // 지정 후계자 → 어른 남자 → 어른 → 적자가 서자·사생아보다 → 나이. 의절한 사람은 맨 뒤.
+            var right = Lineage.RightOf(p.Uid[k]);
+            int score = age + (p.Male[k] && age >= 16 ? 1000 : 0) + (age >= 16 ? 500 : 0) + (right == Birthright.Legit ? 200 : right == Birthright.Concubine ? 100 : 0)
+                      + (k == named && age >= 12 ? 5000 : 0) - (Lineage.Disowned(p.Uid[k]) ? 3000 : 0);
             if (score > bestScore) { bestScore = score; best = k; }
         }
         if (best >= 0 && anyAdult)
         {
             hh.Head[h] = p.IdAt(best);
+            _heir.Remove(h);
             if (ClientCount(h) > 0) ShakeLordship(h, Config.HeadChangeLoss);   // 새 가장이 약하면 떠나는 집이 생긴다
             return;
         }
@@ -1349,6 +1374,7 @@ public sealed partial class World
         Social.Remember(p, man, MemoryType.Married, p.Uid[woman], Day, 40);
         Social.Remember(p, woman, MemoryType.Married, p.Uid[man], Day, 40);
         p.CoupleScore[woman] = coupleScore;
+        p.Concubine[woman] = false;
         if (IsPlayer(man) || IsPlayer(woman)) Chron(IsPlayer(man) ? man : woman, $"{With(Names.Full(Lineage, p.Uid[man]))} {Subj(Names.Full(Lineage, p.Uid[woman]))} 혼인했다");
         int target = p.Household[man], old = p.Household[woman];
         if (Households.IsAlive(old) && Households.IsAlive(target)) Contact(Households.Village[old], Households.Village[target]);
@@ -1539,8 +1565,12 @@ public sealed partial class World
                 score[top] = float.MinValue;
             }
             if (best < 0) continue;
-            // 청혼: 받아들일지는 상호작용 정의가 정한다(플레이어 청혼과 같은 셈)
-            if (Interact(InteractionId.Propose, new InteractionContext { Actor = a, Target = best, Third = -1 }).Accepted)
+            // 청혼: 받아들일지는 상호작용 정의가 정한다(플레이어 청혼과 같은 셈). 아내 있는 남자면 첩으로 들인다.
+            int man = p.Male[a] ? a : best, woman = p.Male[a] ? best : a;
+            var res = p.WifeCount[man] > 0
+                ? Interact(InteractionId.TakeConcubine, new InteractionContext { Actor = man, Target = woman, Third = -1 })
+                : Interact(InteractionId.Propose, new InteractionContext { Actor = a, Target = best, Third = -1 });
+            if (res.Accepted)
             {
                 taken[a] = true;
                 taken[best] = true;

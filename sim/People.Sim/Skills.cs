@@ -7,7 +7,7 @@ public enum Skill : byte { Farming, Carpentry, Herbalism, Trade, Letters, Arms, 
 /// 하는 일. 농부가 기본이고, 나머지는 마을에 그 일을 맡길 수요가 있을 때만 생긴다.
 /// 일을 맡은 사람은 밭일을 덜 한다(FarmShare).
 /// </summary>
-public enum Job : byte { Farmer, Carpenter, Healer, Trader, Soldier, Collector, Count }
+public enum Job : byte { Farmer, Carpenter, Healer, Trader, Soldier, Collector, SexWorker, Count }
 
 /// <summary>어릴 때 겪은 일. 유전되지 않고 성격 축을 조금 옮긴다.</summary>
 [Flags]
@@ -66,7 +66,7 @@ public static class Skills
 
     public static string JobName(Job j) => j switch
     {
-        Job.Carpenter => "목수", Job.Healer => "약초꾼", Job.Trader => "장사꾼", Job.Soldier => "군인", Job.Collector => "징수관", _ => "농부",
+        Job.Carpenter => "목수", Job.Healer => "약초꾼", Job.Trader => "장사꾼", Job.Soldier => "군인", Job.Collector => "징수관", Job.SexWorker => "창부", _ => "농부",
     };
 
     public static string SkillName(Skill s) => s switch

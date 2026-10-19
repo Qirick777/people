@@ -145,11 +145,19 @@ public sealed class SimConfig
     public float AffairAttractFloor { get; init; } = 0.1f;   // 짝 점수가 이보다 높아야 끌린다
     public int AffairActs { get; init; } = 4;                // 몰래 만나기 한 번(한 계절)에 든 행위 수
     public float SexTradeDrive { get; init; } = 6f;        // 하룻밤 거래를 고르는 기본 무게
-    public float SexTradeBase { get; init; } = 20f;           // 하룻밤 값의 기준(식량)
+    public float SexTradeBase { get; init; } = 20f;
+    public float SexOfferRate { get; init; } = 0.4f;         // 형편이 어려운 사람이 스스로 살 사람을 찾는 정도(모자람 × 이 값)           // 하룻밤 값의 기준(식량)
     public float MaleAppealFloor { get; init; } = 0.8f;      // 남자가 팔면 외모가 이보다 높을 때만 값이 생긴다
     public float SecretBaseRisk { get; init; } = 0.12f;      // 비밀이 해마다 들킬 기본 확률
     public int SecretForgetYears { get; init; } = 15;        // 이만큼 지난 비밀은 묻힌다
-    public float ArrangeWealth { get; init; } = 600f;        // 이만큼 가진 집(과 지배자)은 자식을 혼담으로 맺으려 한다
+    public float ArrangeWealth { get; init; } = 600f;
+    // C 묶음: 첩, 약초꾼의 약, 몸 파는 일
+    public float ContraEffect { get; init; } = 0.6f;         // 피임 약이 임신 확률을 줄이는 몫(약초라 완전하지 않다)
+    public float ContraPrice { get; init; } = 5f;           // 한 해 치 값(식량)
+    public float AbortionPrice { get; init; } = 15f;
+    public float AbortionWorks { get; init; } = 0.7f;       // 낙태 약이 듣는 확률
+    public float AbortionDeath { get; init; } = 0.06f;      // 약을 먹은 여자가 죽을 확률
+    public int TradeVillage { get; init; } = 30;            // 이만큼 큰 마을에서 몸 파는 일이 업으로 생긴다(25집에 한 사람까지)        // 이만큼 가진 집(과 지배자)은 자식을 혼담으로 맺으려 한다
     // 충성: 관계가 충성을 밀고, 충성이 관계를 받아들이는 눈을 바꾼다
     public float LoyaltyScale { get; init; } = 60f;          // 이만큼의 관계를 "아주 좋다"로 본다
     public float LoyaltyLinear { get; init; } = 0.03f;       // 충성 변화 = (선형 × x + 세제곱 × x³), x = 관계/LoyaltyScale(±1에서 자름)
