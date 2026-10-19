@@ -436,6 +436,7 @@ public sealed partial class World
         if (doy == 0) Timed("한 해 시작(분가·땅·집)", BeginYear);
         if (cal.DayOfSeason == 0)
         {
+            ApplySwitch();   // 예약한 혈족 집 옮겨 맡기는 계절이 바뀔 때
             Timed("부패", SpoilWithTrade);
             Timed("빚과 땅 팔기", Distress);
             Timed("구애", Courtship);

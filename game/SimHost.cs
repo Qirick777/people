@@ -140,6 +140,106 @@ public partial class SimHost : Node
         return o.ToArray();
     }
 
+    // ------------------------------------------------------------------ 혈족 옮겨 맡기, 족보
+
+    public int KinRange
+    {
+        get => _w?.KinRange ?? 4;
+        set { if (_w != null) _w.KinRange = Math.Clamp(value, 2, 6); }
+    }
+
+    public int PendingSwitch => _w?.PendingSwitch ?? -1;
+
+    /// <summary>집 h 를 맡는다면 혈족 집이 몇인가(자동 점검용, 맡은 집은 그대로 둔다).</summary>
+    public int KinCountIf(int h)
+    {
+        if (_w == null) return 0;
+        int keep = _w.PlayerHousehold;
+        _w.PlayerHousehold = h;
+        int n = _w.KinHouseholds().Count;
+        _w.PlayerHousehold = keep;
+        return n;
+    }
+
+    public bool RequestSwitch(int h) => _w != null && _w.RequestSwitch(h);
+
+    /// <summary>집 h 가 지금 맡은 가장에서 몇 촌인가(혈족이 아니면 -1).</summary>
+    public int KinChon(int h) => _w?.KinChonOfHousehold(h) ?? -1;
+
+    private string HouseLabel(int h)
+    {
+        var w = _w!;
+        int t = w.TierOf(h);
+        return t >= 1 ? World.TierName(t) : World.ClassName(w.ClassOf(h));
+    }
+
+    /// <summary>옮겨 맡을 수 있는 혈족 집 목록: 집 번호, 촌수, 가장 이름, 가문, 이름표, 식구 수.</summary>
+    public Godot.Collections.Array KinHouses()
+    {
+        var a = new Godot.Collections.Array();
+        if (_w == null) return a;
+        var w = _w; var p = w.People; var hh = w.Households;
+        foreach (var (h, chon) in w.KinHouseholds())
+        {
+            var head = hh.Head[h];
+            int hu = p.IsValid(head) ? p.Uid[head.Index] : -1;
+            a.Add(new Godot.Collections.Dictionary
+            {
+                ["id"] = h, ["chon"] = chon, ["head"] = Names.Full(w.Lineage, hu), ["family"] = Names.Family(w.Lineage.FamilyOf(hu)),
+                ["label"] = HouseLabel(h), ["members"] = hh.Members[h], ["x"] = hh.X[h], ["y"] = hh.Y[h],
+            });
+        }
+        return a;
+    }
+
+    /// <summary>
+    /// 족보: 지금 맡은 가장에서 혈족 범위 안의 사람들(죽은 조상 포함). 위로 올라갔다가 아래로만 내려가며 촌수를 센다.
+    /// 사람마다 이름, 촌수, 대(위는 음수), 살았는지, 나이 또는 죽은 해, 사는 집, 그 집을 맡을 수 있는지.
+    /// </summary>
+    public Godot.Collections.Array KinTree()
+    {
+        var a = new Godot.Collections.Array();
+        if (_w == null || _w.PlayerHousehold < 0) return a;
+        var w = _w; var p = w.People; var hh = w.Households; var lin = w.Lineage;
+        var head = hh.Head[w.PlayerHousehold];
+        if (!p.IsValid(head)) return a;
+        int anchor = p.Uid[head.Index];
+        var kids = lin.ChildrenIndex();
+        var alive = new Dictionary<int, int>();
+        for (int i = 0; i < p.HighWater; i++) if (p.IsAliveIndex(i)) alive[p.Uid[i]] = i;
+        var best = new Dictionary<int, (int chon, int gen)>();
+        var q = new Queue<(int u, int chon, int gen, bool up)>();
+        q.Enqueue((anchor, 0, 0, true));
+        while (q.Count > 0)
+        {
+            var (u, chon, gen, up) = q.Dequeue();
+            if (best.TryGetValue(u, out var b) && b.chon <= chon) continue;
+            best[u] = (chon, gen);
+            if (chon >= w.KinRange) continue;
+            if (up)
+            {
+                if (lin.Father(u) >= 0) q.Enqueue((lin.Father(u), chon + 1, gen - 1, true));
+                if (lin.Mother(u) >= 0) q.Enqueue((lin.Mother(u), chon + 1, gen - 1, true));
+            }
+            if (kids.TryGetValue(u, out var cs)) foreach (int c in cs) q.Enqueue((c, chon + 1, gen + 1, false));
+        }
+        var kinHouses = new HashSet<int>(w.KinHouseholds().Select(x => x.h));
+        foreach (var (u, (chon, gen)) in best.OrderBy(x => x.Value.gen).ThenBy(x => x.Value.chon))
+        {
+            bool live = alive.TryGetValue(u, out int i);
+            int h = live ? p.Household[i] : -1;
+            a.Add(new Godot.Collections.Dictionary
+            {
+                ["uid"] = u, ["name"] = Names.Full(lin, u), ["chon"] = chon, ["gen"] = gen, ["male"] = lin.Male(u), ["alive"] = live,
+                ["age"] = live ? (w.Day - p.BirthDay[i]) / w.Config.DaysPerYear : 0,
+                ["died"] = !live && lin.Death(u) >= 0 ? lin.Death(u) / w.Config.DaysPerYear + 1 : 0,
+                ["house"] = h, ["houseLabel"] = h >= 0 && hh.IsAlive(h) ? HouseLabel(h) : "",
+                ["canTake"] = h >= 0 && kinHouses.Contains(h), ["mine"] = h >= 0 && h == w.PlayerHousehold,
+            });
+        }
+        return a;
+    }
+
     // ------------------------------------------------------------------ 상호작용
 
     private int Age(int i) => (_w!.Day - _w.People.BirthDay[i]) / _w.Config.DaysPerYear;

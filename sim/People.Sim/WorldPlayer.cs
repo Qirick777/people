@@ -18,6 +18,69 @@ public sealed partial class World
         }
     }
 
+    /// <summary>옮겨 맡을 수 있는 혈족 범위(촌수). 기본 4, 설정으로 6까지.</summary>
+    public int KinRange { get; set; } = 4;
+
+    private int _pendingSwitch = -1, _pendingFounded = -1;
+
+    /// <summary>집 h 의 가장이나 가장의 배우자가 지금 맡은 가장에서 몇 촌인가(가까운 쪽). 혈족이 아니면 -1.</summary>
+    public int KinChonOfHousehold(int h)
+    {
+        int me = PlayerHousehold;
+        if (me < 0 || !Households.IsAlive(h) || !People.IsValid(Households.Head[me])) return -1;
+        int anchor = People.Uid[Households.Head[me].Index];
+        var head = Households.Head[h];
+        if (!People.IsValid(head)) return -1;
+        int hi = head.Index;
+        int best = Lineage.Chon(anchor, People.Uid[hi]);
+        int sp = SpouseOf(hi);
+        if (sp >= 0)
+        {
+            int c = Lineage.Chon(anchor, People.Uid[sp]);
+            if (c >= 0 && (best < 0 || c < best)) best = c;
+        }
+        return best;
+    }
+
+    /// <summary>옮겨 맡을 수 있는 혈족 집들(지금 맡은 집 제외)과 촌수.</summary>
+    public List<(int h, int chon)> KinHouseholds()
+    {
+        var list = new List<(int, int)>();
+        int me = PlayerHousehold;
+        if (me < 0) return list;
+        for (int h = 0; h < Households.HighWater; h++)
+        {
+            if (h == me || !Households.IsAlive(h)) continue;
+            int c = KinChonOfHousehold(h);
+            if (c > 0 && c <= KinRange) list.Add((h, c));
+        }
+        list.Sort((a, b) => a.Item2 != b.Item2 ? a.Item2.CompareTo(b.Item2) : b.Item1.CompareTo(a.Item1));
+        return list;
+    }
+
+    /// <summary>혈족 집으로 옮겨 맡기를 예약한다. 다음 계절이 시작될 때 옮긴다(갈림길을 피해 옮겨 가지 못하게).</summary>
+    public bool RequestSwitch(int h)
+    {
+        int c = KinChonOfHousehold(h);
+        if (c <= 0 || c > KinRange) return false;
+        _pendingSwitch = h;
+        _pendingFounded = Households.FoundedDay[h];
+        return true;
+    }
+
+    public int PendingSwitch => _pendingSwitch >= 0 && Households.IsAlive(_pendingSwitch) && Households.FoundedDay[_pendingSwitch] == _pendingFounded ? _pendingSwitch : -1;
+
+    /// <summary>계절이 바뀔 때 부른다: 예약한 옮기기를 한다.</summary>
+    private void ApplySwitch()
+    {
+        int h = PendingSwitch;
+        _pendingSwitch = -1;
+        if (h < 0 || PlayerHousehold < 0) return;
+        PlayerHousehold = h;
+        var head = Households.Head[h];
+        Chronicle.Add((Day, $"{(People.IsValid(head) ? Names.Full(Lineage, People.Uid[head.Index]) : "")}의 집을 맡았다"));
+    }
+
     private bool IsPlayer(int i) => _player >= 0 && People.Household[i] == PlayerHousehold;
 
     public readonly List<(int day, string text)> Chronicle = new();

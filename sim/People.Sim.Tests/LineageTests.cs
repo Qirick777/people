@@ -51,4 +51,22 @@ public class LineageTests
         Assert.Equal(-1, l.Father(bastard));
         Assert.Equal(l.FamilyOf(wife), l.FamilyOf(bastard));
     }
+
+    [Fact]
+    public void ChonCountsKinDegrees()
+    {
+        var L = new Lineage();
+        int g1 = L.Add(true, 0, -1, -1), g2 = L.Add(false, 0, -1, -1);     // 할아버지, 할머니
+        int f = L.Add(true, 1, g1, g2), u = L.Add(true, 1, g1, g2);         // 아버지, 삼촌
+        int m = L.Add(false, 1, -1, -1), aunt = L.Add(false, 1, -1, -1);
+        int me = L.Add(true, 2, f, m), bro = L.Add(true, 2, f, m);
+        int cousin = L.Add(true, 2, u, aunt);
+        int son = L.Add(true, 3, me, -1);
+        Assert.Equal(1, L.Chon(me, f));
+        Assert.Equal(2, L.Chon(me, bro));
+        Assert.Equal(3, L.Chon(me, u));
+        Assert.Equal(4, L.Chon(me, cousin));
+        Assert.Equal(5, L.Chon(son, cousin));
+        Assert.Equal(-1, L.Chon(me, aunt));   // 숙모는 혈족이 아니다
+    }
 }

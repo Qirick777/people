@@ -25,6 +25,12 @@ var actor := -1                          # 상호작용을 할 내 가족(사람
 var shown := {}                          # 카드에 띄운 것 {"kind", "uid" | "id"}
 var pending := {}                        # 고르는 중인 상호작용 {"id", "target", "third"}
 var marry_button: Button
+var kin_box: VBoxContainer
+var kin_title: Label
+var tree_panel: PanelContainer
+var tree_box: VBoxContainer
+var range_button: Button
+var last_player := -1
 var autotest := false
 
 var date_label: Label
@@ -65,6 +71,9 @@ func _process(dt: float) -> void:
 				_set_speed(0)
 				_set_hint("집에 큰일이 생겨 멈췄다. 연대기를 보고 다시 시작한다.")
 			since_draw += days
+			if int(host.Player) != last_player and last_player >= 0:
+				_on_player_changed()
+				since_draw = 6
 			if since_draw >= 6:
 				since_draw = 0
 				_redraw()
@@ -196,7 +205,13 @@ func _show_house(hi: int) -> void:
 	scene.mark_house(hi)
 	if int(data["houses"][hi][2]) > 0 and int(hinfo.get("id", -1)) != host.Player:
 		var id := int(hinfo["id"])
-		card.add_actions("플레이", [{"text": "이 집을 맡는다", "note": "식구들을 내가 이끈다", "cb": func(): _take_house(id)}])
+		if host.Player < 0:
+			card.add_actions("플레이", [{"text": "이 집을 맡는다", "note": "식구들을 내가 이끈다", "cb": func(): _take_house(id)}])
+		else:
+			var chon: int = host.KinChon(id)
+			if chon > 0 and chon <= int(host.KinRange):
+				var pend: bool = int(host.PendingSwitch) == id
+				card.add_actions("혈족 집", [{"text": "다음 계절에 옮겨 맡는다" if pend else "이 집으로 옮겨 맡기", "note": "%d촌 · 계절이 바뀌면 옮긴다" % chon, "cb": func(): _switch_to(id)}])
 
 
 func World_subj(n: String) -> String:
@@ -217,8 +232,18 @@ func _do(id: int, target: int, third := -1, amount := 0.0) -> void:
 	_redraw()
 
 
+## 맡은 집이 바뀌었다(혈족 집으로 옮기기, 집이 끊겨 따라감): 행동할 사람을 새 가장으로, 지역이 벗어나면 다시 맞춘다.
+func _on_player_changed() -> void:
+	last_player = host.Player
+	actor = -1
+	var pos: Vector2i = host.HousePos(last_player)
+	if pos.x >= 0 and (pos.x - origin.x < 8 or pos.y - origin.y < 8 or pos.x - origin.x >= REGION.x - 8 or pos.y - origin.y >= REGION.y - 8):
+		_recenter(pos)
+
+
 func _take_house(id: int) -> void:
 	host.SetPlayer(id)
+	last_player = id
 	actor = -1
 	for m in _members():
 		if m["head"]: actor = int(m["i"])
@@ -246,6 +271,7 @@ func _refresh_family() -> void:
 	if not alive:
 		actor = -1
 		for m in members: if m["head"]: actor = int(m["i"])
+	_refresh_kin()
 	var fw := _food_word(float(s["surplus"]))
 	_set_stats(s["family"], "%d명" % int(s["kin"]), "%d필지" % int(s["plots"]), fw)
 	members.sort_custom(func(a, b):
@@ -278,6 +304,95 @@ func _refresh_family() -> void:
 		b.add_child(row)
 		b.pressed.connect(func(): _pick_member(i))
 		family_box.add_child(b)
+
+
+## 혈족 집 목록: 가까운 촌수부터 여덟 집. 줄을 누르면 그 집을 보고, '맡기'로 옮기기를 예약한다.
+func _refresh_kin() -> void:
+	for c in kin_box.get_children(): c.queue_free()
+	var kin: Array = host.KinHouses()
+	kin_title.text = "혈족 집 · %d촌 안 %d집" % [int(host.KinRange), kin.size()]
+	var pend: int = host.PendingSwitch
+	for k in mini(kin.size(), 8):
+		var e: Dictionary = kin[k]
+		var id := int(e["id"])
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		var b := UI.row_button(false)
+		b.custom_minimum_size = Vector2(200, 34)
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var inner := HBoxContainer.new()
+		inner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		inner.set_anchors_preset(Control.PRESET_FULL_RECT)
+		inner.offset_left = 8; inner.offset_right = -6; inner.offset_top = 4; inner.offset_bottom = -4
+		inner.add_theme_constant_override("separation", 6)
+		var nm := UI.label(e["head"], 13, UI.INK, true)
+		nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		inner.add_child(nm)
+		inner.add_child(_center(UI.label("%d촌 · %s · %d명" % [int(e["chon"]), e["label"], int(e["members"])], 11, UI.MUTED)))
+		b.add_child(inner)
+		var hx := int(e["x"]); var hy := int(e["y"])
+		b.pressed.connect(func(): _look_at_house(id, hx, hy))
+		row.add_child(b)
+		if id == pend:
+			row.add_child(_center(UI.chip("다음 계절", Color(0.85, 0.9, 0.7), Color(0.3, 0.4, 0.12), 11)))
+		else:
+			var t := UI.ghost("맡기")
+			t.pressed.connect(func(): _switch_to(id))
+			row.add_child(t)
+		kin_box.add_child(row)
+
+
+func _look_at_house(id: int, x: int, y: int) -> void:
+	var lx := x - origin.x
+	var ly := y - origin.y
+	if lx < 0 or ly < 0 or lx >= REGION.x or ly >= REGION.y:
+		_recenter(Vector2i(x, y))
+	var hi: int = scene.house_index(id)
+	if hi < 0: return
+	scene.aim(scene.house_pos[hi], scene.cam.size)
+	_show_house(hi)
+
+
+func _switch_to(id: int) -> void:
+	if host.RequestSwitch(id):
+		_set_hint("다음 계절이 시작되면 이 집을 맡는다")
+	_refresh_family()
+	_refresh_card()
+
+
+func _open_tree() -> void:
+	range_button.text = "범위 %d촌" % int(host.KinRange)
+	for c in tree_box.get_children(): c.queue_free()
+	var rows: Array = host.KinTree()
+	var gen_now := -99
+	for e in rows:
+		var g := int(e["gen"])
+		if g != gen_now:
+			gen_now = g
+			var title := "같은 대" if g == 0 else ("윗대 %d" % -g if g < 0 else "아랫대 %d" % g)
+			tree_box.add_child(UI.label(title, 13, UI.MUTED, true))
+		var r := HBoxContainer.new()
+		r.add_theme_constant_override("separation", 8)
+		r.add_child(UI.avatar(e["name"], e["male"], 22))
+		var nm := UI.label(e["name"], 14, UI.INK if e["alive"] else UI.MUTED, e["mine"])
+		nm.custom_minimum_size = Vector2(170, 0)
+		r.add_child(nm)
+		r.add_child(UI.label("%d촌" % int(e["chon"]) if int(e["chon"]) > 0 else "나", 12, UI.MUTED))
+		var info := ("%d세" % int(e["age"])) if e["alive"] else ("%d년에 죽음" % int(e["died"]) if int(e["died"]) > 0 else "죽음")
+		if e["houseLabel"] != "": info += " · " + e["houseLabel"]
+		var il := UI.label(info, 12, UI.MUTED)
+		il.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		r.add_child(il)
+		if e["mine"]: r.add_child(UI.chip("맡은 집", Color(0.85, 0.92, 0.9), UI.ACT, 11))
+		elif e["canTake"]:
+			var hid := int(e["house"])
+			var t := UI.ghost("맡기")
+			t.pressed.connect(func():
+				_switch_to(hid)
+				tree_panel.visible = false)
+			r.add_child(t)
+		tree_box.add_child(r)
+	tree_panel.visible = true
 
 
 func _center(c: Control) -> Control:
@@ -453,7 +568,54 @@ func _build_ui() -> void:
 	family_box = VBoxContainer.new()
 	family_box.add_theme_constant_override("separation", 5)
 	lv.add_child(family_box)
+	lv.add_child(HSeparator.new())
+	var kh := HBoxContainer.new()
+	kin_title = UI.label("혈족 집", 13, UI.MUTED, true)
+	kin_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	kh.add_child(kin_title)
+	var tb := UI.ghost("족보")
+	tb.pressed.connect(_open_tree)
+	kh.add_child(tb)
+	lv.add_child(kh)
+	kin_box = VBoxContainer.new()
+	kin_box.add_theme_constant_override("separation", 4)
+	lv.add_child(kin_box)
 	rootc.add_child(left)
+
+	# 족보 창
+	tree_panel = UI.panel()
+	tree_panel.set_anchors_preset(Control.PRESET_CENTER)
+	tree_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	tree_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	tree_panel.custom_minimum_size = Vector2(560, 0)
+	var tv := VBoxContainer.new()
+	tv.add_theme_constant_override("separation", 6)
+	tree_panel.add_child(tv)
+	var th := HBoxContainer.new()
+	var tt := UI.label("족보", 20, UI.INK, true)
+	tt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	th.add_child(tt)
+	range_button = UI.ghost("범위 4촌")
+	range_button.pressed.connect(func():
+		host.KinRange = 6 if int(host.KinRange) == 4 else 4
+		_refresh_family()
+		_open_tree())
+	th.add_child(range_button)
+	var tc := UI.ghost("닫기")
+	tc.pressed.connect(func(): tree_panel.visible = false)
+	th.add_child(tc)
+	tv.add_child(th)
+	tv.add_child(UI.label("지금 맡은 가장에서 혈족 범위 안의 사람들. 맡을 수 있는 집은 다음 계절부터 옮겨 맡는다.", 12, UI.MUTED))
+	var sc := ScrollContainer.new()
+	sc.custom_minimum_size = Vector2(540, 520)
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	tree_box = VBoxContainer.new()
+	tree_box.add_theme_constant_override("separation", 3)
+	tree_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(tree_box)
+	tv.add_child(sc)
+	tree_panel.visible = false
+	rootc.add_child(tree_panel)
 
 	# 오른쪽: 카드
 	card = Card.new()
@@ -525,9 +687,10 @@ func _set_hint(t: String) -> void:
 func _run_autotest() -> void:
 	# 영역 안에서 식구가 가장 많은 집을 맡고, 반년 돌린 뒤 화면을 찍는다
 	var best := -1
-	var most := 0
+	var most := -1
 	for k in data["hinfo"].size():
-		var n: int = scene.members_of(k).size()
+		if int(data["houses"][k][2]) == 0: continue
+		var n: int = 10 * int(host.KinCountIf(int(data["hinfo"][k]["id"]))) + scene.members_of(k).size()
 		if n > most: most = n; best = k
 	_take_house(int(data["hinfo"][best]["id"]))
 	for i in 6:
@@ -597,6 +760,23 @@ func _run_autotest() -> void:
 		await _snap("live_dowry.png")
 		print("autotest: 혼담 상대 ", pd["name"], " / 내 식구 ", cands[0]["name"])
 		break
+	# 혈족 집: 족보 창을 열어 찍고, 첫 혈족 집으로 옮기기를 예약해 계절이 바뀌면 옮겨지는지 본다
+	card.visible = false
+	_refresh_family()
+	_open_tree()
+	await _snap("live_kin_tree.png")
+	tree_panel.visible = false
+	var kin: Array = host.KinHouses()
+	print("autotest: 혈족 집 %d곳" % kin.size())
+	if kin.size() > 0:
+		var to := int(kin[0]["id"])
+		_switch_to(to)
+		await _snap("live_kin.png")
+		var before: int = host.Player
+		host.Advance(6)
+		_on_player_changed()
+		_redraw()
+		print("autotest: 옮기기 %d → %d (예약 %d, 촌수 %d)" % [before, int(host.Player), to, int(kin[0]["chon"])])
 	get_tree().quit()
 
 

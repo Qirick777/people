@@ -48,6 +48,45 @@ public sealed class Lineage
     public bool Disowned(int uid) => uid >= 0 && _disowned[uid];
     public void SetDisowned(int uid, bool v) { if (uid >= 0) _disowned[uid] = v; }
 
+    /// <summary>
+    /// 촌수(족보 기준). 족보 아버지와 어머니를 타고 4대까지 올라가 가장 가까운 공통 조상을 찾는다.
+    /// 부모 1, 형제 2, 삼촌 3, 사촌 4. 4대 안에 공통 조상이 없으면 -1.
+    /// </summary>
+    public int Chon(int a, int b)
+    {
+        if (a < 0 || b < 0) return -1;
+        if (a == b) return 0;
+        var up = new Dictionary<int, int>();
+        Climb(a, 0, up);
+        var other = new Dictionary<int, int>();
+        Climb(b, 0, other);
+        int best = int.MaxValue;
+        foreach (var (x, d2) in other)
+            if (up.TryGetValue(x, out int d1) && d1 + d2 < best) best = d1 + d2;
+        return best == int.MaxValue ? -1 : best;
+    }
+
+    private void Climb(int u, int d, Dictionary<int, int> seen)
+    {
+        if (u < 0 || d > 4) return;
+        if (seen.TryGetValue(u, out int old) && old <= d) return;
+        seen[u] = d;
+        Climb(_father[u], d + 1, seen);
+        Climb(_mother[u], d + 1, seen);
+    }
+
+    /// <summary>족보의 자식 목록(족보 아버지와 어머니 기준). 족보 화면을 그릴 때만 만든다.</summary>
+    public Dictionary<int, List<int>> ChildrenIndex()
+    {
+        var map = new Dictionary<int, List<int>>();
+        for (int u = 0; u < Count; u++)
+        {
+            foreach (int par in new[] { _father[u], _mother[u] })
+                if (par >= 0) (map.TryGetValue(par, out var l) ? l : map[par] = new()).Add(u);
+        }
+        return map;
+    }
+
     /// <summary>자식으로 인정한다: 족보 아버지를 father 로 적고 성을 따르게 하며 적자로 올린다.</summary>
     public void Legitimize(int uid, int father)
     {
