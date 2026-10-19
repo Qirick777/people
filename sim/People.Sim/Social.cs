@@ -60,10 +60,47 @@ public static class Social
             else if (p.Fanatic[i] != 0) { p.Doubt[i] -= aff; aff = 0f; }
             else aff *= 1.5f - l;
         }
+        else aff *= Borrowed(p, i, uid, aff);
         int s = Ensure(p, i, uid);
         p.RelAff[s] = Math.Clamp(p.RelAff[s] + aff, -100f, 100f);
         p.RelFear[s] = Math.Clamp(p.RelFear[s] + fear, 0f, 100f);
         p.RelDebt[s] = Math.Clamp(p.RelDebt[s] + debt, -100f, 100f);
+    }
+
+    /// <summary>
+    /// 빌려 온 눈: i 가 섬기는 사람(B)이 uid(C)를 아주 싫어하면 C 에게서 받는 좋은 일은 덜, 나쁜 일은 더 느낀다.
+    /// B 가 C 를 아주 좋아하면 거꾸로다. 세기 = (충성 − 0.6)/0.4 × (B 의 관계가 ±30 을 넘은 정도). 한 다리만 건넌다.
+    /// </summary>
+    public static float Borrowed(PersonStore p, int i, int uid, float aff)
+    {
+        float l = p.Loyalty[i];
+        int b = p.LoyalIdx[i];
+        if (l < 0.6f || b < 0 || !p.IsAliveIndex(b) || p.Uid[b] != p.LoyalUid[i]) return 1f;
+        float o = Opinion(p, b, uid);
+        if (MathF.Abs(o) < 30f) return 1f;
+        float k = MathF.Min(1f, (l - 0.6f) / 0.3f) * MathF.Min(1f, (MathF.Abs(o) - 30f) / 60f);
+        bool hates = o < 0f;
+        if (aff >= 0f) return hates ? 1f - 0.6f * k : 1f + 0.8f * k;
+        return hates ? 1f + 0.8f * k : 1f - 0.6f * k;
+    }
+
+    /// <summary>
+    /// 사람(j)에게서 받는 일: 끌리는 사람에게는 좋은 일이 더 크게 와닿는다. 외모(이성이면 i 의 외모 선호만큼 더)와 말솜씨.
+    /// 말솜씨 좋은 사람의 잘못은 조금 덜 밉다. 이 위에 충성과 빌려 온 눈이 얹힌다.
+    /// </summary>
+    public static void AddFrom(PersonStore p, int i, int j, float aff, float fear = 0f, float debt = 0f)
+    {
+        if (aff > 0f) aff *= Charm(p, i, j);
+        else if (aff < 0f) aff *= 1f - 0.4f * (p.Get(j, Trait.Charisma) - 0.5f);
+        Add(p, i, p.Uid[j], aff, fear, debt);
+    }
+
+    /// <summary>i 가 j 에게 끌리는 정도에 따른 배율(약 0.7~1.4).</summary>
+    public static float Charm(PersonStore p, int i, int j)
+    {
+        float looks = p.Get(j, Trait.Looks) - 0.5f, cha = p.Get(j, Trait.Charisma) - 0.5f;
+        float lw = p.Male[i] != p.Male[j] ? 0.3f + 0.6f * p.Get(i, Trait.PrefLooks) : 0.25f;
+        return Math.Clamp(1f + 0.8f * cha + lw * looks * 2f * 0.5f, 0.6f, 1.5f);
     }
 
     /// <summary>i 가 uid 를 얼마나 좋게 보는가(호감 + 은혜의 절반). 모르는 사이면 0.</summary>

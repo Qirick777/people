@@ -31,4 +31,47 @@ public class SocialTests
         Assert.Equal(80f, Social.Opinion(s, i, 7), 3);
         Assert.Equal(30f, s.Doubt[i], 3);                  // 나쁜 일은 의심으로 쌓인다
     }
+
+    private static (PersonStore s, int a, int b, int c) Trio()
+    {
+        var s = new PersonStore(8);
+        int a = s.Add(true, 0, PersonId.None, PersonId.None, 0).Index;
+        int b = s.Add(true, 0, PersonId.None, PersonId.None, 0).Index;
+        int c = s.Add(true, 0, PersonId.None, PersonId.None, 0).Index;
+        s.Uid[a] = 1; s.Uid[b] = 2; s.Uid[c] = 3;
+        s.LoyalUid[a] = 2; s.LoyalIdx[a] = b; s.Loyalty[a] = 0.95f;
+        return (s, a, b, c);
+    }
+
+    [Fact]
+    public void LordsHatredSlowsWarmingToHisEnemy()
+    {
+        var (s, a, b, c) = Trio();
+        Social.Add(s, b, 3, -100f);                       // B 는 C 를 몹시 미워한다
+        Social.Add(s, a, 3, 10f);
+        Assert.True(Social.Opinion(s, a, 3) < 6f);        // 좋은 일이 덜 와닿는다
+        Social.Add(s, a, 3, -10f);
+        Assert.True(Social.Opinion(s, a, 3) < -10f);      // 나쁜 일은 더 와닿는다
+    }
+
+    [Fact]
+    public void LordsFavourSpeedsWarmingToHisFriend()
+    {
+        var (s, a, b, c) = Trio();
+        Social.Add(s, b, 3, 100f);
+        Social.Add(s, a, 3, 10f);
+        Assert.True(Social.Opinion(s, a, 3) > 15f);
+    }
+
+    [Fact]
+    public void CharmingPeopleAreLikedFaster()
+    {
+        var (s, a, b, c) = Trio();
+        s.LoyalUid[a] = -1;
+        s.Set(b, Trait.Charisma, 0.9f); s.Set(b, Trait.Looks, 0.9f);
+        s.Set(c, Trait.Charisma, 0.1f); s.Set(c, Trait.Looks, 0.1f);
+        Social.AddFrom(s, a, b, 10f);
+        Social.AddFrom(s, a, c, 10f);
+        Assert.True(Social.Opinion(s, a, 2) > Social.Opinion(s, a, 3) * 1.5f);
+    }
 }

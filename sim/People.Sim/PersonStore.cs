@@ -57,7 +57,7 @@ public sealed class PersonStore
     // 배워서 생기는 가치와 평판(유전되지 않는다)
     public float[] Piety, Loyalty, Honor, Notoriety, Stigma;
     // 충성 대상: 대상 가문, 그 가문의 지금 가장 uid, 광신 여부, 광신을 흔드는 의심(쌓이면 깨진다)
-    public int[] LoyalFam, LoyalUid, LoyalSince, LoyalHouse, LoyalHouseFounded;
+    public int[] LoyalFam, LoyalUid, LoyalIdx, LoyalSince, LoyalHouse, LoyalHouseFounded;   // LoyalIdx: 섬기는 가장의 사람 번호(LoyalUid 와 맞을 때만 유효)
     public byte[] Fanatic;
     public bool[] Concubine;         // 여성: 남편의 첩(아내가 아님). 자식은 서자
     public int[] ContraUntil;        // 피임약이 듣는 마지막 날(-1 = 없음)
@@ -115,7 +115,7 @@ public sealed class PersonStore
         Piety = new float[capacity]; Loyalty = new float[capacity]; Honor = new float[capacity];
         Notoriety = new float[capacity]; Stigma = new float[capacity];
         Concubine = new bool[capacity]; ContraUntil = new int[capacity];
-        LoyalFam = new int[capacity]; LoyalUid = new int[capacity]; LoyalSince = new int[capacity]; LoyalHouse = new int[capacity]; LoyalHouseFounded = new int[capacity]; Fanatic = new byte[capacity]; Doubt = new float[capacity];
+        LoyalFam = new int[capacity]; LoyalUid = new int[capacity]; LoyalIdx = new int[capacity]; LoyalSince = new int[capacity]; LoyalHouse = new int[capacity]; LoyalHouseFounded = new int[capacity]; Fanatic = new byte[capacity]; Doubt = new float[capacity];
         PregnancyLegalFatherUid = new int[capacity];
         Uid = new int[capacity];
         Husband = new PersonId[capacity];
@@ -177,7 +177,7 @@ public sealed class PersonStore
         MemType.AsSpan(i * MemSlots, MemSlots).Clear(); MemNext[i] = 0;
         Piety[i] = 0.5f; Loyalty[i] = 0.5f; Honor[i] = 0f; Notoriety[i] = 0f; Stigma[i] = 0f;
         Concubine[i] = false; ContraUntil[i] = -1;
-        LoyalFam[i] = -1; LoyalUid[i] = -1; LoyalHouse[i] = -1; Fanatic[i] = 0; Doubt[i] = 0f;
+        LoyalFam[i] = -1; LoyalUid[i] = -1; LoyalIdx[i] = -1; LoyalHouse[i] = -1; Fanatic[i] = 0; Doubt[i] = 0f;
         PregnancyLegalFatherUid[i] = -1;
         Uid[i] = -1;
         Husband[i] = PersonId.None;
@@ -271,7 +271,7 @@ public sealed class PersonStore
         Array.Resize(ref Piety, cap); Array.Resize(ref Loyalty, cap); Array.Resize(ref Honor, cap);
         Array.Resize(ref Notoriety, cap); Array.Resize(ref Stigma, cap);
         Array.Resize(ref Concubine, cap); Array.Resize(ref ContraUntil, cap);
-        Array.Resize(ref LoyalFam, cap); Array.Resize(ref LoyalUid, cap); Array.Resize(ref LoyalSince, cap); Array.Resize(ref LoyalHouse, cap); Array.Resize(ref LoyalHouseFounded, cap); Array.Resize(ref Fanatic, cap); Array.Resize(ref Doubt, cap);
+        Array.Resize(ref LoyalFam, cap); Array.Resize(ref LoyalUid, cap); Array.Resize(ref LoyalIdx, cap); Array.Resize(ref LoyalSince, cap); Array.Resize(ref LoyalHouse, cap); Array.Resize(ref LoyalHouseFounded, cap); Array.Resize(ref Fanatic, cap); Array.Resize(ref Doubt, cap);
         Array.Resize(ref PregnancyLegalFatherUid, cap);
         Array.Resize(ref Uid, cap);
         Array.Resize(ref Husband, cap);

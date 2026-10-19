@@ -116,7 +116,7 @@ public sealed partial class World
                     if (sp >= 0) Social.Add(p, sp, p.Uid[c.Actor], -30f);
                     if (w.AgeYears(c.Target) < 16 && !w.SameHouse(c.Actor, c.Target)) w.MoveTo(c.Target, p.Household[c.Actor]);
                 }
-                Social.Add(p, c.Target, p.Uid[c.Actor], 30f);
+                Social.AddFrom(p, c.Target, c.Actor, 30f);
                 w.Chron(c.Actor, $"{w.SubjName(c.Actor)} {Names.Full(w.Lineage, u)}을(를) 자식으로 인정했다");
                 w.Stats.Acknowledged++;
             },
@@ -139,7 +139,7 @@ public sealed partial class World
                         Social.Add(p, k, p.Uid[c.Actor], -15f);
                         Social.Add(p, k, p.Uid[c.Target], -15f);
                     }
-                Social.Add(p, c.Target, p.Uid[c.Actor], 15f);
+                Social.AddFrom(p, c.Target, c.Actor, 15f);
                 w.Chron(c.Actor, $"{Subj(Names.Full(w.Lineage, p.Uid[c.Target]))} 후계자로 정해졌다");
                 w.Stats.HeirsNamed++;
             },
@@ -156,7 +156,7 @@ public sealed partial class World
                 bool poor = w.Surplus(h) < 0.8f;
                 if (w.SplitOff(c.Target, h) >= 0)
                 {
-                    Social.Add(p, c.Target, p.Uid[c.Actor], poor ? -8f : 5f);   // 가난한 집에서 내보내면 서운하다
+                    Social.AddFrom(p, c.Target, c.Actor, poor ? -8f : 5f);   // 가난한 집에서 내보내면 서운하다
                     w.Stats.OrderedSplits++;
                     w.RecountHouseholds();
                 }

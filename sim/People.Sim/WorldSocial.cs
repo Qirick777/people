@@ -62,8 +62,8 @@ public sealed partial class World
             {
                 var p = w.People;
                 float k = 2f + 4f * p.Get(c.Actor, Trait.Sociability);
-                Social.Add(p, c.Actor, p.Uid[c.Target], k);
-                Social.Add(p, c.Target, p.Uid[c.Actor], k);
+                Social.AddFrom(p, c.Actor, c.Target, k);
+                Social.AddFrom(p, c.Target, c.Actor, k);
                 w.Stats.Chats++;
             },
         };
@@ -75,7 +75,7 @@ public sealed partial class World
                 var p = w.People;
                 // 눈썰미 좋은 사람은 빈말을 알아챈다
                 float k = (4f + 8f * p.Get(c.Actor, Trait.Charisma)) * (1.2f - 0.6f * p.Get(c.Target, Trait.Perception));
-                Social.Add(p, c.Target, p.Uid[c.Actor], k);
+                Social.AddFrom(p, c.Target, c.Actor, k);
                 Social.Remember(p, c.Target, MemoryType.Compliment, p.Uid[c.Actor], w.Day, (int)k);
             },
         };
@@ -89,7 +89,7 @@ public sealed partial class World
                 var p = w.People;
                 int third = p.Uid[c.Third];
                 Social.Add(p, c.Target, third, -(4f + 10f * p.Get(c.Actor, Trait.Charisma)));
-                Social.Add(p, c.Target, p.Uid[c.Actor], 2f);
+                Social.AddFrom(p, c.Target, c.Actor, 2f);
                 w.SpreadRumor(c.Actor, c.Target, c.Third);
                 w.Stats.Gossips++;
                 // 험담은 돌고 돌아 당사자 귀에 들어간다
@@ -113,7 +113,7 @@ public sealed partial class World
                 amount = MathF.Min(amount, hh.Food[ah]);
                 hh.Food[ah] -= amount;
                 if (hh.IsAlive(th)) hh.Food[th] += amount;
-                Social.Add(p, c.Target, p.Uid[c.Actor], MathF.Min(15f, amount * 0.5f), 0f, MathF.Min(20f, amount * 0.5f));
+                Social.AddFrom(p, c.Target, c.Actor, MathF.Min(15f, amount * 0.5f), 0f, MathF.Min(20f, amount * 0.5f));
                 Social.Remember(p, c.Target, MemoryType.Gift, p.Uid[c.Actor], w.Day, (int)MathF.Min(30f, amount));
                 w.Stats.Gifts++;
             },
@@ -141,8 +141,8 @@ public sealed partial class World
             Success = (w, c, r) =>
             {
                 var p = w.People;
-                Social.Add(p, c.Actor, p.Uid[c.Target], 8f);
-                Social.Add(p, c.Target, p.Uid[c.Actor], 8f);
+                Social.AddFrom(p, c.Actor, c.Target, 8f);
+                Social.AddFrom(p, c.Target, c.Actor, 8f);
                 Social.Remember(p, c.Actor, MemoryType.Affair, p.Uid[c.Target], w.Day, 15);
                 Social.Remember(p, c.Target, MemoryType.Affair, p.Uid[c.Actor], w.Day, 15);
                 w.AddSecret(SecretType.Affair, c.Actor, c.Target);
@@ -151,7 +151,7 @@ public sealed partial class World
                 r.Pregnant = w.SexualAct(c.Actor, c.Target, w.Config.AffairActs);   // 한 계절 동안 여러 번 만난 것으로 본다
                 w.Stats.Affairs++;
             },
-            Fail = (w, c) => Social.Add(w.People, c.Target, w.People.Uid[c.Actor], -5f),
+            Fail = (w, c) => Social.AddFrom(w.People, c.Target, c.Actor, -5f),
         };
         d[(int)InteractionId.SexTrade] = new InteractionDef
         {

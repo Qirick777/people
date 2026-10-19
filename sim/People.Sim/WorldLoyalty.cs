@@ -56,6 +56,7 @@ public sealed partial class World
                 continue;
             }
             int hi = head.Index, hu = p.Uid[hi];
+            p.LoyalIdx[i] = hi;
             int fam = Lineage.FamilyOf(hu);
             // 같은 집이 이어지거나(과부가 가장이 되어도) 같은 가문의 다른 집이 이으면 같은 섬김이다
             bool sameHouse = t == p.LoyalHouse[i] && hh.FoundedDay[t] == p.LoyalHouseFounded[i];

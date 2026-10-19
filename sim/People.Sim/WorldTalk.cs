@@ -97,7 +97,7 @@ public sealed partial class World
                 Social.Add(p, c.Target, p.Uid[c.Third], 5f + 15f * p.Get(c.Actor, Trait.Charisma));
                 w.Stats.Persuades++;
             },
-            Fail = (w, c) => Social.Add(w.People, c.Target, w.People.Uid[c.Actor], -3f),
+            Fail = (w, c) => Social.AddFrom(w.People, c.Target, c.Actor, -3f),
         };
         d[(int)InteractionId.Threaten] = new InteractionDef
         {
@@ -115,7 +115,7 @@ public sealed partial class World
             Success = (w, c, _) =>
             {
                 var p = w.People;
-                Social.Add(p, c.Target, p.Uid[c.Actor], -15f, 25f);
+                Social.AddFrom(p, c.Target, c.Actor, -15f, 25f);
                 Social.Remember(p, c.Target, MemoryType.Threatened, p.Uid[c.Actor], w.Day, -25);
                 p.Notoriety[c.Actor] = MathF.Min(1f, p.Notoriety[c.Actor] + 0.05f);
                 w.Stats.Threats++;
@@ -123,7 +123,7 @@ public sealed partial class World
             Fail = (w, c) =>
             {
                 var p = w.People;
-                Social.Add(p, c.Target, p.Uid[c.Actor], -25f);
+                Social.AddFrom(p, c.Target, c.Actor, -25f);
                 Social.Remember(p, c.Target, MemoryType.Insulted, p.Uid[c.Actor], w.Day, -20);
                 p.Honor[c.Actor] -= 0.03f;
             },
@@ -135,7 +135,7 @@ public sealed partial class World
             Success = (w, c, _) =>
             {
                 var p = w.People;
-                Social.Add(p, c.Target, p.Uid[c.Actor], 1f);
+                Social.AddFrom(p, c.Target, c.Actor, 1f);
                 if (w.IsPlayer(c.Actor)) w._probed.Add(p.Uid[c.Target]);
             },
         };
