@@ -33,6 +33,9 @@ var range_button: Button
 var org_panel: PanelContainer
 var org_box: VBoxContainer
 var org_title: Label
+var judge_button: Button
+var judge_panel: PanelContainer
+var judge_box: VBoxContainer
 var last_player := -1
 var autotest := false
 
@@ -72,7 +75,12 @@ func _process(dt: float) -> void:
 			acc -= days
 			if host.Advance(days):
 				_set_speed(0)
-				_set_hint("집에 큰일이 생겨 멈췄다. 연대기를 보고 다시 시작한다.")
+				if int(host.PendingCount) > 0:
+					_set_hint("범인을 잡았다. 재판 창에서 판결한다.")
+					_open_judge()
+				else:
+					_set_hint("집에 큰일이 생겨 멈췄다. 연대기를 보고 다시 시작한다.")
+			_refresh_judge_button()
 			since_draw += days
 			if int(host.Player) != last_player and last_player >= 0:
 				_on_player_changed()
@@ -136,8 +144,16 @@ func _show_person(pd: Dictionary) -> void:
 		return
 	pending = {}
 	var items := []
+	var crimes := []
 	for it in host.Interactions(actor, target):
 		var id := int(it["id"])
+		if it.has("crime"):
+			var cn := []
+			if it.has("take"): cn.append("식량 %d" % int(float(it["take"])))
+			cn.append("잡힐 확률 %d%%" % int(round(float(it["caught"]) * 100.0)))
+			cn.append("벌: " + it["punish"])
+			crimes.append({"text": it["name"], "note": " · ".join(cn), "chance": float(it["chance"]), "risky": true, "cb": func(): _do(id, target)})
+			continue
 		if it["needsThird"]:
 			items.append({"text": it["name"], "note": it["thirdLabel"], "risky": it["harsh"], "cb": func(): _begin(id, target)})
 			continue
@@ -151,6 +167,7 @@ func _show_person(pd: Dictionary) -> void:
 		elif it["secret"]: notes.append("몰래 하는 일")
 		items.append({"text": it["name"], "note": " · ".join(notes), "chance": float(it["chance"]), "risky": it["secret"] or it["harsh"], "cb": func(): _do(id, target)})
 	card.add_actions("할 수 있는 일", items, "%s 하는 일 · 오른쪽 숫자는 받아들일 확률" % World_subj(_actor_name()))
+	if not crimes.is_empty(): card.add_actions("범죄", crimes, "오른쪽 숫자는 해낼 확률. 잡힐 확률은 들켜서 신고되고 붙잡힐 확률이다")
 
 
 ## 세 번째 사람이나 값을 고르는 중: 후보마다 받아들일 확률을 보여 준다.
@@ -459,6 +476,85 @@ func _open_orgs() -> void:
 	org_panel.visible = true
 
 
+func _refresh_judge_button() -> void:
+	var n: int = host.PendingCount if host != null and host.Ready else 0
+	judge_button.text = "재판 %d" % n if n > 0 else "재판"
+	judge_button.add_theme_color_override("font_color", UI.RISK if n > 0 else UI.INK)
+
+
+func _open_judge() -> void:
+	for c in judge_box.get_children(): c.queue_free()
+	# 벌의 세기와 직접 판결할 사건
+	judge_box.add_child(UI.label("벌의 세기: 내 땅 사람들이 보는 두려움과 맡겨 둔 사건의 판결을 정한다", 12, UI.MUTED))
+	var seg := HBoxContainer.new()
+	seg.add_theme_constant_override("separation", 0)
+	var names := ["너그러움", "보통", "엄함"]
+	for k in 3:
+		var b := Button.new()
+		b.text = names[k]
+		UI.segment(b, int(host.Severity) == k, k == 0, k == 2)
+		var kk := k
+		b.pressed.connect(func():
+			host.Severity = kk
+			_open_judge())
+		seg.add_child(b)
+	judge_box.add_child(seg)
+	var all := UI.ghost("모든 사건을 직접 판결" if host.JudgeAll else "혈족·신하·살인만 직접 판결")
+	all.pressed.connect(func():
+		host.JudgeAll = not host.JudgeAll
+		_open_judge())
+	judge_box.add_child(all)
+	judge_box.add_child(HSeparator.new())
+	var cases: Array = host.Cases()
+	if cases.is_empty():
+		judge_box.add_child(UI.label("판결을 기다리는 사건이 없다. 한 해 안에 판결하지 않은 사건은 정한 세기로 판결된다.", 13, UI.MUTED))
+	for e in cases:
+		var box := VBoxContainer.new()
+		box.add_theme_constant_override("separation", 2)
+		var head := HBoxContainer.new()
+		head.add_theme_constant_override("separation", 8)
+		head.add_child(UI.chip(e["crime"], Color(0.97, 0.86, 0.82), UI.RISK, 12))
+		head.add_child(UI.label("범인 " + e["culprit"], 15, UI.INK, true))
+		if e["mine"] != "": head.add_child(UI.chip(e["mine"], Color(0.85, 0.92, 0.9), UI.ACT, 11))
+		box.add_child(head)
+		var info := "%s · 피해 %s · 증인 %d" % [e["date"], e["victim"], int(e["witnesses"])]
+		if float(e["amount"]) > 0.5: info += " · 식량 %d" % int(float(e["amount"]))
+		box.add_child(UI.label(info, 12, UI.MUTED))
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		var id := int(e["id"])
+		var opts := [["벌금", 3, false], ["매질", 4, false], ["처형", 5, true], ["풀어 주기", 7, false]]
+		if e["mine"] != "": opts.append(["덮기", 6, true])
+		for o in opts:
+			var b := UI.action(o[0], "", -1.0, o[2])
+			b.custom_minimum_size = Vector2(110, 40)
+			var v: int = o[1]
+			b.pressed.connect(func():
+				host.JudgeCase(id, v)
+				for line in host.DrainChronicle(): _log(line)
+				_refresh_judge_button()
+				_open_judge())
+			row.add_child(b)
+		box.add_child(row)
+		judge_box.add_child(box)
+		judge_box.add_child(HSeparator.new())
+	var recent: Array = host.RecentCases()
+	if not recent.is_empty():
+		judge_box.add_child(UI.label("최근 사건", 13, UI.MUTED, true))
+		for e in recent:
+			var r := HBoxContainer.new()
+			r.add_theme_constant_override("separation", 8)
+			var d := UI.label(e["date"], 12, UI.MUTED)
+			d.custom_minimum_size = Vector2(52, 0)
+			r.add_child(d)
+			var t := UI.label("%s · 범인 %s · 피해 %s" % [e["crime"], e["culprit"], e["victim"]], 13)
+			t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			r.add_child(t)
+			r.add_child(UI.label(e["verdict"], 12, UI.MUTED, true))
+			judge_box.add_child(r)
+	judge_panel.visible = true
+
+
 func _open_org_name(id: int, name: String, named: bool) -> void:
 	org_title.text = name + " · 이름 짓기"
 	for c in org_box.get_children(): c.queue_free()
@@ -679,6 +775,10 @@ func _build_ui() -> void:
 	ob.tooltip_text = "내 집의 군대와 모임, 그 갈래"
 	ob.pressed.connect(_open_orgs)
 	tr.add_child(_center(ob))
+	judge_button = UI.ghost("재판")
+	judge_button.tooltip_text = "내 땅에서 잡은 범인의 판결과 벌의 세기"
+	judge_button.pressed.connect(_open_judge)
+	tr.add_child(_center(judge_button))
 	tr.add_child(_vsep())
 	stat_family = UI.stat("가문", "맡은 집 없음")
 	stat_kin = UI.stat("같은 성", "-")
@@ -777,6 +877,34 @@ func _build_ui() -> void:
 	ov.add_child(osc)
 	org_panel.visible = false
 	rootc.add_child(org_panel)
+
+	# 재판 창
+	judge_panel = UI.panel()
+	judge_panel.set_anchors_preset(Control.PRESET_CENTER)
+	judge_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	judge_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	judge_panel.custom_minimum_size = Vector2(640, 0)
+	var jv := VBoxContainer.new()
+	jv.add_theme_constant_override("separation", 6)
+	judge_panel.add_child(jv)
+	var jh := HBoxContainer.new()
+	var jt := UI.label("재판", 20, UI.INK, true)
+	jt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	jh.add_child(jt)
+	var jc := UI.ghost("닫기")
+	jc.pressed.connect(func(): judge_panel.visible = false)
+	jh.add_child(jc)
+	jv.add_child(jh)
+	var jsc := ScrollContainer.new()
+	jsc.custom_minimum_size = Vector2(620, 460)
+	jsc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	judge_box = VBoxContainer.new()
+	judge_box.add_theme_constant_override("separation", 6)
+	judge_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	jsc.add_child(judge_box)
+	jv.add_child(jsc)
+	judge_panel.visible = false
+	rootc.add_child(judge_panel)
 
 	# 오른쪽: 카드
 	card = Card.new()
@@ -961,6 +1089,35 @@ func _run_autotest() -> void:
 			await _snap("live_orgs_named.png")
 			print("autotest: 이름 지음 ", host.OrgPanel()[0]["name"])
 		org_panel.visible = false
+	# 재판: 주군이 없는 집이 당한 사건은 마을 자경단 우두머리가 맡는다. 방금 세운 자경단의 집으로 모든 사건을 직접 판결한다
+	host.JudgeAll = true
+	# 이웃끼리 훔치게 해 사건을 만든다(신고와 수사는 확률이라 여러 번)
+	var folk := []
+	for e in scene.pickables:
+		var pd: Dictionary = e["pd"]
+		if not mine.has(int(pd["i"])) and int(pd["age"]) >= 16: folk.append(int(pd["i"]))
+	for k in 200:
+		if int(host.PendingCount) > 0 or folk.size() < 2: break
+		var a: int = folk[k % folk.size()]
+		var b: int = folk[(k * 7 + 3) % folk.size()]
+		if a != b:
+			var sid := -1
+			for it in host.Interactions(a, b):
+				if it["name"] == "훔치기": sid = int(it["id"])
+			if sid >= 0: host.Interact(sid, a, b, -1, 0.0)
+	_on_player_changed()
+	_redraw()
+	_refresh_judge_button()
+	card.visible = false
+	_open_judge()
+	await _snap("live_judge.png")
+	var cs: Array = host.Cases()
+	print("autotest: 판결 기다리는 사건 %d · %s · 최근 사건 %d" % [cs.size(), host.DateText, host.RecentCases().size()])
+	if cs.size() > 0:
+		host.JudgeCase(int(cs[0]["id"]), 3)
+		print("autotest: 판결 뒤 %d · %s" % [int(host.PendingCount), host.RecentCases()[0]])
+	judge_panel.visible = false
+	host.JudgeAll = false
 	# 혈족 집: 족보 창을 열어 찍고, 첫 혈족 집으로 옮기기를 예약해 계절이 바뀌면 옮겨지는지 본다
 	card.visible = false
 	_refresh_family()
@@ -978,6 +1135,23 @@ func _run_autotest() -> void:
 		_on_player_changed()
 		_redraw()
 		print("autotest: 옮기기 %d → %d (예약 %d, 촌수 %d)" % [before, int(host.Player), to, int(kin[0]["chon"])])
+	# 범죄: 이웃 카드의 범죄 묶음을 찍고, 한 번 훔쳐 본다
+	_refresh_family()
+	var mine2 := _members().map(func(m): return int(m["i"]))
+	for m in _members():
+		if m["head"]: actor = int(m["i"])
+	for e in scene.pickables:
+		var pd: Dictionary = e["pd"]
+		if mine2.has(int(pd["i"])) or int(pd["age"]) < 16: continue
+		var sid := _id_of("훔치기", int(pd["i"]))
+		if sid < 0: continue
+		_show_person(pd)
+		scene.aim(e["node"].global_position, 60.0)
+		for f in 4: await get_tree().process_frame
+		card.scroll_end()
+		await _snap("live_crime.png")
+		print("autotest: 훔치기 ", host.Interact(sid, actor, int(pd["i"]), -1, 0.0))
+		break
 	get_tree().quit()
 
 

@@ -313,6 +313,14 @@ public partial class SimHost : Node
             }
             if (def.Id == InteractionId.SexTrade) e["price"] = w.SexPrice(actor, target);
             if (def.Id == InteractionId.Affair) e["risk"] = w.AffairRisk(actor, target);
+            if (def.Id is InteractionId.Steal or InteractionId.Assault or InteractionId.Extort or InteractionId.Murder)
+            {
+                var (caught, punish) = w.CrimeOutlook(def.Id, actor, target);
+                e["crime"] = true;
+                e["caught"] = caught;
+                e["punish"] = punish;
+                if (def.Id == InteractionId.Steal) e["take"] = w.TheftAmount(actor, target);
+            }
             a.Add(e);
         }
         return a;
@@ -399,6 +407,20 @@ public partial class SimHost : Node
         string outcome = r.Accepted ? "받아들였다" : "거절당했다";
         if (def.Id == InteractionId.Enfeoff && r.Accepted) outcome = $"집 {r.Amount:0}곳을 맡겼다";
         else if (def.Id == InteractionId.Revoke) outcome = r.Accepted ? "집을 돌려받았다" : "거부하고 떨어져 나갔다";
+        else if (def.Id is InteractionId.Steal or InteractionId.Assault or InteractionId.Extort or InteractionId.Murder)
+        {
+            var last = w.Crimes.Count > 0 ? w.Crimes[^1] : null;
+            outcome = r.Accepted ? "해냈다" + (r.Amount > 0.5f ? $"(식량 {r.Amount:0})" : "") : "실패했다";
+            if (last != null && last.Culprit == p.Uid[actor])
+                outcome += last.Verdict switch
+                {
+                    Verdict.Fine or Verdict.Flog or Verdict.Execute => $" · 잡혀서 {World.VerdictName(last.Verdict)}",
+                    Verdict.Escaped => " · 신고되었지만 잡히지 않았다",
+                    Verdict.Covered => " · 지배자가 덮어 주었다",
+                    Verdict.Pending => " · 잡혀서 판결을 기다린다",
+                    _ => last.VictimKnows ? " · 상대가 나를 알아보았다" : "",
+                };
+        }
         string text = $"{World.Subj(an)} {tn}에게 {def.Name}{about}: " + outcome + (r.Pregnant ? " (아이가 들어섰다)" : "");
         w.Chronicle.Add((w.Day, text));
         return text;
@@ -553,5 +575,88 @@ public partial class SimHost : Node
         if (g == null) return false;
         _w!.ClearManual(g);
         return true;
+    }
+
+    // ------------------------------------------------------------------재판
+
+    public int PendingCount => _w == null ? 0 : _w.PendingCases().Count();
+
+    /// <summary>판결을 기다리는 사건: 번호, 범죄, 범인, 피해자, 증인 수, 범인이 내 사람인지, 날짜.</summary>
+    public Godot.Collections.Array Cases()
+    {
+        var a = new Godot.Collections.Array();
+        if (!Ready) return a;
+        var w = _w!; var p = w.People;
+        foreach (var c in w.PendingCases())
+        {
+            int ci = FindAlive(c.Culprit);
+            int head = w.Households.IsAlive(w.PlayerHousehold) && p.IsValid(w.Households.Head[w.PlayerHousehold]) ? w.Households.Head[w.PlayerHousehold].Index : -1;
+            int chon = head >= 0 ? w.Lineage.Chon(p.Uid[head], c.Culprit) : -1;
+            string who = ci >= 0 && p.Household[ci] == w.PlayerHousehold ? "내 식구" : chon > 0 && chon <= 4 ? $"내 {chon}촌" : "";
+            a.Add(new Godot.Collections.Dictionary
+            {
+                ["id"] = c.Id,
+                ["crime"] = World.CrimeName(c.Type) + (c.Attempt ? " 시도" : ""),
+                ["culprit"] = Names.Full(w.Lineage, c.Culprit),
+                ["victim"] = Names.Full(w.Lineage, c.Victim),
+                ["witnesses"] = c.Witnesses.Count,
+                ["amount"] = c.Amount,
+                ["mine"] = who,
+                ["date"] = $"{c.Day / w.Config.DaysPerYear + 1}년",
+            });
+        }
+        return a;
+    }
+
+    /// <summary>내 땅(내가 맡은 사건)과 내 식구가 얽힌 최근 사건 열둘: 범죄, 범인(알려졌으면), 피해자, 끝.</summary>
+    public Godot.Collections.Array RecentCases()
+    {
+        var a = new Godot.Collections.Array();
+        if (!Ready) return a;
+        var w = _w!; var p = w.People;
+        int me = w.PlayerHousehold;
+        if (me < 0) return a;
+        var mine = me >= 0 ? new HashSet<int>(w.MembersOf(me).Select(i => p.Uid[i])) : new HashSet<int>();
+        foreach (var c in w.Crimes.Reverse().Where(c => c.Verdict != Verdict.Pending && (c.Lord == me || mine.Contains(c.Culprit) || mine.Contains(c.Victim))).Take(12))
+        {
+            bool known = c.VictimKnows || c.Witnesses.Count > 0 || mine.Contains(c.Culprit) || c.Verdict is Verdict.Fine or Verdict.Flog or Verdict.Execute or Verdict.Covered;
+            a.Add(new Godot.Collections.Dictionary
+            {
+                ["crime"] = World.CrimeName(c.Type) + (c.Attempt ? " 시도" : ""),
+                ["culprit"] = known ? Names.Full(w.Lineage, c.Culprit) : "모름",
+                ["victim"] = Names.Full(w.Lineage, c.Victim),
+                ["verdict"] = World.VerdictName(c.Verdict),
+                ["date"] = $"{c.Day / w.Config.DaysPerYear + 1}년",
+            });
+        }
+        return a;
+    }
+
+    /// <summary>판결: verdict 는 World.Verdict 번호(벌금 3, 매질 4, 처형 5, 덮음 6, 풀어 줌 7).</summary>
+    public bool JudgeCase(int id, int verdict) => _w != null && _w.PlayerJudge(id, (Verdict)verdict);
+
+    public int Severity
+    {
+        get => _w?.PlayerSeverity ?? 1;
+        set { if (_w != null) _w.PlayerSeverity = Math.Clamp(value, 0, 2); }
+    }
+
+    public bool JudgeAll
+    {
+        get => _w?.PlayerJudgesAll ?? false;
+        set { if (_w != null) _w.PlayerJudgesAll = value; }
+    }
+
+    public int ClientsOf(int h) => _w?.ClientCount(h) ?? 0;
+
+    /// <summary>따르는 집이 가장 많은 집(자동 점검에서 지배자 집을 맡아 볼 때). 없으면 -1.</summary>
+    public int BiggestLord()
+    {
+        if (!Ready) return -1;
+        var w = _w!;
+        int best = -1;
+        for (int h = 0; h < w.Households.HighWater; h++)
+            if (w.Households.IsAlive(h) && w.ClientCount(h) > 0 && (best < 0 || w.ClientCount(h) > w.ClientCount(best))) best = h;
+        return best;
     }
 }

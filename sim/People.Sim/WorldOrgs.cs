@@ -277,7 +277,12 @@ public sealed partial class World
         if (root.Home >= 0 && _domainVillages != null && _domainVillages.TryGetValue(root.Home, out var dom))
         {
             foreach (var (v, n) in dom)
+            {
                 list.Add(new OrgTask { Verb = Verb.Guard, Village = v, Weight = n * (0.1f + DangerAt(v)) * (0.5f + caution) });
+                // 범죄가 잦은 마을에는 쫓기를 둔다
+                float heat = CrimeHeat(v);
+                if (heat > 0.5f) list.Add(new OrgTask { Verb = Verb.Chase, Village = v, Weight = heat * 1.5f * (0.5f + aggr) });
+            }
         }
         else
         {
@@ -285,7 +290,10 @@ public sealed partial class World
             foreach (var t in root.Tasks) sum += t.Weight;
             switch (root.Kind)
             {
-                case GroupKind.Watch: list.Add(new OrgTask { Verb = Verb.Guard, Village = root.Village, Weight = (1f + DangerAt(root.Village)) * (0.5f + caution) }); break;
+                case GroupKind.Watch:
+                    list.Add(new OrgTask { Verb = Verb.Guard, Village = root.Village, Weight = (1f + DangerAt(root.Village)) * (0.5f + caution) });
+                    if (CrimeHeat(root.Village) > 0.5f) list.Add(new OrgTask { Verb = Verb.Chase, Village = root.Village, Weight = 0.4f * CrimeHeat(root.Village) * (0.5f + aggr) });
+                    break;
                 case GroupKind.Bandits: list.Add(new OrgTask { Verb = Verb.Raid, Village = root.Village, Weight = 1f * (0.5f + aggr) }); break;
                 case GroupKind.Brotherhood: list.Add(new OrgTask { Verb = Verb.Charity, Village = root.Village, Weight = 1f * (0.5f + piety) }); break;
             }

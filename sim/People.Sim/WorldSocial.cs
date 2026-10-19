@@ -196,6 +196,7 @@ public sealed partial class World
         AddFamilyDefs(d);
         AddGroupDefs(d);
         AddOrgDefs(d);
+        AddCrimeDefs(d);
         return d;
     }
 
@@ -331,6 +332,7 @@ public sealed partial class World
         foreach (int u in new[] { s.A, s.B })
             if (byUid.TryGetValue(u, out int who)) Chron(who, $"{Names.Full(Lineage, u)}의 비밀({SecretName(s.Type)})이 드러났다");
         if (s.Type == SecretType.Affair) { _lover.Remove(s.A); _lover.Remove(s.B); }
+        if (s.Type is SecretType.Crime or SecretType.CoverUp) { ExposeCrime(s, byUid); return; }
         byUid.TryGetValue(s.A, out int a);
         byUid.TryGetValue(s.B, out int b);
         bool aAlive = byUid.ContainsKey(s.A), bAlive = byUid.ContainsKey(s.B);
@@ -377,7 +379,8 @@ public sealed partial class World
         {
             foreach (int i in folk)
             {
-                if (IsPlayer(i) || !_rng.Chance(Config.SocialRate)) continue;
+                // 드러난 범죄가 이번 계절에 처형으로 끝났을 수 있다
+                if (!p.IsAliveIndex(i) || !hh.IsAlive(p.Household[i]) || IsPlayer(i) || !_rng.Chance(Config.SocialRate)) continue;
                 // 몰래 만나는 사이면 자주 다시 만난다
                 if (_lover.TryGetValue(p.Uid[i], out int lu) && _rng.Chance(0.5f))
                 {
@@ -396,7 +399,7 @@ public sealed partial class World
                     if (uid >= 0) target = FindAlive(uid, v);
                 }
                 if (target < 0) target = folk[_rng.NextInt(folk.Count)];
-                if (target == i) continue;
+                if (target == i || !p.IsAliveIndex(target) || !hh.IsAlive(p.Household[target])) continue;
                 float soc = p.Get(i, Trait.Sociability), opin = Social.Opinion(p, i, p.Uid[target]);
                 bool opposite = p.Male[i] != p.Male[target];
                 wts.Clear();
@@ -497,7 +500,7 @@ public sealed partial class World
     /// <summary>uid 의 사람이 살아서 마을 v 에 있으면 그 번호(없으면 -1).</summary>
     private int FindAlive(int uid, int v)
     {
-        if (!_uidIndex.TryGetValue(uid, out int k)) return -1;
+        if (!_uidIndex.TryGetValue(uid, out int k) || !People.IsAliveIndex(k) || People.Uid[k] != uid) return -1;   // 이번 계절에 죽었을 수 있다
         int h = People.Household[k];
         return Households.IsAlive(h) && Households.Village[h] == v ? k : -1;
     }

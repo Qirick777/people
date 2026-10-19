@@ -365,6 +365,49 @@ switch (cmd)
             Console.WriteLine($"{name[g]}: 관계 {Q(op[g])}\n    충성 {Q(ly[g])}  광신 {fan[g]}");
         break;
     }
+    case "crimediag":
+    {
+        // 범죄 진단: 지배자의 벌 세기에 따라 맡은 땅의 범죄가 줄어드는가, 세력 크기에 따라 사건이 충성에 주는 영향
+        var map = WorldMap.Generate((uint)Arg("--seed", 1), Arg("--size", 48));
+        var w = new World((ulong)Arg("--seed", 1), map, Config());
+        w.SeedCouples(Arg("--couples", 10));
+        var sevCrimes = new double[3]; var sevHouseYears = new double[3]; var sevCaught = new double[3]; var sevRep = new double[3];
+        var prev = new Dictionary<int, (int committed, int crimes, int caught, int covered)>();
+        long crimes = 0, rep = 0, caught = 0, exec = 0, covered = 0, thefts = 0, assaults = 0, ext = 0, murders = 0, emb = 0, raids = 0;
+        int years = Arg("--years", 250);
+        for (int y = 0; y < years; y++)
+        {
+            for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
+            var st = w.Stats;
+            crimes += st.Crimes; rep += st.Reported; caught += st.Caught; exec += st.Executions; covered += st.Covered;
+            thefts += st.Thefts; assaults += st.Assaults; ext += st.Extortions; murders += st.Murders; emb += st.Embezzles; raids += st.RaidCrimes;
+            if (y < years / 3) { prev = w.LordLedger.ToDictionary(e => e.Key, e => e.Value); continue; }
+            foreach (var (l, e) in w.LordLedger)
+            {
+                if (!w.Households.IsAlive(l) || w.ClientCount(l) == 0) continue;
+                var pe = prev.GetValueOrDefault(l);
+                float sev = w.Severity(l);
+                int b = sev < 0.35f ? 0 : sev < 0.6f ? 1 : 2;
+                sevCrimes[b] += e.committed - pe.committed; sevRep[b] += e.crimes - pe.crimes; sevCaught[b] += e.caught - pe.caught;
+                sevHouseYears[b] += w.ClientCount(l);
+            }
+            prev = w.LordLedger.ToDictionary(e => e.Key, e => e.Value);
+        }
+        Console.WriteLine($"{years}년: 범죄 {crimes} (도둑질 {thefts}, 폭행 {assaults}, 갈취 {ext}, 살인 {murders}, 빼돌리기 {emb}, 약탈 {raids})");
+        Console.WriteLine($"신고 {rep}, 잡음 {caught}, 처형 {exec}, 덮음 {covered}, 사람 {w.People.AliveCount}");
+        foreach (var g in w.Crimes.GroupBy(c => c.Type))
+            Console.WriteLine($"  {World.CrimeName(g.Key)}: " + string.Join(", ", g.GroupBy(c => c.Verdict).Select(x => $"{World.VerdictName(x.Key)} {x.Count()}")));
+        string[] sn = { "너그러움(<0.35)", "보통", "엄함(≥0.6)" };
+        for (int b = 0; b < 3; b++)
+            Console.WriteLine($"{sn[b]}: 따르는 집 100곳·한 해 범죄 {(sevHouseYears[b] > 0 ? 100 * sevCrimes[b] / sevHouseYears[b] : 0):F2}, 잡는 비율 {(sevRep[b] > 0 ? sevCaught[b] / sevRep[b] : 0):P0} (집·해 {sevHouseYears[b]:F0})");
+        string[] zn = { "아래 5집 미만", "5~19집", "20~99집", "100집 이상" };
+        for (int b = 0; b < 4; b++)
+        {
+            var e = w.CrimeSizeLedger.GetValueOrDefault(b);
+            Console.WriteLine($"{zn[b]}: 사건 {e.n}, 벌함 {(e.n > 0 ? e.caught / (double)e.n : 0):P0}, 피해자 가장의 눈 평균 {(e.n > 0 ? e.opinion / e.n : 0):+0.0;-0.0}");
+        }
+        break;
+    }
     case "familydiag":
     {
         // C 묶음 진단: 첩을 들일 만한 남자, 미혼·과부 여자, 받아들일 확률, 약초꾼, 신앙심 분포

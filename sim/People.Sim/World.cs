@@ -441,6 +441,7 @@ public sealed partial class World
             Timed("빚과 땅 팔기", Distress);
             Timed("구애", Courtship);
             Timed("상호작용", SocialSeason);
+            Timed("범죄", CrimeSeason);
             BanditSeason();
         }
         Timed("식량 소비", Consume);
@@ -477,6 +478,7 @@ public sealed partial class World
         ArrangeYear();
         FamilyYear();
         GroupYear();
+        CrimeYear();
         if (Layout) UpdateTraffic();
         UpgradeHouses();
     }
