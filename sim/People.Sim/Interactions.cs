@@ -12,7 +12,7 @@ public struct InteractionContext
 }
 
 /// <summary>상호작용 결과.</summary>
-public struct InteractionResult
+public sealed class InteractionResult
 {
     public bool Accepted, Pregnant;
     public float Amount;

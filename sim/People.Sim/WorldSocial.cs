@@ -137,7 +137,7 @@ public sealed partial class World
                 a += Social.Opinion(p, c.Target, p.Uid[c.Actor]) / 300f;
                 return Math.Clamp(a, 0f, 0.9f);
             },
-            Success = (w, c, _) =>
+            Success = (w, c, r) =>
             {
                 var p = w.People;
                 Social.Add(p, c.Actor, p.Uid[c.Target], 8f);
@@ -147,7 +147,7 @@ public sealed partial class World
                 w.AddSecret(SecretType.Affair, c.Actor, c.Target);
                 w._lover[p.Uid[c.Actor]] = p.Uid[c.Target];
                 w._lover[p.Uid[c.Target]] = p.Uid[c.Actor];
-                w.SexualAct(c.Actor, c.Target, w.Config.AffairActs);   // 한 계절 동안 여러 번 만난 것으로 본다
+                r.Pregnant = w.SexualAct(c.Actor, c.Target, w.Config.AffairActs);   // 한 계절 동안 여러 번 만난 것으로 본다
                 w.Stats.Affairs++;
             },
             Fail = (w, c) => Social.Add(w.People, c.Target, w.People.Uid[c.Actor], -5f),
@@ -180,7 +180,7 @@ public sealed partial class World
                 Social.Remember(p, c.Actor, MemoryType.SexTrade, p.Uid[c.Target], w.Day, 0);
                 Social.Remember(p, c.Target, MemoryType.SexTrade, p.Uid[c.Actor], w.Day, 0);
                 w.AddSecret(SecretType.SexTrade, c.Actor, c.Target);
-                w.SexualAct(c.Actor, c.Target, 1);
+                r.Pregnant = w.SexualAct(c.Actor, c.Target, 1);
                 w.Stats.SexTrades++;
                 w.Stats.SexTradeValue += price;
             },
@@ -306,6 +306,8 @@ public sealed partial class World
         var p = People;
         s.Exposed = true;
         Stats.SecretsExposed++;
+        foreach (int u in new[] { s.A, s.B })
+            if (byUid.TryGetValue(u, out int who)) Chron(who, $"{Names.Full(Lineage, u)}의 비밀({SecretName(s.Type)})이 드러났다");
         if (s.Type == SecretType.Affair) { _lover.Remove(s.A); _lover.Remove(s.B); }
         byUid.TryGetValue(s.A, out int a);
         byUid.TryGetValue(s.B, out int b);
@@ -433,8 +435,6 @@ public sealed partial class World
     }
 
     /// <summary>플레이어 집 사람인가(F 단계에서 쓴다). 지금은 아무도 아니다.</summary>
-    public int PlayerHousehold { get; set; } = -1;
-    private bool IsPlayer(int i) => PlayerHousehold >= 0 && People.Household[i] == PlayerHousehold;
 
     /// <summary>해마다: 관계가 흐려지고, 비밀이 들킬지 굴리고, 명예·악명이 조금씩 돌아온다.</summary>
     private void SocialYear()

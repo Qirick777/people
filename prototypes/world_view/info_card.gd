@@ -47,6 +47,8 @@ func _init() -> void:
 static func _font(file: String) -> FontFile:
 	var f := FontFile.new()
 	f.load_dynamic_font(ProjectSettings.globalize_path("res://assets/fonts/" + file))
+	f.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_DISABLED
+	f.hinting = TextServer.HINTING_LIGHT
 	return f
 
 
@@ -193,6 +195,11 @@ func show_person(pd: Dictionary, house: Dictionary) -> void:
 	if health.size() > 0:
 		_section("건강")
 		body.add_child(_label(", ".join(health), 14, Color(0.6, 0.25, 0.2), false, true))
+	if pd.has("loyalty") and int(pd["age"]) >= 16:
+		_section("마음")
+		var lw := "광신" if pd["fanatic"] else loyalty_word(float(pd["loyalty"]))
+		_row("충성", lw)
+		if float(pd.get("honor", 0)) < -0.05: _row("평판", "추문이 돈다")
 	_section("집")
 	var line := "%s 가문의 집 · %s · 땅 %d필지 · 식량 %s" % [house["family"], house.get("class", ""), int(house["plots"]), _food_word(house)]
 	if int(house.get("leasedIn", 0)) > 0: line += " · %s 가문 땅 %d필지를 부침" % [house.get("lord", ""), int(house["leasedIn"])]
@@ -200,6 +207,40 @@ func show_person(pd: Dictionary, house: Dictionary) -> void:
 	if house.get("patron", "") != "": line += " · %s 가문의 보호" % house["patron"]
 	body.add_child(_label(line, 14, INK, false, true))
 	visible = true
+
+
+static func loyalty_word(v: float) -> String:
+	if v < 0.25: return "등을 돌림"
+	if v < 0.45: return "미덥지 않음"
+	if v < 0.6: return "보통"
+	if v < 0.75: return "믿음직함"
+	return "깊이 따름"
+
+
+## 카드 아래에 버튼 묶음을 붙인다. items: [{"text", "sub", "cb": Callable, "warn": bool}]
+func add_actions(title: String, items: Array) -> void:
+	if items.is_empty(): return
+	_section(title)
+	for it in items:
+		var b := Button.new()
+		b.text = it["text"] + ("   " + it["sub"] if it.get("sub", "") != "" else "")
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.add_theme_font_override("font", font_r)
+		b.add_theme_font_size_override("font_size", 14)
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0.93, 0.86, 0.74) if not it.get("warn", false) else Color(0.94, 0.8, 0.74)
+		sb.set_corner_radius_all(7)
+		sb.content_margin_left = 10; sb.content_margin_right = 10
+		sb.content_margin_top = 5; sb.content_margin_bottom = 6
+		var hv := sb.duplicate()
+		hv.bg_color = sb.bg_color.darkened(0.08)
+		b.add_theme_stylebox_override("normal", sb)
+		b.add_theme_stylebox_override("hover", hv)
+		b.add_theme_stylebox_override("pressed", hv)
+		b.add_theme_color_override("font_color", INK)
+		b.add_theme_color_override("font_hover_color", INK)
+		b.pressed.connect(it["cb"])
+		body.add_child(b)
 
 
 func _food_word(house: Dictionary) -> String:

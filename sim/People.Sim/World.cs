@@ -388,6 +388,7 @@ public sealed partial class World
         Stats.Births++;
         if (Genetics.Expressed(p.Genome(child.Index), Marker.DiseaseA, male)) Stats.DiseaseABirths++;
         if (p.LoadHits[child.Index] > 0) Stats.LoadBirths++;
+        Chron(child.Index, $"{Subj(Names.Full(Lineage, p.Uid[child.Index]))} 태어났다 ({(male ? "아들" : "딸")})");
         float fi = p.Inbreeding[child.Index];
         bool hit = p.LoadHits[child.Index] > 0;
         if (fi >= 0.1f) { Stats.CloseKinBirths++; if (hit) Stats.CloseKinLoadBirths++; }        // 형제·부모·숙질 (F ≥ 1/8)
@@ -706,6 +707,7 @@ public sealed partial class World
                 for (int k = hh.FirstMember[h]; k >= 0; k = p.HhNext[k])
                     if (p.Male[k] && AgeYears(k) >= 16 && hh.Head[h].Index != k) sonsLeft++;
                 InheritOnSplit(h, nh, sonsLeft);
+                if (h == PlayerHousehold) Chron(i, $"{Subj(Names.Full(Lineage, p.Uid[i]))} 분가해 새 집을 꾸렸다");
                 Stats.Splits++;
             }
         }
@@ -1251,6 +1253,7 @@ public sealed partial class World
         Stats.Deaths++;
         if (hungry) Stats.HungerDeaths++;
         if (age < 1) Stats.InfantDeaths++;
+        Chron(i, $"{Subj(Names.Full(Lineage, p.Uid[i]))} {age}세로 죽었다{(hungry ? " (굶주림)" : "")}");
         Lineage.MarkDeath(p.Uid[i], Day);
         if (p.Fanatic[i] != 0) Stats.FanaticsDied++;
 
@@ -1268,6 +1271,7 @@ public sealed partial class World
         }
         bool wasHead = hh.IsAlive(h) && hh.Head[h].Index == i;
         if (wasHead) _deadHead[h] = p.Uid[i];
+        if (wasHead && h == PlayerHousehold) _fork = true;
         Leave(i);
         p.Remove(i);
         if (wasHead) Succession(h);
@@ -1310,6 +1314,7 @@ public sealed partial class World
             Join(k, target);
         }
         // 남은 사람이 없거나 아이만 있던 가구는 없앤다. 아이들을 맡은 집이 빈집을 물려받는다.
+        if (h == PlayerHousehold) FollowPlayer(heir);
         RemoveHousehold(h, heir, keepHouse);
         Stats.Dissolved++;
     }
@@ -1343,6 +1348,7 @@ public sealed partial class World
         Social.Remember(p, man, MemoryType.Married, p.Uid[woman], Day, 40);
         Social.Remember(p, woman, MemoryType.Married, p.Uid[man], Day, 40);
         p.CoupleScore[woman] = coupleScore;
+        if (IsPlayer(man) || IsPlayer(woman)) Chron(IsPlayer(man) ? man : woman, $"{With(Names.Full(Lineage, p.Uid[man]))} {Subj(Names.Full(Lineage, p.Uid[woman]))} 혼인했다");
         int target = p.Household[man], old = p.Household[woman];
         if (Households.IsAlive(old) && Households.IsAlive(target)) Contact(Households.Village[old], Households.Village[target]);
         if (old != target && Households.IsAlive(old))
