@@ -42,7 +42,21 @@ public sealed class PersonStore
     public float[] Skills;           // Capacity × Skill.Count, 0~1. 연습으로 오르고 손 놓으면 녹슨다
     public byte[] JobOf;             // Job
     public PersonId[] Master;        // 도제로 배우는 스승(없으면 None)
-    public byte[] Experience;        // 경험 태그 비트(ExperienceTag)           // 6살 때 가구 주인의 uid. 같은 사람 밑에서 비슷한 나이로 자라면 서로 끌리지 않는다
+    public byte[] Experience;        // 경험 태그 비트(ExperienceTag)
+
+    // 관계: 사람마다 RelSlots 칸. 대상 uid(-1 = 빈 칸), 호감, 두려움(존경 포함), 은혜(+)·빚(-)
+    public const int RelSlots = 24;
+    public int[] RelUid;
+    public float[] RelAff, RelFear, RelDebt;
+    // 기억: 사람마다 MemSlots 칸을 돌려 쓴다. 종류, 상대 uid, 날짜, 무게(-100~100)
+    public const int MemSlots = 16;
+    public byte[] MemType;
+    public int[] MemOther, MemDay;
+    public sbyte[] MemWeight;
+    public byte[] MemNext;
+    // 배워서 생기는 가치와 평판(유전되지 않는다)
+    public float[] Piety, Loyalty, Honor, Notoriety, Stigma;
+    public int[] PregnancyLegalFatherUid;   // 족보에 아버지로 적힐 사람(-1 = 사생아). 유전체는 진짜 아버지 것           // 6살 때 가구 주인의 uid. 같은 사람 밑에서 비슷한 나이로 자라면 서로 끌리지 않는다
 
     // 족보 번호 (Lineage)
     public int[] Uid;
@@ -88,6 +102,13 @@ public sealed class PersonStore
         JobOf = new byte[capacity];
         Master = new PersonId[capacity];
         Experience = new byte[capacity];
+        RelUid = new int[capacity * RelSlots]; Array.Fill(RelUid, -1);
+        RelAff = new float[capacity * RelSlots]; RelFear = new float[capacity * RelSlots]; RelDebt = new float[capacity * RelSlots];
+        MemType = new byte[capacity * MemSlots]; MemOther = new int[capacity * MemSlots]; MemDay = new int[capacity * MemSlots];
+        MemWeight = new sbyte[capacity * MemSlots]; MemNext = new byte[capacity];
+        Piety = new float[capacity]; Loyalty = new float[capacity]; Honor = new float[capacity];
+        Notoriety = new float[capacity]; Stigma = new float[capacity];
+        PregnancyLegalFatherUid = new int[capacity];
         Uid = new int[capacity];
         Husband = new PersonId[capacity];
         WifeCount = new byte[capacity];
@@ -143,6 +164,11 @@ public sealed class PersonStore
         JobOf[i] = 0;
         Master[i] = PersonId.None;
         Experience[i] = 0;
+        RelUid.AsSpan(i * RelSlots, RelSlots).Fill(-1);
+        RelAff.AsSpan(i * RelSlots, RelSlots).Clear(); RelFear.AsSpan(i * RelSlots, RelSlots).Clear(); RelDebt.AsSpan(i * RelSlots, RelSlots).Clear();
+        MemType.AsSpan(i * MemSlots, MemSlots).Clear(); MemNext[i] = 0;
+        Piety[i] = 0.5f; Loyalty[i] = 0.5f; Honor[i] = 0f; Notoriety[i] = 0f; Stigma[i] = 0f;
+        PregnancyLegalFatherUid[i] = -1;
         Uid[i] = -1;
         Husband[i] = PersonId.None;
         WifeCount[i] = 0;
@@ -227,6 +253,14 @@ public sealed class PersonStore
         Array.Resize(ref JobOf, cap);
         Array.Resize(ref Master, cap);
         Array.Resize(ref Experience, cap);
+        int oldRel = RelUid.Length;
+        Array.Resize(ref RelUid, cap * RelSlots); RelUid.AsSpan(oldRel).Fill(-1);
+        Array.Resize(ref RelAff, cap * RelSlots); Array.Resize(ref RelFear, cap * RelSlots); Array.Resize(ref RelDebt, cap * RelSlots);
+        Array.Resize(ref MemType, cap * MemSlots); Array.Resize(ref MemOther, cap * MemSlots); Array.Resize(ref MemDay, cap * MemSlots);
+        Array.Resize(ref MemWeight, cap * MemSlots); Array.Resize(ref MemNext, cap);
+        Array.Resize(ref Piety, cap); Array.Resize(ref Loyalty, cap); Array.Resize(ref Honor, cap);
+        Array.Resize(ref Notoriety, cap); Array.Resize(ref Stigma, cap);
+        Array.Resize(ref PregnancyLegalFatherUid, cap);
         Array.Resize(ref Uid, cap);
         Array.Resize(ref Husband, cap);
         Array.Resize(ref WifeCount, cap);

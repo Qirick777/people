@@ -366,7 +366,17 @@ public sealed partial class World
         var p = People;
         var child = p.Add(male, Day, p.PregnancyFather[mother], p.IdAt(mother), household);
         Join(child.Index, household);
-        p.Uid[child.Index] = Lineage.Add(male, Day, p.PregnancyFatherUid[mother], p.Uid[mother]);
+        int legal = p.PregnancyLegalFatherUid[mother];
+        p.Uid[child.Index] = Lineage.Add(male, Day, p.PregnancyFatherUid[mother], p.Uid[mother], legal);
+        if (legal != p.PregnancyFatherUid[mother]) Stats.HiddenFatherBirths += legal >= 0 ? 1 : 0;
+        if (legal < 0) Stats.Bastards++;
+        if (legal != p.PregnancyFatherUid[mother]) LinkHiddenChild(p.Uid[mother], p.PregnancyFatherUid[mother], p.Uid[child.Index]);
+        Social.Remember(p, mother, MemoryType.ChildBorn, p.Uid[child.Index], Day, 30);
+        Social.Add(p, child.Index, p.Uid[mother], 40f);
+        if (legal >= 0) Social.Add(p, child.Index, legal, 30f);
+        // 가치는 집안에서 배운다: 부모 신앙심의 평균 근처
+        float fp = legal >= 0 && p.IsValid(p.PregnancyFather[mother]) ? p.Piety[p.PregnancyFather[mother].Index] : p.Piety[mother];
+        p.Piety[child.Index] = Math.Clamp(0.5f * (fp + p.Piety[mother]) + (_rng.NextFloat() - 0.5f) * 0.2f, 0f, 1f);
         Genetics.Inherit(p.FatherGenomeBuffer(mother), p.Genome(mother), p.Genome(child.Index),
             male, Config.MutationRate, ref _rng, Config.LoadMutationRate);
         int fatherUid = p.PregnancyFatherUid[mother];
@@ -391,6 +401,7 @@ public sealed partial class World
         Genome(father.Index).CopyTo(People.FatherGenomeBuffer(mother.Index));
         People.PregnancyFather[mother.Index] = father;
         People.PregnancyFatherUid[mother.Index] = People.Uid[father.Index];
+        People.PregnancyLegalFatherUid[mother.Index] = People.Uid[father.Index];
         return BirthChild(mother.Index, household);
     }
 
@@ -421,6 +432,7 @@ public sealed partial class World
             Timed("부패", SpoilWithTrade);
             Timed("빚과 땅 팔기", Distress);
             Timed("구애", Courtship);
+            Timed("상호작용", SocialSeason);
         }
         Timed("식량 소비", Consume);
         Timed("삶(사망·임신·출산)", Life);
@@ -443,6 +455,7 @@ public sealed partial class World
         ChooseFloods();
         RecountHouseholds();
         DecayVacant();
+        SocialYear();
         YearOfWork();
         if (Layout) Stats.RegrownForest += Map.AgeAbandoned(Config.ForestYears);
         Splits();
@@ -1139,7 +1152,7 @@ public sealed partial class World
             if (!p.Male[i])
             {
                 if (p.PregnantUntil[i] >= 0 && Day >= p.PregnantUntil[i]) GiveBirth(i, age);
-                else if (p.PregnantUntil[i] < 0) TryConceive(i, age);
+                else if (p.PregnantUntil[i] < 0 && age >= 16 && age <= 42) TryConceive(i, age);
             }
         }
     }
@@ -1147,25 +1160,58 @@ public sealed partial class World
     private void TryConceive(int w, int age)
     {
         var p = People;
-        if (age < 16 || age > 42 || Day < p.CooldownUntil[w]) return;
         var husband = p.Husband[w];
         if (!p.IsValid(husband)) return;
         int m = husband.Index;
         int h = p.Household[w];
         if (!Households.IsAlive(h)) return;
-        if (Genetics.Expressed(p.Genome(w), Marker.DiseaseB, false) || Genetics.Expressed(p.Genome(m), Marker.DiseaseB, true)) return;
-
-        float ageK = age <= 30 ? 1f : 1f - 0.8f * (age - 30) / 12f;
-        float s = Surplus(h);
-        float foodK = s < 0.3f ? 0.05f : s < 1f ? 0.05f + 0.95f * (s - 0.3f) / 0.7f : s < 2f ? 1f + 0.2f * (s - 1f) : 1.2f;
-        float crowdK = 1f / MathF.Max(1f, Households.Crowding(h));
+        // 같이 사는 부부: 꾸준한 관계를 하루 단위로 묶어 날마다 판정한다.
         float coupleK = 0.7f + 0.3f * Math.Clamp(p.CoupleScore[w], 0f, 1f);
-        float husbandK = AgeYears(m) >= 50 ? 0.7f : 1f;
-        float prob = Config.ConceptionBasePerDay * (0.5f + p.Get(w, Trait.Fertility)) * ageK * foodK * crowdK * coupleK * husbandK;
-        if (!_rng.Chance(prob)) return;
+        float prob = Config.ConceptionBasePerDay * coupleK * ConceptionFactor(w, m);
+        if (_rng.Chance(prob)) Conceive(w, m, p.Uid[m]);
+    }
+
+    /// <summary>
+    /// 임신 계수(여자·남자 몸과 형편). 부부의 날마다 판정과 그 밖의 행위 한 번 판정이 같은 계수를 쓴다. 0이면 임신할 수 없다.
+    /// </summary>
+    public float ConceptionFactor(int w, int m)
+    {
+        var p = People;
+        int age = AgeYears(w);
+        if (age < 16 || age > 42 || p.PregnantUntil[w] >= 0 || Day < p.CooldownUntil[w]) return 0f;
+        if (Genetics.Expressed(p.Genome(w), Marker.DiseaseB, false) || Genetics.Expressed(p.Genome(m), Marker.DiseaseB, true)) return 0f;
+        int h = p.Household[w];
+        float ageK = age <= 30 ? 1f : 1f - 0.8f * (age - 30) / 12f;
+        float foodK = 1f, crowdK = 1f;
+        if (Households.IsAlive(h))
+        {
+            float s = Surplus(h);
+            foodK = s < 0.3f ? 0.05f : s < 1f ? 0.05f + 0.95f * (s - 0.3f) / 0.7f : s < 2f ? 1f + 0.2f * (s - 1f) : 1.2f;
+            crowdK = 1f / MathF.Max(1f, Households.Crowding(h));
+        }
+        // 남자: 다산 유전과 나이(천천히 줄어든다)
+        int mage = AgeYears(m);
+        float maleK = (0.75f + 0.5f * p.Get(m, Trait.Fertility)) * (mage >= 60 ? 0.5f : mage >= 50 ? 0.7f : 1f);
+        return (0.5f + p.Get(w, Trait.Fertility)) * ageK * foodK * crowdK * maleK;
+    }
+
+    /// <summary>행위 한 번(부부 밖): 임신 판정. 되면 true. legalFather 는 족보에 적힐 아버지(-1 = 사생아).</summary>
+    public bool ActPregnancy(int w, int m, int legalFatherUid, float protection = 0f)
+    {
+        float prob = Config.ConceptionPerAct * ConceptionFactor(w, m) * (1f - protection);
+        if (!_rng.Chance(prob)) return false;
+        Conceive(w, m, legalFatherUid);
+        return true;
+    }
+
+    /// <summary>임신시킨다. 유전체는 진짜 아버지(m) 것, 족보 아버지는 legalFatherUid.</summary>
+    private void Conceive(int w, int m, int legalFatherUid)
+    {
+        var p = People;
         p.PregnantUntil[w] = Day + Config.PregnancyDays;
-        p.PregnancyFather[w] = husband;
         p.PregnancyFatherUid[w] = p.Uid[m];
+        p.PregnancyLegalFatherUid[w] = legalFatherUid;
+        p.PregnancyFather[w] = legalFatherUid == p.Uid[m] ? p.IdAt(m) : legalFatherUid >= 0 && p.IsValid(p.Husband[w]) && p.Uid[p.Husband[w].Index] == legalFatherUid ? p.Husband[w] : PersonId.None;
         p.Genome(m).CopyTo(p.FatherGenomeBuffer(w));
     }
 
@@ -1291,6 +1337,10 @@ public sealed partial class World
         var p = People;
         p.Husband[woman] = p.IdAt(man);
         p.WifeCount[man]++;
+        Social.Add(p, man, p.Uid[woman], 40f);
+        Social.Add(p, woman, p.Uid[man], 40f);
+        Social.Remember(p, man, MemoryType.Married, p.Uid[woman], Day, 40);
+        Social.Remember(p, woman, MemoryType.Married, p.Uid[man], Day, 40);
         p.CoupleScore[woman] = coupleScore;
         int target = p.Household[man], old = p.Household[woman];
         if (Households.IsAlive(old) && Households.IsAlive(target)) Contact(Households.Village[old], Households.Village[target]);

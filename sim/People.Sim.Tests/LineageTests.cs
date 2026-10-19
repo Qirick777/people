@@ -30,4 +30,25 @@ public class LineageTests
         Assert.Equal(0.25f, t.L.Relatedness(t.a, t.h), 3);    // 이복형제
         Assert.Equal(0f, t.L.Relatedness(t.a, t.w), 3);       // 남
     }
+
+    [Fact]
+    public void HiddenFatherKeepsSurnameButGenesFollowTrueFather()
+    {
+        // 남편(족보 아버지)과 다른 진짜 아버지: 성은 남편 가문, 혈연은 진짜 아버지 쪽으로 잡혀야 한다.
+        var l = new Lineage();
+        int husband = l.Add(true, 0, -1, -1);
+        int lover = l.Add(true, 0, -1, -1);
+        int wife = l.Add(false, 0, -1, -1);
+        int child = l.Add(true, 100, lover, wife, husband);
+        Assert.Equal(husband, l.Father(child));
+        Assert.Equal(lover, l.BioFather(child));
+        Assert.True(l.HiddenFather(child));
+        Assert.Equal(l.FamilyOf(husband), l.FamilyOf(child));
+        Assert.Equal(0.5f, l.Relatedness(child, lover), 3);
+        Assert.Equal(0f, l.Relatedness(child, husband), 3);
+        // 사생아(족보 아버지 없음)는 어머니 성을 따른다
+        int bastard = l.Add(false, 100, lover, wife, -1);
+        Assert.Equal(-1, l.Father(bastard));
+        Assert.Equal(l.FamilyOf(wife), l.FamilyOf(bastard));
+    }
 }

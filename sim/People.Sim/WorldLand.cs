@@ -260,6 +260,7 @@ public sealed partial class World
                     hh.Food[lender] -= amount;
                     hh.Food[h] += amount;
                     _debts.Add(new Debt { Debtor = h, DebtorFounded = hh.FoundedDay[h], Creditor = lender, CreditorFounded = hh.FoundedDay[lender], Owed = amount * (1f + Config.LoanInterest) });
+                    HeadsRelate(h, lender, 5f, 0f, 20f, MemoryType.LoanTaken, 15);
                     Stats.Loans++;
                     continue;
                 }
@@ -286,6 +287,15 @@ public sealed partial class World
                 if (deficit > 1f) TryRaid(h, deficit);
             }
         }
+    }
+
+    /// <summary>두 집 가장 사이 관계: a 의 가장이 b 의 가장을 이렇게 보게 되고, 기억을 남긴다.</summary>
+    private void HeadsRelate(int a, int b, float aff, float fear, float debt, MemoryType mem, int weight)
+    {
+        var ha = Households.Head[a]; var hb = Households.Head[b];
+        if (!People.IsValid(ha) || !People.IsValid(hb)) return;
+        Social.Add(People, ha.Index, People.Uid[hb.Index], aff, fear, debt);
+        Social.Remember(People, ha.Index, mem, People.Uid[hb.Index], Day, weight);
     }
 
     private float HeadTrait(int h, Trait t)
@@ -322,6 +332,7 @@ public sealed partial class World
                     Map.GivePlot(plot, d.Creditor, hh);
                     Stats.Foreclosed++;
                 }
+                HeadsRelate(d.Debtor, d.Creditor, -30f, 10f, 0f, MemoryType.Foreclosed, -50);
                 _debts.RemoveAt(k);
                 continue;
             }

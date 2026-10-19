@@ -22,6 +22,7 @@ public sealed class SimConfig
 
     // 4. 임신
     public float ConceptionBasePerDay { get; init; } = 0.045f;
+    public float ConceptionPerAct { get; init; } = 0.04f;    // 부부 밖 행위 한 번의 기본 임신 확률(몸·형편 계수를 곱한다)
     public int PregnancyDays { get; init; } = 18;
     public int PostpartumCooldownDays { get; init; } = 24;
     public float TwinBase { get; init; } = 0.01f;
@@ -136,6 +137,18 @@ public sealed class SimConfig
     public float ManorCost { get; init; } = 200f;            // 영주 저택 짓는 값(식량)
     public float TowerCost { get; init; } = 800f;
     public float CastleCost { get; init; } = 2500f;
+    // 바탕 A: 관계, 비밀, 상호작용
+    public float SocialRate { get; init; } = 0.25f;          // 계절마다 어른이 상호작용을 하나 고를 확률
+    public float RelationKeep { get; init; } = 0.85f;        // 관계가 해마다 남는 비율
+    public float AffairDrive { get; init; } = 40f;         // 몰래 만나기를 고르는 기본 무게
+    public float AffairAcceptMid { get; init; } = 0.25f;     // 짝 점수가 이쯤이면 반쯤 받아들인다(혼인 안 한 쪽 기준)
+    public float AffairAttractFloor { get; init; } = 0.1f;   // 짝 점수가 이보다 높아야 끌린다
+    public int AffairActs { get; init; } = 4;                // 몰래 만나기 한 번(한 계절)에 든 행위 수
+    public float SexTradeDrive { get; init; } = 6f;        // 하룻밤 거래를 고르는 기본 무게
+    public float SexTradeBase { get; init; } = 20f;           // 하룻밤 값의 기준(식량)
+    public float MaleAppealFloor { get; init; } = 0.8f;      // 남자가 팔면 외모가 이보다 높을 때만 값이 생긴다
+    public float SecretBaseRisk { get; init; } = 0.12f;      // 비밀이 해마다 들킬 기본 확률
+    public int SecretForgetYears { get; init; } = 15;        // 이만큼 지난 비밀은 묻힌다
     public int ScrubYears { get; init; } = 12;              // 버려진 밭이 이만큼 묵으면 덤불: 다시 부치려면 개간 한 해
     public int ForestYears { get; init; } = 35;             // 이만큼 묵으면 숲으로 돌아간다
     public float HouseBuildCost { get; init; } = 30f;        // 오두막 하나 짓는 값(식량). 본가가 낸다

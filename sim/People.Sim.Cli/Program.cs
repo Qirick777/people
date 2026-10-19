@@ -304,6 +304,35 @@ switch (cmd)
         }
         break;
     }
+    case "socialdiag":
+    {
+        // 같은 마을 이성 어른 쌍을 뽑아 짝 점수, 몰래 만나기·하룻밤 거래의 받아들일 확률 분포를 본다.
+        var map = WorldMap.Generate((uint)Arg("--seed", 1), Arg("--size", 48));
+        var w = new World((ulong)Arg("--seed", 1), map, Config());
+        w.SeedCouples(Arg("--couples", 10));
+        for (int d = 0; d < Arg("--years", 120) * w.Config.DaysPerYear; d++) w.Step();
+        var p = w.People; var hh = w.Households;
+        var adults = Enumerable.Range(0, p.HighWater).Where(i => p.IsAliveIndex(i) && (w.Day - p.BirthDay[i]) / w.Config.DaysPerYear >= 16 && hh.IsAlive(p.Household[i])).ToList();
+        var rng = new Random(1);
+        var ms = new List<float>(); var aa = new List<float>(); var sa = new List<float>(); var pr = new List<float>();
+        for (int k = 0; k < 4000; k++)
+        {
+            int x1 = adults[rng.Next(adults.Count)], x2 = adults[rng.Next(adults.Count)];
+            if (p.Male[x1] == p.Male[x2] || hh.Village[p.Household[x1]] != hh.Village[p.Household[x2]]) continue;
+            ms.Add(w.MateScoreNoKin(x1, x2));
+            var c = new InteractionContext { Actor = x1, Target = x2, Third = -1 };
+            var af = w.Def(InteractionId.Affair);
+            if (af.Can(w, c)) aa.Add(af.Accept(w, c));
+            var st = w.Def(InteractionId.SexTrade);
+            if (p.Male[x1] && st.Can(w, c)) { sa.Add(st.Accept(w, c)); pr.Add(w.SexPrice(x1, x2)); }
+        }
+        string Q(List<float> l) { if (l.Count == 0) return "-"; l.Sort(); return $"n={l.Count} p10 {l[l.Count / 10]:F2} p50 {l[l.Count / 2]:F2} p90 {l[l.Count * 9 / 10]:F2} 평균 {l.Average():F3}"; }
+        Console.WriteLine($"짝 점수: {Q(ms)}");
+        Console.WriteLine($"몰래 만나기 받아들임: {Q(aa)}");
+        Console.WriteLine($"하룻밤 거래 받아들임: {Q(sa)}");
+        Console.WriteLine($"하룻밤 값: {Q(pr)}");
+        break;
+    }
     case "export":
     {
         // 정착을 돌린 뒤 가장 큰 마을 주변을 화면용 JSON 으로 내보낸다(Godot 이 읽어 그린다).

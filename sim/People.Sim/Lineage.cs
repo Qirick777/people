@@ -1,19 +1,21 @@
 namespace People.Sim;
 
-/// <summary>
-/// 태어난 모든 사람의 기록(족보). 죽어도 남는다. 번호는 Uid(태어난 순서).
-/// 혈연 계산을 위해 4대 조상(2+4+8+16 = 30명)을 미리 펼쳐 둔다.
-/// </summary>
 /// <summary>가문 상속 방식. 장자 상속은 땅을 지키고, 균분은 분가하는 아들에게 땅을 나눠 준다.</summary>
 public enum InheritPolicy : byte { Primogeniture, Partible }
 
+/// <summary>
+/// 태어난 모든 사람의 기록(족보). 죽어도 남는다. 번호는 Uid(태어난 순서).
+/// 아버지는 둘을 둔다. 족보에 적힌 아버지(성·가문·상속이 따른다)와 진짜 아버지(유전과 혈연 계산이 따른다).
+/// 혈연 계산을 위해 진짜 조상 4대(2+4+8+16 = 30명)를 미리 펼쳐 둔다.
+/// </summary>
 public sealed class Lineage
 {
     public const int AncestorSlots = 30;
     private static readonly int[] DepthStart = { 0, 2, 6, 14, 30 };
 
     public int Count { get; private set; }
-    private int[] _father = new int[1024];
+    private int[] _father = new int[1024];   // 족보에 적힌 아버지
+    private int[] _bio = new int[1024];      // 진짜 아버지(다르면 숨은 혈통)
     private int[] _mother = new int[1024];
     private bool[] _male = new bool[1024];
     private int[] _birth = new int[1024];
@@ -28,6 +30,8 @@ public sealed class Lineage
     private int[] _ancestors = new int[1024 * AncestorSlots];
 
     public int Father(int uid) => _father[uid];
+    public int BioFather(int uid) => _bio[uid];
+    public bool HiddenFather(int uid) => uid >= 0 && _bio[uid] != _father[uid];
     public int Mother(int uid) => _mother[uid];
     public bool Male(int uid) => _male[uid];
     public int Birth(int uid) => _birth[uid];
@@ -38,18 +42,21 @@ public sealed class Lineage
     public void SetJob(int uid, Job j) { if (uid >= 0) _job[uid] = (byte)j; }
     public ReadOnlySpan<int> Ancestors(int uid) => _ancestors.AsSpan(uid * AncestorSlots, AncestorSlots);
 
-    public int Add(bool male, int birthDay, int fatherUid, int motherUid)
+    /// <summary>legalFatherUid 를 주지 않으면 진짜 아버지가 족보 아버지다. -1 이면 사생아.</summary>
+    public int Add(bool male, int birthDay, int fatherUid, int motherUid, int legalFatherUid = int.MinValue)
     {
+        if (legalFatherUid == int.MinValue) legalFatherUid = fatherUid;
         if (Count == _father.Length) Grow(Count * 2);
         int u = Count++;
-        _father[u] = fatherUid;
+        _father[u] = legalFatherUid;
+        _bio[u] = fatherUid;
         _mother[u] = motherUid;
         _male[u] = male;
         _birth[u] = birthDay;
         _death[u] = -1;
         _children[u] = 0;
         _job[u] = 0;
-        _family[u] = fatherUid >= 0 ? _family[fatherUid] : motherUid >= 0 ? _family[motherUid] : Families++;
+        _family[u] = legalFatherUid >= 0 ? _family[legalFatherUid] : motherUid >= 0 ? _family[motherUid] : Families++;
         var a = _ancestors.AsSpan(u * AncestorSlots, AncestorSlots);
         a.Fill(-1);
         a[0] = fatherUid;
@@ -62,7 +69,7 @@ public sealed class Lineage
             CopyDepth(fatherUid, d - 1, len, a.Slice(dst, len));
             CopyDepth(motherUid, d - 1, len, a.Slice(dst + len, len));
         }
-        if (fatherUid >= 0) _children[fatherUid]++;
+        if (legalFatherUid >= 0) _children[legalFatherUid]++;
         if (motherUid >= 0) _children[motherUid]++;
         return u;
     }
@@ -134,6 +141,7 @@ public sealed class Lineage
     private void Grow(int cap)
     {
         Array.Resize(ref _father, cap);
+        Array.Resize(ref _bio, cap);
         Array.Resize(ref _mother, cap);
         Array.Resize(ref _male, cap);
         Array.Resize(ref _birth, cap);

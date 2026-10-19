@@ -130,6 +130,7 @@ public sealed partial class World
             hh.Food[best] -= take;
             hh.Food[h] += take;
             Stats.RaidsWon++;
+            HeadsRelate(best, h, -40f, 20f, 0f, MemoryType.Raided, -60);
             Casualty(best, defense);
             // 지켜 주지 못한 지배자는 떠난다(반쯤)
             if (PatronOf(best) >= 0 && _rng.Chance(0.5f)) _patron[best] = -1;
@@ -227,6 +228,7 @@ public sealed partial class World
             if (best < 0) continue;
             _patron[h] = best;
             _patronFounded[h] = hh.FoundedDay[best];
+            HeadsRelate(h, best, 0f, 10f, 10f, MemoryType.Protected, 10);
             Stats.NewClients++;
         }
 
