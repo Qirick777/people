@@ -241,12 +241,14 @@ public sealed partial class World
     public IReadOnlyList<VacantHouse> Vacant => _vacant;
 
     /// <summary>가구를 없앤다. 집은 빈집으로 남기고, 팔리면 값은 heir 가구가 받는다.</summary>
-    private void RemoveHousehold(int h, int heir = -1)
+    private void RemoveHousehold(int h, int heir = -1, bool keepHouse = false)
     {
         var hh = Households;
         VillageList.Leave(hh.Village[h]);
         Map.Release(h, hh);
+        _deadHead.Remove(h);
         var (level, fp) = TakeResidence(h);
+        if (keepHouse) { hh.Remove(h); return; }   // 집(성)은 상속자가 들어가 산다
         if (Layout && hh.Village[h] >= 0)
             _vacant.Add(new VacantHouse
             {
@@ -1218,6 +1220,7 @@ public sealed partial class World
             Stats.RecordWomanDeath(age, Lineage.Children(p.Uid[i]));
         }
         bool wasHead = hh.IsAlive(h) && hh.Head[h].Index == i;
+        if (wasHead) _deadHead[h] = p.Uid[i];
         Leave(i);
         p.Remove(i);
         if (wasHead) Succession(h);
@@ -1240,7 +1243,15 @@ public sealed partial class World
         if (best >= 0 && anyAdult)
         {
             hh.Head[h] = p.IdAt(best);
+            if (ClientCount(h) > 0) ShakeLordship(h, Config.HeadChangeLoss);   // 새 가장이 약하면 떠나는 집이 생긴다
             return;
+        }
+        // 지배자 집이 끊긴다: 가장 가까운 혈족 집이 지배권·땅·성을 잇는다.
+        bool keepHouse = false;
+        if (ClientCount(h) > 0 || ResidenceOf(h) > 0)
+        {
+            int lordHeir = FindLordHeir(h);
+            if (lordHeir >= 0) keepHouse = InheritLordship(h, lordHeir);
         }
         // 어른이 없다: 아이들을 혈연이 가장 가까운 가구로 보내고 가구를 없앤다.
         int heir = -1;
@@ -1252,7 +1263,7 @@ public sealed partial class World
             Join(k, target);
         }
         // 남은 사람이 없거나 아이만 있던 가구는 없앤다. 아이들을 맡은 집이 빈집을 물려받는다.
-        RemoveHousehold(h, heir);
+        RemoveHousehold(h, heir, keepHouse);
         Stats.Dissolved++;
     }
 

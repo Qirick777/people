@@ -346,6 +346,97 @@ public sealed partial class World
         return (level, fp);
     }
 
+    // ------------------------------------------------------------------ 지배권 상속
+
+    private readonly Dictionary<int, int> _deadHead = new();   // 가장이 죽은 가구 → 죽은 가장 uid(상속자 찾기용)
+
+    /// <summary>끊긴 지배자 집의 상속자: 죽은 가장과 혈연이 가장 가까운 집. 같은 성이면 더 앞선다.</summary>
+    private int FindLordHeir(int h)
+    {
+        if (!_deadHead.TryGetValue(h, out int dead) || dead < 0) return -1;
+        var hh = Households;
+        var p = People;
+        int fam = Lineage.FamilyOf(dead);
+        int best = -1;
+        float bs = 0f;
+        for (int k = 0; k < hh.HighWater; k++)
+        {
+            if (k == h || !hh.IsAlive(k) || !p.IsValid(hh.Head[k])) continue;
+            int u = p.Uid[hh.Head[k].Index];
+            bool same = Lineage.FamilyOf(u) == fam;
+            float r = Lineage.Relatedness(u, dead);
+            if (!same && r < 0.06f) continue;
+            float sc = r + (same ? 0.3f : 0f) + (p.Male[hh.Head[k].Index] ? 0.05f : 0f);
+            if (sc > bs) { bs = sc; best = k; }
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// 지배권을 넘긴다: 따르는 집, 군인·징수관, 땅, 식량, 집(성). 상속자가 큰 집이 없으면 성으로 옮겨 들어가고
+    /// 살던 집은 빈집이 된다. 성으로 옮기면 true(끊긴 가구의 집을 빈집으로 두지 않는다).
+    /// </summary>
+    private bool InheritLordship(int from, int to)
+    {
+        EnsurePowerArrays();
+        var hh = Households;
+        int moved = 0;
+        for (int k = 0; k < hh.HighWater; k++)
+        {
+            if (!hh.IsAlive(k) || PatronOf(k) != from) continue;
+            if (k == to) { _patron[k] = -1; continue; }
+            _patron[k] = to;
+            _patronFounded[k] = hh.FoundedDay[to];
+            moved++;
+        }
+        if (to < _patron.Length && PatronOf(to) == from) _patron[to] = -1;
+        foreach (var person in _employer.Keys.ToList()) if (_employer[person] == from) _employer[person] = to;
+        Map.Transfer(from, to, hh.PlotCount[from], hh);
+        hh.Food[to] += hh.Food[from];
+        hh.Food[from] = 0;
+        _incTribute[to] += _incTribute[from];
+        bool intoCastle = false;
+        int level = ResidenceOf(from);
+        if (level > 0 && ResidenceOf(to) == 0)
+        {
+            // 상속자 집은 빈집으로 두고 성(저택)으로 옮긴다
+            if (Layout)
+                _vacant.Add(new VacantHouse { X = hh.X[to], Y = hh.Y[to], Capacity = hh.Capacity[to], Village = hh.Village[to], Condition = 1f, Heir = -1, HeirFounded = -1 });
+            if (hh.Village[to] != hh.Village[from]) { VillageList.Leave(hh.Village[to]); VillageList.Join(hh.Village[from]); hh.Village[to] = hh.Village[from]; }
+            hh.X[to] = hh.X[from]; hh.Y[to] = hh.Y[from];
+            hh.Capacity[to] = Math.Max(hh.Capacity[to], hh.Capacity[from]);
+            var (lv, fp) = TakeResidence(from);
+            if (_residence.Length <= to) Array.Resize(ref _residence, Math.Max(to + 1, _residence.Length * 2));
+            _residence[to] = (byte)lv;
+            if (fp != null) _footprint[to] = fp;
+            intoCastle = true;
+        }
+        Stats.LordshipsInherited++;
+        RecountClients();
+        if (moved > 0) ShakeLordship(to, Config.HeirLoss);
+        return intoCastle;
+    }
+
+    /// <summary>
+    /// 지배자가 바뀌면 따르는 집 일부가 떠난다. 새 가장의 말솜씨가 좋을수록, 어른일수록 덜 떠난다.
+    /// </summary>
+    private void ShakeLordship(int lord, float baseLoss)
+    {
+        var hh = Households;
+        var head = hh.Head[lord];
+        if (!People.IsValid(head)) return;
+        int i = head.Index;
+        float loss = baseLoss * (1f - 0.7f * People.Get(i, Trait.Charisma)) * (AgeYears(i) < 16 ? 1.8f : 1f);
+        int left = 0;
+        for (int k = 0; k < hh.HighWater; k++)
+        {
+            if (!hh.IsAlive(k) || PatronOf(k) != lord) continue;
+            if (_rng.Chance(loss)) { _patron[k] = -1; left++; }
+        }
+        Stats.ClientsLost += left;
+        RecountClients();
+    }
+
     /// <summary>지배자 혼자 챙길 수 있는 집 수. 말솜씨와 글이 넓힌다.</summary>
     private int DirectSpan(int lord)
     {

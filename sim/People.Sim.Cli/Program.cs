@@ -291,6 +291,12 @@ switch (cmd)
             int hhs = rs.Sum(r => r.hhs), plots = rs.Sum(r => r.plots);
             Console.WriteLine($"{(pol == InheritPolicy.Partible ? "균분" : "장자")}: 시작 가문 {fams.Count}, 살아남은 가문 {alive}, 사람 {people}, 가장 수 {hhs}, 가구당 땅 {(hhs > 0 ? plots / (float)hhs : 0):F1}, 지주 {rs.Sum(r => r.landlords)}, 지배자 {rs.Sum(r => r.rulers)}, 소작농 {rs.Sum(r => r.tenants)}");
         }
+        Console.WriteLine("지배자:");
+        foreach (int h in Enumerable.Range(0, hh.HighWater).Where(h => hh.IsAlive(h) && w.ClientCount(h) > 0).OrderByDescending(w.ClientCount).Take(8))
+        {
+            int hu = p.IsValid(hh.Head[h]) ? p.Uid[hh.Head[h].Index] : -1;
+            Console.WriteLine($"  {Names.Full(lin, hu)} ({(w.Day - p.BirthDay[hh.Head[h].Index]) / w.Config.DaysPerYear}세): 따르는 집 {w.ClientCount(h)}, 집 등급 {w.ResidenceOf(h)}, 집 세운 해 {hh.FoundedDay[h] / w.Config.DaysPerYear}");
+        }
         foreach (var f in members.OrderByDescending(kv => kv.Value).Take(6))
         {
             var r = rows.GetValueOrDefault(f.Key);
