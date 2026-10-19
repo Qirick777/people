@@ -16,7 +16,9 @@ public sealed class Lineage
     private int[] _birth = new int[1024];
     private int[] _death = new int[1024];
     private int[] _children = new int[1024];
-    private byte[] _job = new byte[1024];   // 살면서 마지막으로 맡은 일(족보에 남는 직업)
+    private byte[] _job = new byte[1024];
+    private int[] _family = new int[1024];   // 가문(성). 아버지에게서, 아버지가 없으면 어머니에게서. 시작 인구는 저마다 새 가문
+    public int Families { get; private set; }   // 살면서 마지막으로 맡은 일(족보에 남는 직업)
     private int[] _ancestors = new int[1024 * AncestorSlots];
 
     public int Father(int uid) => _father[uid];
@@ -25,6 +27,7 @@ public sealed class Lineage
     public int Birth(int uid) => _birth[uid];
     public int Death(int uid) => _death[uid];
     public int Children(int uid) => _children[uid];
+    public int FamilyOf(int uid) => uid >= 0 ? _family[uid] : -1;
     public Job JobOf(int uid) => uid >= 0 ? (Job)_job[uid] : Job.Farmer;
     public void SetJob(int uid, Job j) { if (uid >= 0) _job[uid] = (byte)j; }
     public ReadOnlySpan<int> Ancestors(int uid) => _ancestors.AsSpan(uid * AncestorSlots, AncestorSlots);
@@ -40,6 +43,7 @@ public sealed class Lineage
         _death[u] = -1;
         _children[u] = 0;
         _job[u] = 0;
+        _family[u] = fatherUid >= 0 ? _family[fatherUid] : motherUid >= 0 ? _family[motherUid] : Families++;
         var a = _ancestors.AsSpan(u * AncestorSlots, AncestorSlots);
         a.Fill(-1);
         a[0] = fatherUid;
@@ -130,6 +134,7 @@ public sealed class Lineage
         Array.Resize(ref _death, cap);
         Array.Resize(ref _children, cap);
         Array.Resize(ref _job, cap);
+        Array.Resize(ref _family, cap);
         Array.Resize(ref _ancestors, cap * AncestorSlots);
     }
 }

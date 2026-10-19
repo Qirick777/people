@@ -293,14 +293,22 @@ switch (cmd)
         sb.Append("],\"houses\":[");
         bool first = true;
         var hh = w.Households;
+        var houseIndex = new Dictionary<int, int>();
+        var hinfo = new System.Text.StringBuilder();
+        var p = w.People;
+        var lin = w.Lineage;
+        string J(string t) => System.Text.Json.JsonSerializer.Serialize(t);
         for (int h = 0; h < hh.HighWater; h++)
         {
             if (!hh.IsAlive(h)) continue;
             int hx = hh.X[h] - x0, hy = hh.Y[h] - y0;
             if (hx < 0 || hy < 0 || hx >= rw || hy >= rh) continue;
-            if (!first) sb.Append(',');
+            if (!first) { sb.Append(','); hinfo.Append(','); }
             first = false;
+            houseIndex[h] = houseIndex.Count;
             sb.Append($"[{hx},{hy},{hh.Members[h]},{hh.Capacity[h]},{(hh.Food[h] + hh.LandValue[h]).ToString("0", inv)},1]");
+            int head = p.IsValid(hh.Head[h]) ? p.Uid[hh.Head[h].Index] : -1;
+            hinfo.Append($"{{\"head\":{J(Names.Full(lin, head))},\"family\":{J(Names.Family(lin.FamilyOf(head)))},\"food\":{hh.Food[h].ToString("0", inv)},\"plots\":{hh.PlotCount[h]},\"cap\":{hh.Capacity[h]},\"village\":{hh.Village[h]},\"founded\":{hh.FoundedDay[h] / w.Config.DaysPerYear}}}");
         }
         // 빈집: 사는 사람 0, 마지막 값은 상태(1 멀쩡 ~ 0 무너짐)
         foreach (var vh in w.Vacant)
@@ -310,6 +318,57 @@ switch (cmd)
             if (!first) sb.Append(',');
             first = false;
             sb.Append($"[{hx},{hy},0,{vh.Capacity},0,{vh.Condition.ToString("0.##", inv)}]");
+            hinfo.Append((hinfo.Length > 0 ? "," : "") + $"{{\"head\":\"\",\"family\":\"\",\"food\":0,\"plots\":0,\"cap\":{vh.Capacity},\"village\":{vh.Village},\"founded\":0}}");
+        }
+        sb.Append("],\"hinfo\":[").Append(hinfo);
+        // 사람: 집 안 식구들. 카드에 보일 것만 내보낸다(재능 수치는 숨기고 겉으로 보이는 짐작만).
+        sb.Append("],\"people\":[");
+        var wives = new Dictionary<int, List<int>>();
+        for (int i = 0; i < p.HighWater; i++)
+            if (p.IsAliveIndex(i) && !p.Male[i] && p.IsValid(p.Husband[i])) (wives.TryGetValue(p.Husband[i].Index, out var l) ? l : wives[p.Husband[i].Index] = new()).Add(i);
+        bool firstP = true;
+        for (int i = 0; i < p.HighWater; i++)
+        {
+            if (!p.IsAliveIndex(i) || !houseIndex.TryGetValue(p.Household[i], out int hi)) continue;
+            int uid = p.Uid[i];
+            int age = (w.Day - p.BirthDay[i]) / w.Config.DaysPerYear;
+            var g = p.Genome(i);
+            bool male = p.Male[i];
+            var job = (Job)p.JobOf[i];
+            var skills = Enumerable.Range(0, (int)Skill.Count).Select(k => (Skill)k).Where(k => p.GetSkill(i, k) >= 0.1f)
+                .OrderByDescending(k => p.GetSkill(i, k)).Select(k => $"[{J(Skills.SkillName(k))},{p.GetSkill(i, k).ToString("0.00", inv)}]");
+            var hints = new List<string>();
+            foreach (Skill k in Enum.GetValues<Skill>())
+            {
+                if (k == Skill.Count || p.GetSkill(i, k) < 0.3f) continue;
+                float t = Skills.Talent(p, i, k);
+                if (t >= 0.72f) hints.Add($"{Skills.SkillName(k)}에 재능이 남다르다");
+                else if (t <= 0.3f) hints.Add($"{Skills.SkillName(k)}는 애써 익혔다");
+            }
+            if (age >= 16 && p.Get(i, Trait.Strength) > 0.75f) hints.Add("힘이 세다");
+            if (p.Get(i, Trait.Constitution) < 0.3f) hints.Add("몸이 약하다");
+            if (p.Get(i, Trait.Looks) > 0.75f) hints.Add("얼굴이 곱다");
+            var health = new List<string>();
+            if (Genetics.Expressed(g, Marker.Frailty, male)) health.Add("허약 체질");
+            if (Genetics.Expressed(g, Marker.ShortLife, male)) health.Add("단명 기질");
+            if (Genetics.Expressed(g, Marker.DiseaseA, male)) health.Add("유전병");
+            if (Genetics.Expressed(g, Marker.ColorBlind, male)) health.Add("색맹");
+            if (p.LoadHits[i] > 0) health.Add($"타고난 병약함 {p.LoadHits[i]}가지");
+            if (p.Inbreeding[i] >= 0.1f) health.Add("가까운 친척 사이의 자식");
+            string hair = age >= 58 ? "grey" : Genetics.Expressed(g, Marker.RedHair, male) ? "red" : Genetics.Expressed(g, Marker.Blond, male) ? "blond" : p.Get(i, Trait.HairDark) > 0.5f ? "dark" : "brown";
+            string spouse = !male && p.IsValid(p.Husband[i]) ? Names.Full(lin, p.Uid[p.Husband[i].Index])
+                : male && wives.TryGetValue(i, out var ws) ? string.Join(", ", ws.Select(x => Names.Full(lin, p.Uid[x]))) : "";
+            string master = !p.Master[i].IsNone && p.IsValid(p.Master[i]) ? $"{Names.Full(lin, p.Uid[p.Master[i].Index])} ({Skills.JobName((Job)p.JobOf[p.Master[i].Index])})" : "";
+            int f = lin.Father(uid), m = lin.Mother(uid);
+            string Parent(int u) => u < 0 ? "" : Names.Full(lin, u) + (lin.Death(u) >= 0 ? " (죽음)" : "") + (lin.JobOf(u) != Job.Farmer ? $" · {Skills.JobName(lin.JobOf(u))}" : "");
+            if (!firstP) sb.Append(',');
+            firstP = false;
+            sb.Append($"{{\"h\":{hi},\"name\":{J(Names.Full(lin, uid))},\"family\":{J(Names.Family(lin.FamilyOf(uid)))},\"male\":{(male ? "true" : "false")},\"age\":{age},");
+            sb.Append($"\"job\":{J(age < 16 ? (master != "" ? "도제" : "아이") : Skills.JobName(job))},\"head\":{(hh.Head[p.Household[i]].Index == i ? "true" : "false")},");
+            sb.Append($"\"labels\":[{string.Join(",", Skills.Labels(p, i).Select(J))}],\"skills\":[{string.Join(",", skills)}],\"hints\":[{string.Join(",", hints.Select(J))}],");
+            sb.Append($"\"health\":[{string.Join(",", health.Select(J))}],\"hair\":\"{hair}\",\"bald\":{(Genetics.Expressed(g, Marker.Baldness, male) && age >= 30 ? "true" : "false")},");
+            sb.Append($"\"height\":{p.Get(i, Trait.Height).ToString("0.00", inv)},\"father\":{J(Parent(f))},\"mother\":{J(Parent(m))},\"spouse\":{J(spouse)},");
+            sb.Append($"\"children\":{lin.Children(uid)},\"master\":{J(master)}}}");
         }
         sb.Append("]}");
         string path = SArg("--out", "out/region.json");

@@ -7,6 +7,7 @@ const BB := preload("res://prototypes/building_look/building_builder.gd")
 const BM := preload("res://prototypes/building_look/materials.gd")
 const BH := preload("res://prototypes/blocky_look/blocky_human.gd")
 const VS := preload("res://prototypes/building_look/village.gd")
+const Card := preload("res://prototypes/world_view/info_card.gd")
 const OUT := "res://docs/images/"
 const T := 8.0                       # 타일 크기(m)
 const ISO := Vector3(-1.0, 1.25, 1.0)
@@ -26,6 +27,10 @@ var fields: PackedInt32Array      # 밭 주인 가구 id, 없으면 -1
 var roads: PackedByteArray        # 길 0 없음 / 1 오솔길 / 2 큰길 (물 위면 다리)
 var wild: PackedInt32Array        # 버려진 밭이 묵은 해 + 1 (0 = 해당 없음)
 var rng := RandomNumberGenerator.new()
+var pickables := []                  # {node, pd} 화면에 나온 사람
+var house_pos := []                  # 집마다 세계 좌표
+var card
+var ring: MeshInstance3D
 
 
 func _init() -> void:
@@ -51,7 +56,9 @@ func _init() -> void:
 	_multi(_box(Vector3(1, 1, 1)), Color(0.55, 0.52, 0.47), _ruin_walls)
 	_multi(_box(Vector3(1, 1, 1)), Color(0.36, 0.27, 0.19), _ruin_beams)
 	_people()
+	_ui()
 	await _shots(file.get_basename())
+	await _ui_shots(file.get_basename())
 	quit()
 
 
@@ -368,16 +375,164 @@ func _ruin(x: int, y: int, cond: float) -> void:
 
 func _people() -> void:
 	var houses: Array = data["houses"]
-	for hd in houses:
-		var n := mini(int(hd[2]), 3)
-		for k in n:
+	var people: Array = data.get("people", [])
+	var by_house := {}
+	for pd in people:
+		var hi := int(pd["h"])
+		if not by_house.has(hi): by_house[hi] = []
+		by_house[hi].append(pd)
+	for hi in houses.size():
+		var hd: Array = houses[hi]
+		house_pos.append(pos(int(hd[0]), int(hd[1])))
+		var folk: Array = by_house.get(hi, [])
+		folk.sort_custom(func(a, b): return a["head"] and not b["head"])
+		for k in mini(folk.size(), 3):
 			var x := clampi(int(hd[0]) + rng.randi_range(-2, 2), 0, W - 1)
 			var y := clampi(int(hd[1]) + rng.randi_range(-2, 2), 0, H - 1)
 			if types[idx(x, y)] in [Tile.RIVER, Tile.LAKE, Tile.SEA]: continue
-			var p := BH.random(rng, true)
-			p.position = pos(x, y) + Vector3(rng.randf_range(-3, 3), 0, rng.randf_range(-3, 3))
-			p.rotation.y = rng.randf_range(-PI, PI)
-			world.add_child(p)
+			var pd: Dictionary = folk[k]
+			var n := _person_node(pd)
+			n.position = pos(x, y) + Vector3(rng.randf_range(-3, 3), 0, rng.randf_range(-3, 3))
+			n.rotation.y = rng.randf_range(-PI, PI)
+			world.add_child(n)
+			pickables.append({"node": n, "pd": pd})
+
+
+## 데이터에 맞춘 사람 모습: 성별, 나이(아이), 머리색, 대머리, 키, 하는 일에 따른 옷.
+func _person_node(pd: Dictionary) -> Node3D:
+	var female: bool = not pd["male"]
+	var hair_col := {"red": Color(0.72, 0.32, 0.16), "blond": Color(0.88, 0.74, 0.45), "dark": Color(0.13, 0.1, 0.09),
+		"brown": Color(0.38, 0.25, 0.15), "grey": Color(0.78, 0.76, 0.72)}
+	var skins := [Color(0.93, 0.78, 0.67), Color(0.86, 0.68, 0.55), Color(0.78, 0.6, 0.46)]
+	var d := {"female": female, "skin": skins[rng.randi() % skins.size()], "hair_color": hair_col.get(pd["hair"], hair_col["brown"]),
+		"height": 0.94 + 0.12 * float(pd["height"]), "build": rng.randf_range(0.9, 1.1)}
+	var c1: Color = [BH.LINEN, BH.BROWN, BH.RUSSET, BH.GREY][rng.randi() % 4]
+	match pd["job"]:
+		"목수": c1 = BH.LEATHER
+		"약초꾼": c1 = BH.GREEN
+		"장사꾼": c1 = BH.WOAD
+	if female:
+		d["outfit"] = BH.outfit("peasant_f", c1, BH.LINEN)
+		d["hair"] = ["short", "long", "bun", "braid"][rng.randi() % 4]
+		if int(pd["age"]) >= 30 and rng.randf() < 0.5: d["hat"] = "coif"
+	else:
+		d["outfit"] = BH.outfit("peasant_m", c1, BH.GREY)
+		d["hair"] = "bald" if pd["bald"] else ["short", "short", "long"][rng.randi() % 3]
+		if int(pd["age"]) >= 20 and rng.randf() < 0.45: d["beard"] = "full" if rng.randf() < 0.5 else "short"
+	if int(pd["age"]) < 14:
+		d["child"] = true
+		d["height"] = 0.55 + 0.012 * int(pd["age"])
+		d["build"] = 0.8
+	return BH.build(d, true)
+
+
+# ------------------------------------------------------------------ 클릭과 카드
+
+func _ui() -> void:
+	var layer := CanvasLayer.new()
+	root.add_child(layer)
+	var catcher := Control.new()
+	catcher.set_anchors_preset(Control.PRESET_FULL_RECT)
+	catcher.mouse_filter = Control.MOUSE_FILTER_STOP
+	catcher.gui_input.connect(_on_gui_input)
+	layer.add_child(catcher)
+	card = Card.new()
+	card.on_close = func(): ring.visible = false
+	card.anchor_left = 1.0; card.anchor_right = 1.0
+	card.offset_left = -398; card.offset_right = -18; card.offset_top = 18
+	card.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	layer.add_child(card)
+	ring = MeshInstance3D.new()
+	var tm := TorusMesh.new()
+	tm.inner_radius = 0.75; tm.outer_radius = 1.05
+	ring.mesh = tm
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = Color(1.0, 0.85, 0.25)
+	ring.material_override = m
+	ring.visible = false
+	world.add_child(ring)
+
+
+func _on_gui_input(ev: InputEvent) -> void:
+	if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+		click(ev.position)
+
+
+## 화면 좌표로 고른다: 가까운 사람(22 px 안) → 가까운 집(45 px 안) → 아무것도 없으면 카드를 닫는다.
+func click(sp: Vector2) -> void:
+	var best := -1
+	var bd := 22.0
+	for k in pickables.size():
+		var n: Node3D = pickables[k]["node"]
+		var d := cam.unproject_position(n.global_position + Vector3(0, 1.0, 0)).distance_to(sp)
+		if d < bd: bd = d; best = k
+	if best >= 0:
+		var pd: Dictionary = pickables[best]["pd"]
+		card.show_person(pd, data["hinfo"][int(pd["h"])])
+		ring.visible = true
+		ring.position = pickables[best]["node"].global_position + Vector3(0, 0.1, 0)
+		ring.scale = Vector3.ONE
+		return
+	var bh := -1
+	bd = 45.0
+	for k in house_pos.size():
+		var d := cam.unproject_position(house_pos[k] + Vector3(0, 2.5, 0)).distance_to(sp)
+		if d < bd: bd = d; bh = k
+	if bh >= 0:
+		var members := []
+		for pd in data.get("people", []):
+			if int(pd["h"]) == bh: members.append(pd)
+		members.sort_custom(func(a, b):
+			if a["head"] != b["head"]: return a["head"]
+			return int(a["age"]) > int(b["age"]))
+		card.show_house(data["houses"][bh], data["hinfo"][bh], members)
+		ring.visible = true
+		ring.position = house_pos[bh] + Vector3(0, 0.1, 0)
+		ring.scale = Vector3(4.5, 1, 4.5)
+		return
+	card.visible = false
+	ring.visible = false
+
+
+## 대상이 화면 가로 frac 자리(카드에 가리지 않는 왼쪽)에 오도록 카메라를 맞춘다.
+func _aim_left(target: Vector3, size: float, frac := 0.36) -> void:
+	_aim(target, size)
+	var vs := root.get_visible_rect().size
+	var px_to_m := size / vs.y
+	var dx := (vs.x * 0.5 - vs.x * frac) * px_to_m
+	var c := target + cam.global_transform.basis.x * dx
+	_aim(c, size)
+
+
+## 카드 스크린샷: 일 가진 사람 한 명과 식구 많은 집 하나를 "클릭"해 찍는다.
+func _ui_shots(tag: String) -> void:
+	var target := -1
+	var mid := pos(W / 2, H / 2)
+	var bd := 1e9
+	for k in pickables.size():
+		var pd: Dictionary = pickables[k]["pd"]
+		if pd["job"] in ["농부", "아이"]: continue
+		var d: float = pickables[k]["node"].global_position.distance_to(mid)
+		if d < bd: bd = d; target = k
+	if target < 0: return
+	var tp: Vector3 = pickables[target]["node"].global_position
+	_aim_left(tp, 34.0)
+	await process_frame
+	click(cam.unproject_position(tp + Vector3(0, 1.0, 0)))
+	await _snap("game_%s_ui_person.png" % tag)
+	var best_h := -1
+	var most := 0
+	for k in house_pos.size():
+		var n := 0
+		for pd in data.get("people", []):
+			if int(pd["h"]) == k: n += 1
+		if n > most and house_pos[k].distance_to(mid) < 160: most = n; best_h = k
+	if best_h < 0: return
+	_aim_left(house_pos[best_h], 46.0)
+	await process_frame
+	click(cam.unproject_position(house_pos[best_h] + Vector3(0, 2.5, 0)))
+	await _snap("game_%s_ui_house.png" % tag)
 
 
 func _snap(file: String) -> void:
