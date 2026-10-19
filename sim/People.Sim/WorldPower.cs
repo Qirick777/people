@@ -277,20 +277,64 @@ public sealed partial class World
         }
     }
 
+    /// <summary>
+    /// 큰 집 터를 잡는다. 빈 칸과 밭은 바로 집터로 쓴다. 터 안의 민가는 마을 길가 다른 자리로 옮기고
+    /// 지배자가 새 집 짓는 값을 물어 준다. 터 안의 빈집은 헌다. 다른 큰 집의 터는 건드리지 않는다.
+    /// </summary>
     private void ClaimFootprint(int h, int r)
     {
         if (!Layout || r <= 0) return;
         var hh = Households;
         var list = _footprint.TryGetValue(h, out var l) ? l : _footprint[h] = new();
+        int cx = hh.X[h], cy = hh.Y[h];
+        bool Inside(int x, int y) => Math.Abs(x - cx) <= r && Math.Abs(y - cy) <= r;
+        // 1) 빈 칸과 밭부터 집터로 막는다(옮겨 갈 자리로 다시 뽑히지 않게)
+        var houses = new List<(int x, int y)>();
         for (int dy = -r; dy <= r; dy++)
             for (int dx = -r; dx <= r; dx++)
             {
-                int x = hh.X[h] + dx, y = hh.Y[h] + dy;
-                if ((dx == 0 && dy == 0) || !Map.BuildableOrField(x, y)) continue;
-                if (Map.Evict(x, y, hh) >= 0) Stats.Evicted++;
-                Map.MarkHouse(x, y, true);
-                list.Add(Map.Id(x, y));
+                int x = cx + dx, y = cy + dy;
+                if ((dx == 0 && dy == 0) || !Map.InBounds(x, y)) continue;
+                if (Map.BuildableOrField(x, y))
+                {
+                    if (Map.Evict(x, y, hh) >= 0) Stats.Evicted++;
+                    Map.MarkHouse(x, y, true);
+                    list.Add(Map.Id(x, y));
+                }
+                else if ((Map.Flags(Map.Id(x, y)) & WorldMap.FlagHouse) != 0) houses.Add((x, y));
             }
+        if (houses.Count == 0) return;
+        // 2) 터 안의 집: 누구 집인지 찾는다
+        var owners = new Dictionary<(int, int), int>();
+        for (int k = 0; k < hh.HighWater; k++)
+            if (hh.IsAlive(k) && k != h && Inside(hh.X[k], hh.Y[k])) owners[(hh.X[k], hh.Y[k])] = k;
+        foreach (var (x, y) in houses)
+        {
+            if (owners.TryGetValue((x, y), out int k))
+            {
+                // 다른 지배자의 집이나 큰 집은 그대로 둔다
+                if (ClientCount(k) > 0 || ResidenceOf(k) > 0) continue;
+                var (nx, ny) = HouseSpotOnRoad(hh.Village[k]);
+                if (nx < 0 || Inside(nx, ny)) continue;
+                hh.X[k] = nx; hh.Y[k] = ny;
+                Map.MarkHouse(nx, ny, true);
+                float pay = MathF.Min(Config.HouseBuildCost, hh.Food[h]);
+                hh.Food[h] -= pay;
+                hh.Food[k] += pay;
+                list.Add(Map.Id(x, y));     // 옛 집 자리는 성 터가 된다
+                Stats.Relocated++;
+                continue;
+            }
+            // 빈집이면 헌다(큰 빈집은 그대로)
+            int vi = _vacant.FindIndex(v => v.X == x && v.Y == y);
+            if (vi >= 0 && _vacant[vi].Residence == 0)
+            {
+                _vacant[vi] = _vacant[^1];
+                _vacant.RemoveAt(_vacant.Count - 1);
+                list.Add(Map.Id(x, y));
+                Stats.Demolished++;
+            }
+        }
     }
 
     /// <summary>가구가 없어질 때: 큰 집은 빈집으로 남고(무너질 때 터도 함께 비운다), 등급 기록을 비운다.</summary>

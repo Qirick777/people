@@ -7,7 +7,7 @@ namespace People.Sim;
 public sealed class YearStats
 {
     public int Year, Births, Deaths, HungerDeaths, InfantDeaths, MaternalDeaths, Stillbirths, MultipleBirths,
-        Marriages, Polygynous, Splits, Dissolved, DiseaseABirths, RecessiveBirths, FloodedPlots, Migrations, NewVillages, RoadTiles, Lanes, Swaps, Evicted, HousesBuilt, HouseSales, HousesCollapsed, RegrownForest, RoadsLost, Apprentices, NewJobs, InheritedJobs, ApprenticedJobs, LeasedPlots, RentMarkets, WageMarkets, Loans, LandSales, Foreclosed, LandlessSettlers, Raids, RaidsWon, RaidDeaths, NewClients, NewSoldiers, NewCollectors, Uncollected, InheritedPlots, Residences, LoadBirths, CloseKinBirths, CloseKinLoadBirths, CousinBirths, CousinLoadBirths;
+        Marriages, Polygynous, Splits, Dissolved, DiseaseABirths, RecessiveBirths, FloodedPlots, Migrations, NewVillages, RoadTiles, Lanes, Swaps, Evicted, HousesBuilt, HouseSales, HousesCollapsed, RegrownForest, RoadsLost, Apprentices, NewJobs, InheritedJobs, ApprenticedJobs, LeasedPlots, RentMarkets, WageMarkets, Loans, LandSales, Foreclosed, LandlessSettlers, Raids, RaidsWon, RaidDeaths, NewClients, NewSoldiers, NewCollectors, Uncollected, InheritedPlots, Residences, Relocated, Demolished, LoadBirths, CloseKinBirths, CloseKinLoadBirths, CousinBirths, CousinLoadBirths;
     public float MarriageKinSum, Harvest, Weather, InbreedingSum, RentRateSum, WageSum, HiredUnits, Skimmed, Tribute;
     private int _womenDied45, _womenChildren45;
 
@@ -33,7 +33,7 @@ public sealed class YearStats
     public void Begin(int day, float weather)
     {
         Births = Deaths = HungerDeaths = InfantDeaths = MaternalDeaths = Stillbirths = MultipleBirths = 0;
-        Marriages = Polygynous = Splits = Dissolved = DiseaseABirths = RecessiveBirths = FloodedPlots = Migrations = NewVillages = RoadTiles = Lanes = Swaps = Evicted = HousesBuilt = HouseSales = HousesCollapsed = RegrownForest = RoadsLost = Apprentices = NewJobs = InheritedJobs = ApprenticedJobs = LeasedPlots = RentMarkets = WageMarkets = Loans = LandSales = Foreclosed = LandlessSettlers = Raids = RaidsWon = RaidDeaths = NewClients = NewSoldiers = NewCollectors = Uncollected = InheritedPlots = Residences = LoadBirths = CloseKinBirths = CloseKinLoadBirths = CousinBirths = CousinLoadBirths = 0;
+        Marriages = Polygynous = Splits = Dissolved = DiseaseABirths = RecessiveBirths = FloodedPlots = Migrations = NewVillages = RoadTiles = Lanes = Swaps = Evicted = HousesBuilt = HouseSales = HousesCollapsed = RegrownForest = RoadsLost = Apprentices = NewJobs = InheritedJobs = ApprenticedJobs = LeasedPlots = RentMarkets = WageMarkets = Loans = LandSales = Foreclosed = LandlessSettlers = Raids = RaidsWon = RaidDeaths = NewClients = NewSoldiers = NewCollectors = Uncollected = InheritedPlots = Residences = Relocated = Demolished = LoadBirths = CloseKinBirths = CloseKinLoadBirths = CousinBirths = CousinLoadBirths = 0;
         MarriageKinSum = Harvest = InbreedingSum = RentRateSum = WageSum = HiredUnits = Skimmed = Tribute = 0;
         Weather = weather;
         _womenDied45 = _womenChildren45 = 0;
