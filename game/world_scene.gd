@@ -63,8 +63,9 @@ func show_data(d: Dictionary) -> void:
 	for i in tiles.size():
 		types[i] = int(tiles[i][0]); heights[i] = float(tiles[i][1]); fields[i] = int(tiles[i][2]); roads[i] = int(tiles[i][3])
 		wild[i] = int(tiles[i][4]) if tiles[i].size() > 4 else 0
-	# 땅은 타일이 바뀌었을 때만 다시 깐다
-	var key := str(hash(tiles))
+	# 땅은 타일이나 집 자리가 바뀌었을 때만 다시 깐다(나무가 집을 피해야 해서 집 자리도 본다)
+	_house_spots()
+	var key := str(hash(tiles)) + ":" + str(hash(_spots))
 	if key != _terrain_key:
 		_terrain_key = key
 		if layer: layer.queue_free()
@@ -82,6 +83,27 @@ func show_data(d: Dictionary) -> void:
 		_multi(_box(Vector3(1, 1, 1)), Color(0.36, 0.27, 0.19), _ruin_beams)
 	_houses()
 	_people()
+
+
+var _spots := []                     # [중심, 반경] 집과 큰 집 터. 나무와 덤불은 이 안에 심지 않는다
+
+
+func _house_spots() -> void:
+	_spots.clear()
+	for hd in data["houses"]:
+		var cap := int(hd[3])
+		var res: int = int(hd[6]) if hd.size() > 6 else 0
+		var r := 6.0 + (2.0 if cap > 8 else 0.0) + (2.0 if cap > 12 else 0.0)
+		if res > 0: r = 9.0 + 8.0 * res
+		_spots.append([pos(int(hd[0]), int(hd[1])), r])
+
+
+func _clear_of_houses(p: Vector3, extra := 0.0) -> bool:
+	for s in _spots:
+		var c: Vector3 = s[0]
+		var r: float = s[1] + extra
+		if absf(p.x - c.x) < r and absf(p.z - c.z) < r and Vector2(p.x - c.x, p.z - c.z).length() < r: return false
+	return true
 
 
 func _hash2(x: int, y: int) -> int: return ((x * 73856093) ^ (y * 19349663)) & 0x7fffffff
@@ -474,8 +496,10 @@ func _scrub() -> void:
 			for j in n:
 				var p := pos(x, y) + Vector3(rng.randf_range(-3, 3), 0, rng.randf_range(-3, 3))
 				var s := rng.randf_range(1.0, 1.8) * (0.7 + k * 0.6)
-				if k > 0.5 and rng.randf() < 0.4:
-					var h := rng.randf_range(1.5, 2.5)
+				var tall := k > 0.5 and rng.randf() < 0.4
+				var h := rng.randf_range(1.5, 2.5)
+				if not _clear_of_houses(p, s * 0.5): continue
+				if tall:
 					saplings.append(Transform3D(Basis.from_scale(Vector3(s * 1.2, s * 1.1, s * 1.2)), p + Vector3(0, h, 0)))
 					bushes.append(Transform3D(Basis.from_scale(Vector3(0.3, h, 0.3)), p + Vector3(0, h * 0.5, 0)))
 				else:
@@ -498,14 +522,17 @@ func _trees() -> void:
 			for k in n:
 				var p := pos(x, y) + Vector3(rng.randf_range(-3, 3), 0, rng.randf_range(-3, 3))
 				var h := rng.randf_range(2.5, 4.0)
-				trunks.append(Transform3D(Basis.from_scale(Vector3(0.45, h, 0.45)), p + Vector3(0, h * 0.5, 0)))
 				var s := rng.randf_range(2.6, 3.6)
-				if rng.randf() < 0.35:
+				var pine := rng.randf() < 0.35
+				var side := rng.randf() < 0.5
+				if not _clear_of_houses(p, s * 0.5): continue
+				trunks.append(Transform3D(Basis.from_scale(Vector3(0.45, h, 0.45)), p + Vector3(0, h * 0.5, 0)))
+				if pine:
 					for j in 3:
 						var w := s * (1.0 - j * 0.28)
 						pines.append(Transform3D(Basis.from_scale(Vector3(w, 1.3, w)), p + Vector3(0, h + j * 1.1, 0)))
 				else:
-					(leaves_a if rng.randf() < 0.5 else leaves_b).append(Transform3D(Basis.from_scale(Vector3(s, s * 0.85, s)), p + Vector3(0, h + s * 0.35, 0)))
+					(leaves_a if side else leaves_b).append(Transform3D(Basis.from_scale(Vector3(s, s * 0.85, s)), p + Vector3(0, h + s * 0.35, 0)))
 	var unit := _box(Vector3(1, 1, 1))
 	_multi(unit, Color(0.42, 0.29, 0.19), trunks)
 	_multi(unit, Color(0.36, 0.56, 0.28), leaves_a)

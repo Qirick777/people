@@ -901,6 +901,7 @@ public sealed class WorldMap
         if (was == on) return;
         if (Farmable(c.Type[l]) && c.Owner[l] < 0) c.Free += on ? -1 : 1;
         c.Flags[l] = (byte)(on ? c.Flags[l] | FlagHouse : c.Flags[l] & ~FlagHouse);
+        if (on && c.Type[l] == TileType.Forest) c.Type[l] = TileType.Grass;   // 집터는 나무를 베고 짓는다
     }
 
     /// <summary>집을 지을 수 있는 땅인가.</summary>

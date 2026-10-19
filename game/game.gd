@@ -6,6 +6,7 @@ extends Node
 
 const WS := preload("res://game/world_scene.gd")
 const Card := preload("res://prototypes/world_view/info_card.gd")
+const UI := preload("res://game/ui_kit.gd")
 const SPEEDS := [0, 1, 4, 12]           # 초당 날 수(한 해 = 24일, 계절 = 6일)
 const REGION := Vector2i(120, 90)       # 그리는 영역(타일)
 const PAPER := Color(0.965, 0.93, 0.85)
@@ -27,21 +28,16 @@ var marry_button: Button
 var autotest := false
 
 var date_label: Label
-var family_label: Label
 var speed_buttons := []
 var family_box: VBoxContainer
 var log_box: VBoxContainer
 var hint_label: Label
 var boot_panel: PanelContainer
 var boot_label: Label
-var font_r: FontFile
-var font_b: FontFile
 
 
 func _ready() -> void:
 	autotest = "--autotest" in OS.get_cmdline_user_args()
-	font_r = Card._font("NotoSansKR-Medium.otf")
-	font_b = Card._font("NotoSansKR-Bold.otf")
 	scene = WS.new()
 	add_child(scene)
 	host = load("res://game/SimHost.cs").new()
@@ -124,15 +120,15 @@ func _show_person(pd: Dictionary) -> void:
 	for it in host.Interactions(actor, target):
 		var id := int(it["id"])
 		if it["needsThird"]:
-			items.append({"text": it["name"], "sub": "누구를 고른다 ›", "cb": func(): _begin(id, target)})
+			items.append({"text": it["name"], "note": it["thirdLabel"], "cb": func(): _begin(id, target)})
 			continue
 		if float(it["chance"]) < 0.01: continue       # 받아들일 리 없는 일은 보이지 않는다
-		var sub := "받아들일 듯 %d%%" % int(round(float(it["chance"]) * 100.0))
-		if it.has("price"): sub += " · 값 %d" % int(float(it["price"]))
-		if it.has("risk"): sub += " · 들킬 위험 한 해 %d%%" % int(round(float(it["risk"]) * 100.0))
-		elif it["secret"]: sub += " · 몰래"
-		items.append({"text": it["name"], "sub": sub, "warn": it["secret"], "cb": func(): _do(id, target)})
-	card.add_actions("%s(이)가 할 수 있는 일" % _actor_name(), items)
+		var notes := []
+		if it.has("price"): notes.append("값 %d" % int(float(it["price"])))
+		if it.has("risk"): notes.append("한 해 들킬 위험 %d%%" % int(round(float(it["risk"]) * 100.0)))
+		elif it["secret"]: notes.append("몰래 하는 일")
+		items.append({"text": it["name"], "note": " · ".join(notes), "chance": float(it["chance"]), "risky": it["secret"], "cb": func(): _do(id, target)})
+	card.add_actions("할 수 있는 일", items, "%s 하는 일 · 오른쪽 숫자는 받아들일 확률" % World_subj(_actor_name()))
 
 
 ## 세 번째 사람이나 값을 고르는 중: 후보마다 받아들일 확률을 보여 준다.
@@ -142,18 +138,17 @@ func _show_choices(target: int) -> void:
 	if not pending.has("third"):
 		for c in host.ThirdCandidates(id, actor, target):
 			var t := int(c["i"])
-			var sub: String = c["sub"]
-			if not host.HasAmounts(id): sub += " · 받아들일 듯 %d%%" % int(round(float(c["chance"]) * 100.0))
-			items.append({"text": c["name"], "sub": sub, "cb": func(): _pick_third(t)})
-		items.append({"text": "그만둔다", "sub": "", "cb": _cancel})
+			var ch := -1.0 if host.HasAmounts(id) else float(c["chance"])
+			items.append({"text": c["name"], "note": c["sub"], "chance": ch, "cb": func(): _pick_third(t)})
+		items.append({"text": "그만둔다", "ghost": true, "cb": _cancel})
 		card.add_actions(_label_for(id), items)
 		card.scroll_end()
 		return
 	var third := int(pending["third"])
 	for o in host.AmountOptions(id, actor, target, third):
 		var amt := float(o["amount"])
-		items.append({"text": o["name"], "sub": "받아들일 듯 %d%%" % int(round(float(o["chance"]) * 100.0)), "cb": func(): _finish(amt)})
-	items.append({"text": "그만둔다", "sub": "", "cb": _cancel})
+		items.append({"text": o["name"], "note": "식량 %d" % int(amt) if amt > 0 else "", "chance": float(o["chance"]), "cb": func(): _finish(amt)})
+	items.append({"text": "그만둔다", "ghost": true, "cb": _cancel})
 	card.add_actions("얼마를 얹을까", items)
 	card.scroll_end()
 
@@ -193,7 +188,14 @@ func _show_house(hi: int) -> void:
 	scene.mark_house(hi)
 	if int(data["houses"][hi][2]) > 0 and int(hinfo.get("id", -1)) != host.Player:
 		var id := int(hinfo["id"])
-		card.add_actions("플레이", [{"text": "이 집을 맡는다", "sub": "식구들을 내가 이끈다", "cb": func(): _take_house(id)}])
+		card.add_actions("플레이", [{"text": "이 집을 맡는다", "note": "식구들을 내가 이끈다", "cb": func(): _take_house(id)}])
+
+
+func World_subj(n: String) -> String:
+	if n == "": return ""
+	var c := n.unicode_at(n.length() - 1)
+	var batchim := c >= 0xAC00 and c <= 0xD7A3 and (c - 0xAC00) % 28 != 0
+	return n + ("이" if batchim else "가")
 
 
 func _actor_name() -> String:
@@ -228,7 +230,7 @@ func _refresh_family() -> void:
 	for c in family_box.get_children(): c.queue_free()
 	var s: Dictionary = host.PlayerSummary()
 	if s.is_empty():
-		family_label.text = "맡은 집 없음"
+		_set_stats("", "", "", "")
 		return
 	var members: Array = s["members"]
 	var alive := false
@@ -236,22 +238,40 @@ func _refresh_family() -> void:
 	if not alive:
 		actor = -1
 		for m in members: if m["head"]: actor = int(m["i"])
-	family_label.text = "%s 가문 · 같은 성 %d명 · 땅 %d필지 · 식량 %s" % [s["family"], int(s["kin"]), int(s["plots"]), _food_word(float(s["surplus"]))]
+	var fw := _food_word(float(s["surplus"]))
+	_set_stats(s["family"], "%d명" % int(s["kin"]), "%d필지" % int(s["plots"]), fw)
 	members.sort_custom(func(a, b):
 		if a["head"] != b["head"]: return a["head"]
 		return int(a["age"]) > int(b["age"]))
 	for m in members:
-		var b := Button.new()
-		var tags := []
-		if m["head"]: tags.append("가장")
-		if m["pregnant"]: tags.append("임신")
-		if m["hungry"]: tags.append("굶주림")
-		b.text = "%s%s  %d세%s" % ["▶ " if int(m["i"]) == actor else "", m["name"], int(m["age"]), ("  · " + ", ".join(tags)) if tags.size() > 0 else ""]
-		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		_style_button(b, int(m["i"]) == actor)
 		var i := int(m["i"])
+		var on := i == actor
+		var b := UI.row_button(on)
+		b.custom_minimum_size = Vector2(268, 44)
+		var row := HBoxContainer.new()
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.set_anchors_preset(Control.PRESET_FULL_RECT)
+		row.offset_left = 8; row.offset_right = -8; row.offset_top = 6; row.offset_bottom = -6
+		row.add_theme_constant_override("separation", 8)
+		row.add_child(UI.avatar(m["name"], m["male"], 30))
+		var txt := VBoxContainer.new()
+		txt.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		txt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		txt.add_theme_constant_override("separation", -4)
+		txt.add_child(UI.label(m["name"], 14, UI.INK, true))
+		txt.add_child(UI.label("%d세%s" % [int(m["age"]), " · 행동하는 사람" if on else ""], 12, UI.ACT if on else UI.MUTED))
+		row.add_child(txt)
+		if m["head"]: row.add_child(_center(UI.chip("가장", Color(0.95, 0.85, 0.55), Color(0.42, 0.3, 0.08), 11)))
+		if m["pregnant"]: row.add_child(_center(UI.chip("임신", Color(0.97, 0.82, 0.86), Color(0.55, 0.2, 0.3), 11)))
+		if m["hungry"]: row.add_child(_center(UI.chip("굶주림", Color(0.98, 0.8, 0.62), Color(0.55, 0.25, 0.1), 11)))
+		b.add_child(row)
 		b.pressed.connect(func(): _pick_member(i))
 		family_box.add_child(b)
+
+
+func _center(c: Control) -> Control:
+	c.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	return c
 
 
 func _pick_member(i: int) -> void:
@@ -322,51 +342,47 @@ func _click(sp: Vector2) -> void:
 ## 식구들이 스스로 짝을 찾을지(알아서), 내가 청혼·혼담으로 맺을지(직접).
 func _toggle_marry() -> void:
 	host.AutoMarry = not host.AutoMarry
-	marry_button.text = "혼인: 알아서" if host.AutoMarry else "혼인: 직접"
-	_style_button(marry_button, not host.AutoMarry)
+	_style_marry()
+
+
+func _style_marry() -> void:
+	var auto: bool = host.AutoMarry if host != null and host.Ready else true
+	marry_button.text = "혼인: 알아서" if auto else "혼인: 내가 정함"
+	marry_button.tooltip_text = "식구들이 스스로 짝을 찾는다. 누르면 청혼·혼담을 내가 정한다." if auto else "식구들은 스스로 청혼하지 않는다. 누르면 알아서 하게 둔다."
+	UI.segment(marry_button, not auto, true, true)
 
 
 func _set_speed(s: int) -> void:
 	speed = s
-	for k in speed_buttons.size(): _style_button(speed_buttons[k], k == s)
+	for k in speed_buttons.size(): UI.segment(speed_buttons[k], k == s, k == 0, k == speed_buttons.size() - 1)
 
 
 # ------------------------------------------------------------------ 화면 틀
 
-func _panel(col := PAPER) -> PanelContainer:
-	var p := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = col
-	sb.border_color = Color(0.45, 0.33, 0.2)
-	sb.set_border_width_all(2)
-	sb.set_corner_radius_all(10)
-	sb.content_margin_left = 14; sb.content_margin_right = 14
-	sb.content_margin_top = 8; sb.content_margin_bottom = 10
-	sb.shadow_color = Color(0, 0, 0, 0.22); sb.shadow_size = 6
-	p.add_theme_stylebox_override("panel", sb)
-	return p
+var stat_family: VBoxContainer
+var stat_kin: VBoxContainer
+var stat_land: VBoxContainer
+var stat_food: VBoxContainer
+var notice: PanelContainer
 
 
-func _label(text: String, size := 15, col := INK, bold := false) -> Label:
-	var l := Label.new()
-	l.text = text
-	l.add_theme_font_override("font", font_b if bold else font_r)
-	l.add_theme_font_size_override("font_size", size)
-	l.add_theme_color_override("font_color", col)
-	return l
+func _set_stats(fam: String, kin: String, land: String, food: String) -> void:
+	(stat_family.get_node("Value") as Label).text = fam if fam != "" else "맡은 집 없음"
+	(stat_kin.get_node("Value") as Label).text = kin if kin != "" else "-"
+	(stat_land.get_node("Value") as Label).text = land if land != "" else "-"
+	var fl := stat_food.get_node("Value") as Label
+	fl.text = food if food != "" else "-"
+	fl.add_theme_color_override("font_color", UI.RISK if food in ["바닥남", "빠듯함"] else UI.INK)
 
 
-func _style_button(b: Button, on: bool) -> void:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.55, 0.38, 0.22) if on else Color(0.92, 0.85, 0.72)
-	sb.set_corner_radius_all(7)
-	sb.content_margin_left = 10; sb.content_margin_right = 10
-	sb.content_margin_top = 4; sb.content_margin_bottom = 5
-	for st in ["normal", "hover", "pressed", "focus"]: b.add_theme_stylebox_override(st, sb)
-	var fc := Color(1, 0.97, 0.9) if on else INK
-	for st in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]: b.add_theme_color_override(st, fc)
-	b.add_theme_font_override("font", font_r)
-	b.add_theme_font_size_override("font_size", 14)
+func _vsep() -> VSeparator:
+	var v := VSeparator.new()
+	var st := StyleBoxLine.new()
+	st.color = UI.LINE
+	st.vertical = true
+	st.thickness = 1
+	v.add_theme_stylebox_override("separator", st)
+	return v
 
 
 func _build_ui() -> void:
@@ -378,42 +394,53 @@ func _build_ui() -> void:
 	rootc.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR    # 프로젝트 기본(가장 가까운 점)으로 줄이면 글자 획이 빠진다
 	layer.add_child(rootc)
 
-	# 위: 날짜, 속도, 가문
-	var top := _panel()
+	# 위: 날짜, 속도(붙은 단추 묶음), 혼인 방침, 가문 정보 칸
+	var top := UI.panel()
 	top.position = Vector2(16, 12)
 	var tr := HBoxContainer.new()
 	tr.add_theme_constant_override("separation", 14)
 	top.add_child(tr)
-	date_label = _label("", 17, INK, true)
-	date_label.custom_minimum_size = Vector2(150, 0)
-	tr.add_child(date_label)
+	var dv := VBoxContainer.new()
+	dv.add_theme_constant_override("separation", -3)
+	dv.add_child(UI.label("날짜", 12, UI.MUTED))
+	date_label = UI.label("", 17, UI.INK, true)
+	date_label.custom_minimum_size = Vector2(130, 0)
+	dv.add_child(date_label)
+	tr.add_child(dv)
+	var seg := HBoxContainer.new()
+	seg.add_theme_constant_override("separation", 0)
 	for k in 4:
 		var b := Button.new()
 		b.text = ["멈춤", "▶", "▶▶", "▶▶▶"][k]
-		_style_button(b, k == 0)
+		b.tooltip_text = ["멈춤 (스페이스)", "보통 (1)", "빠르게 (2)", "아주 빠르게 (3)"][k]
 		var kk := k
 		b.pressed.connect(func(): _set_speed(kk))
 		speed_buttons.append(b)
-		tr.add_child(b)
+		seg.add_child(b)
+	tr.add_child(_center(seg))
 	marry_button = Button.new()
-	marry_button.text = "혼인: 알아서"
-	_style_button(marry_button, false)
 	marry_button.pressed.connect(_toggle_marry)
-	tr.add_child(marry_button)
-	family_label = _label("맡은 집 없음", 15, MUTED)
-	tr.add_child(family_label)
+	tr.add_child(_center(marry_button))
+	tr.add_child(_vsep())
+	stat_family = UI.stat("가문", "맡은 집 없음")
+	stat_kin = UI.stat("같은 성", "-")
+	stat_land = UI.stat("땅", "-")
+	stat_food = UI.stat("식량", "-")
+	for st in [stat_family, stat_kin, stat_land, stat_food]: tr.add_child(st)
 	rootc.add_child(top)
+	_set_speed(0)
+	_style_marry()
 
 	# 왼쪽: 내 가족
-	var left := _panel()
-	left.position = Vector2(16, 76)
-	left.custom_minimum_size = Vector2(300, 0)
+	var left := UI.panel()
+	left.position = Vector2(16, 84)
 	var lv := VBoxContainer.new()
-	lv.add_theme_constant_override("separation", 5)
+	lv.add_theme_constant_override("separation", 6)
 	left.add_child(lv)
-	lv.add_child(_label("내 가족", 13, MUTED, true))
+	lv.add_child(UI.label("내 가족", 13, UI.MUTED, true))
+	lv.add_child(UI.label("눌러서 행동할 사람을 고른다", 12, UI.MUTED))
 	family_box = VBoxContainer.new()
-	family_box.add_theme_constant_override("separation", 4)
+	family_box.add_theme_constant_override("separation", 5)
 	lv.add_child(family_box)
 	rootc.add_child(left)
 
@@ -426,31 +453,52 @@ func _build_ui() -> void:
 	card.max_height = 760.0
 	rootc.add_child(card)
 
-	# 아래: 연대기
-	var bottom := _panel()
+	# 아래: 알림(방금 일어난 일)과 연대기
+	var bottom := VBoxContainer.new()
 	bottom.anchor_top = 1.0; bottom.anchor_bottom = 1.0
-	bottom.offset_left = 16; bottom.offset_top = -190; bottom.offset_bottom = -14; bottom.offset_right = 760
+	bottom.offset_left = 16; bottom.offset_right = 760; bottom.offset_bottom = -14
+	bottom.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	bottom.add_theme_constant_override("separation", 6)
+	notice = PanelContainer.new()
+	var nsb := UI.box(Color(0.99, 0.9, 0.62), 8, Color(0.75, 0.55, 0.2), 1)
+	nsb.content_margin_left = 12; nsb.content_margin_right = 12; nsb.content_margin_top = 5; nsb.content_margin_bottom = 6
+	notice.add_theme_stylebox_override("panel", nsb)
+	hint_label = UI.label("", 14, Color(0.42, 0.25, 0.08), true)
+	hint_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	notice.add_child(hint_label)
+	notice.visible = false
+	bottom.add_child(notice)
+	var chron := UI.panel()
+	chron.custom_minimum_size = Vector2(744, 0)
 	var bv := VBoxContainer.new()
-	bv.add_theme_constant_override("separation", 2)
-	bottom.add_child(bv)
-	hint_label = _label("", 14, Color(0.55, 0.25, 0.15), true)
-	bv.add_child(hint_label)
-	bv.add_child(_label("연대기", 13, MUTED, true))
+	bv.add_theme_constant_override("separation", 3)
+	chron.add_child(bv)
+	bv.add_child(UI.label("연대기", 13, UI.MUTED, true))
 	log_box = VBoxContainer.new()
+	log_box.add_theme_constant_override("separation", 2)
 	bv.add_child(log_box)
+	bottom.add_child(chron)
 	rootc.add_child(bottom)
 
 	# 처음 세계를 만드는 동안
-	boot_panel = _panel()
+	boot_panel = UI.panel()
 	boot_panel.set_anchors_preset(Control.PRESET_CENTER)
-	boot_label = _label("세계를 만드는 중…", 20, INK, true)
+	boot_label = UI.label("세계를 만드는 중…", 20, UI.INK, true)
 	boot_panel.add_child(boot_label)
 	rootc.add_child(boot_panel)
 
 
+## 연대기 한 줄: 날짜는 옅게, 일은 진하게. 가장 새 줄이 맨 아래.
 func _log(line: String) -> void:
-	log_box.add_child(_label(line, 14))
-	while log_box.get_child_count() > 7:
+	var parts := line.split(" · ", true, 1)
+	var r := HBoxContainer.new()
+	r.add_theme_constant_override("separation", 10)
+	var d := UI.label(parts[0] if parts.size() > 1 else "", 12, UI.MUTED)
+	d.custom_minimum_size = Vector2(86, 0)
+	r.add_child(d)
+	r.add_child(UI.label(parts[1] if parts.size() > 1 else line, 14))
+	log_box.add_child(r)
+	while log_box.get_child_count() > 6:
 		var c := log_box.get_child(0)
 		log_box.remove_child(c)
 		c.queue_free()
@@ -458,7 +506,7 @@ func _log(line: String) -> void:
 
 func _set_hint(t: String) -> void:
 	hint_label.text = t
-	hint_label.visible = t != ""
+	notice.visible = t != ""
 
 
 # ------------------------------------------------------------------ 자동 점검

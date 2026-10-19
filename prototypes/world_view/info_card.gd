@@ -12,6 +12,7 @@ const SKILL_COL := {
 	"장사": Color(0.82, 0.62, 0.25), "글": Color(0.36, 0.45, 0.66),
 }
 const EXPERIENCE := ["굶주린 어린 시절", "일찍 부모를 잃음", "대가족"]
+const UI := preload("res://game/ui_kit.gd")
 
 var font_r: FontFile
 var font_b: FontFile
@@ -66,11 +67,7 @@ func _fit() -> void:
 
 
 static func _font(file: String) -> FontFile:
-	var f := FontFile.new()
-	f.load_dynamic_font(ProjectSettings.globalize_path("res://assets/fonts/" + file))
-	f.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_DISABLED
-	f.hinting = TextServer.HINTING_LIGHT
-	return f
+	return UI.font(file.contains("Bold"))
 
 
 func _clear() -> void:
@@ -99,12 +96,8 @@ func _header(title: String, sub: String) -> void:
 	col.add_child(_label(title, 24, INK, true))
 	col.add_child(_label(sub, 14, MUTED))
 	row.add_child(col)
-	var x := Button.new()
-	x.text = "✕"
-	x.flat = true
-	x.add_theme_font_override("font", font_b)
-	x.add_theme_font_size_override("font_size", 18)
-	x.add_theme_color_override("font_color", MUTED)
+	var x := UI.ghost("닫기")
+	x.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	x.pressed.connect(_close)
 	row.add_child(x)
 	body.add_child(row)
@@ -252,28 +245,15 @@ static func loyalty_word(v: float) -> String:
 	return "깊이 따름"
 
 
-## 카드 아래에 버튼 묶음을 붙인다. items: [{"text", "sub", "cb": Callable, "warn": bool}]
-func add_actions(title: String, items: Array) -> void:
+## 카드 아래에 버튼 묶음을 붙인다. items: [{"text", "note", "chance"(없으면 ›), "risky", "ghost", "cb": Callable}]
+func add_actions(title: String, items: Array, who := "") -> void:
 	if items.is_empty(): return
 	_section(title)
+	if who != "": body.add_child(_label(who, 12, MUTED))
 	for it in items:
-		var b := Button.new()
-		b.text = it["text"] + ("   " + it["sub"] if it.get("sub", "") != "" else "")
-		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-		b.add_theme_font_override("font", font_r)
-		b.add_theme_font_size_override("font_size", 14)
-		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color(0.93, 0.86, 0.74) if not it.get("warn", false) else Color(0.94, 0.8, 0.74)
-		sb.set_corner_radius_all(7)
-		sb.content_margin_left = 10; sb.content_margin_right = 10
-		sb.content_margin_top = 5; sb.content_margin_bottom = 6
-		var hv := sb.duplicate()
-		hv.bg_color = sb.bg_color.darkened(0.08)
-		b.add_theme_stylebox_override("normal", sb)
-		b.add_theme_stylebox_override("hover", hv)
-		b.add_theme_stylebox_override("pressed", hv)
-		b.add_theme_color_override("font_color", INK)
-		b.add_theme_color_override("font_hover_color", INK)
+		var b: Button
+		if it.get("ghost", false): b = UI.ghost(it["text"])
+		else: b = UI.action(it["text"], it.get("note", ""), float(it.get("chance", -1.0)), it.get("risky", false))
 		b.pressed.connect(it["cb"])
 		body.add_child(b)
 
