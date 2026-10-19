@@ -153,30 +153,111 @@ public partial class SimHost : Node
         {
             var def = w.Def((InteractionId)k);
             if (def.Sexual && (Age(actor) < 16 || Age(target) < 16)) continue;
-            if (def.Id == InteractionId.Gossip) continue;   // 험담은 세 번째 사람을 고르는 창이 생기면 연다
-            if (!def.Can(w, c)) continue;
             var e = new Godot.Collections.Dictionary
             {
                 ["id"] = k,
                 ["name"] = def.Name,
-                ["chance"] = def.Accept(w, c),
                 ["secret"] = def.Secret,
+                ["needsThird"] = def.NeedsThird,
+                ["thirdLabel"] = def.ThirdLabel,
             };
+            if (def.NeedsThird)
+            {
+                // 세 번째 사람을 고를 수 있을 때만 보인다. 확률은 고른 뒤에 보인다.
+                if (ThirdCandidates(k, actor, target).Count == 0) continue;
+                e["chance"] = -1f;
+            }
+            else
+            {
+                if (!def.Can(w, c)) continue;
+                e["chance"] = def.Accept(w, c);
+            }
             if (def.Id == InteractionId.SexTrade) e["price"] = w.SexPrice(actor, target);
+            if (def.Id == InteractionId.Affair) e["risk"] = w.AffairRisk(actor, target);
             a.Add(e);
         }
         return a;
     }
 
+    /// <summary>
+    /// 세 번째 사람 후보: 험담·설득은 행동하는 사람이 아는 사람(관계 칸), 혼담은 내 집의 혼인할 사람.
+    /// 저마다 받아들일 확률(값이 있으면 가장 작은 값으로)을 붙인다.
+    /// </summary>
+    public Godot.Collections.Array ThirdCandidates(int id, int actor, int target)
+    {
+        var a = new Godot.Collections.Array();
+        var w = _w!; var p = w.People; var hh = w.Households;
+        var def = w.Def((InteractionId)id);
+        var cands = new List<int>();
+        if (def.Id == InteractionId.ArrangeMatch)
+        {
+            int h = p.Household[actor];
+            if (hh.IsAlive(h)) cands.AddRange(w.MembersOf(h));
+        }
+        else
+        {
+            var byUid = new Dictionary<int, int>();
+            for (int i = 0; i < p.HighWater; i++) if (p.IsAliveIndex(i)) byUid[p.Uid[i]] = i;
+            var scored = new List<(int i, float s)>();
+            for (int k = 0; k < PersonStore.RelSlots; k++)
+            {
+                int sl = actor * PersonStore.RelSlots + k;
+                if (p.RelUid[sl] >= 0 && byUid.TryGetValue(p.RelUid[sl], out int t)) scored.Add((t, MathF.Abs(p.RelAff[sl])));
+            }
+            scored.Sort((x, y) => y.s.CompareTo(x.s));
+            foreach (var (t, _) in scored.Take(10)) cands.Add(t);
+        }
+        float amount0 = def.Amounts.Length > 0 ? def.Amounts[0] : 0f;
+        foreach (int t in cands)
+        {
+            var c = new InteractionContext { Actor = actor, Target = target, Third = t, Amount = amount0 };
+            if (t == actor || t == target || !def.Can(w, c)) continue;
+            a.Add(new Godot.Collections.Dictionary
+            {
+                ["i"] = t,
+                ["name"] = Names.Full(w.Lineage, p.Uid[t]),
+                ["sub"] = $"{Age(t)}세 · {OpinionWord(Social.Opinion(p, actor, p.Uid[t]))}",
+                ["chance"] = def.Accept(w, c),
+            });
+        }
+        return a;
+    }
+
+    private static string OpinionWord(float v) => v < -30 ? "미워함" : v < -8 ? "꺼림" : v < 8 ? "그저 그럼" : v < 30 ? "좋게 봄" : "아주 좋아함";
+
+    /// <summary>값 고르기(지참금 등): 낼 수 있는 값마다 받아들일 확률.</summary>
+    public Godot.Collections.Array AmountOptions(int id, int actor, int target, int third)
+    {
+        var a = new Godot.Collections.Array();
+        var w = _w!;
+        var def = w.Def((InteractionId)id);
+        for (int k = 0; k < def.Amounts.Length; k++)
+        {
+            var c = new InteractionContext { Actor = actor, Target = target, Third = third, Amount = def.Amounts[k] };
+            if (!def.Can(w, c)) continue;
+            a.Add(new Godot.Collections.Dictionary { ["amount"] = def.Amounts[k], ["name"] = def.AmountNames[k], ["chance"] = def.Accept(w, c) });
+        }
+        return a;
+    }
+
+    public bool HasAmounts(int id) => _w != null && _w.Def((InteractionId)id).Amounts.Length > 0;
+
+    public bool AutoMarry
+    {
+        get => _w?.PlayerAutoMarry ?? true;
+        set { if (_w != null) _w.PlayerAutoMarry = value; }
+    }
+
     /// <summary>상호작용을 한다. 결과를 연대기에 적고 글로 돌려준다.</summary>
-    public string Interact(int id, int actor, int target)
+    public string Interact(int id, int actor, int target, int third = -1, float amount = 0f)
     {
         if (!Ready) return "";
         var w = _w!; var p = w.People;
         var def = w.Def((InteractionId)id);
         string an = Names.Full(w.Lineage, p.Uid[actor]), tn = Names.Full(w.Lineage, p.Uid[target]);
-        var r = w.Interact((InteractionId)id, new InteractionContext { Actor = actor, Target = target, Third = -1 });
-        string text = $"{World.Subj(an)} {tn}에게 {def.Name}: " + (r.Accepted ? "받아들였다" : "거절당했다") + (r.Pregnant ? " (아이가 들어섰다)" : "");
+        string about = third >= 0 && p.IsAliveIndex(third) ? $"({Names.Full(w.Lineage, p.Uid[third])}" + (amount > 0 ? $", {amount:0})" : ")") : "";
+        var r = w.Interact((InteractionId)id, new InteractionContext { Actor = actor, Target = target, Third = third, Amount = amount });
+        string text = $"{World.Subj(an)} {tn}에게 {def.Name}{about}: " + (r.Accepted ? "받아들였다" : "거절당했다") + (r.Pregnant ? " (아이가 들어섰다)" : "");
         w.Chronicle.Add((w.Day, text));
         return text;
     }

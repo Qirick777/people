@@ -16,7 +16,9 @@ const EXPERIENCE := ["굶주린 어린 시절", "일찍 부모를 잃음", "대�
 var font_r: FontFile
 var font_b: FontFile
 var body: VBoxContainer
+var scroll: ScrollContainer
 var on_close: Callable
+var max_height := 860.0                 # 이보다 길면 카드 안에서 스크롤한다
 
 
 func _init() -> void:
@@ -38,10 +40,29 @@ func _init() -> void:
 	sb.content_margin_top = 16; sb.content_margin_bottom = 18
 	add_theme_stylebox_override("panel", sb)
 	custom_minimum_size = Vector2(380, 0)
+	scroll = ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	add_child(scroll)
 	body = VBoxContainer.new()
 	body.add_theme_constant_override("separation", 8)
-	add_child(body)
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.resized.connect(_fit)
+	scroll.add_child(body)
 	visible = false
+
+
+## 맨 아래(방금 붙인 고르기 목록)가 보이게 내린다.
+func scroll_end() -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	scroll.scroll_vertical = int(body.size.y)
+
+
+## 내용 높이에 맞추되 max_height 를 넘으면 그만큼만 보이고 스크롤한다.
+func _fit() -> void:
+	var h := body.get_combined_minimum_size().y
+	scroll.custom_minimum_size = Vector2(340, minf(h, max_height))
+	size.y = 0
 
 
 static func _font(file: String) -> FontFile:
@@ -200,6 +221,12 @@ func show_person(pd: Dictionary, house: Dictionary) -> void:
 		var lw := "광신" if pd["fanatic"] else loyalty_word(float(pd["loyalty"]))
 		_row("충성", lw)
 		if float(pd.get("honor", 0)) < -0.05: _row("평판", "추문이 돈다")
+		if pd.has("regard"): _row("나를", regard_word(float(pd["regard"])))
+	if pd.has("talents"):
+		_section("떠본 결과")
+		for t in pd["talents"]: _row(t[0], "재능 " + t[1])
+		var nat: Array = pd.get("nature", [])
+		if nat.size() > 0: body.add_child(_label(", ".join(nat), 14, INK, false, true))
 	_section("집")
 	var line := "%s 가문의 집 · %s · 땅 %d필지 · 식량 %s" % [house["family"], house.get("class", ""), int(house["plots"]), _food_word(house)]
 	if int(house.get("leasedIn", 0)) > 0: line += " · %s 가문 땅 %d필지를 부침" % [house.get("lord", ""), int(house["leasedIn"])]
@@ -207,6 +234,14 @@ func show_person(pd: Dictionary, house: Dictionary) -> void:
 	if house.get("patron", "") != "": line += " · %s 가문의 보호" % house["patron"]
 	body.add_child(_label(line, 14, INK, false, true))
 	visible = true
+
+
+static func regard_word(v: float) -> String:
+	if v < -30: return "미워한다"
+	if v < -8: return "꺼린다"
+	if v < 8: return "잘 모른다"
+	if v < 30: return "좋게 본다"
+	return "아주 좋아한다"
 
 
 static func loyalty_word(v: float) -> String:

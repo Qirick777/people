@@ -1,6 +1,6 @@
 namespace People.Sim;
 
-public enum InteractionId : byte { Chat, Compliment, Gossip, Gift, Affair, SexTrade, Count }
+public enum InteractionId : byte { Chat, Compliment, Gossip, Gift, Affair, SexTrade, Persuade, Threaten, Probe, Propose, ArrangeMatch, Divorce, Count }
 
 public enum InteractionCategory : byte { Talk, Courtship, Family, Trade, Rule, Scheme }
 
@@ -28,6 +28,10 @@ public sealed class InteractionDef
     public string Name = "";
     public InteractionCategory Category;
     public bool Secret, Sexual, AllowPressure;
+    public bool NeedsThird;                  // 세 번째 사람을 골라야 한다(험담·설득의 대상, 혼담의 내 식구)
+    public string ThirdLabel = "";
+    public float[] Amounts = Array.Empty<float>();   // 고를 수 있는 값(지참금 등). 비면 값을 고르지 않는다
+    public string[] AmountNames = Array.Empty<string>();
     public Func<World, InteractionContext, bool> Can = (_, _) => true;
     public Func<World, InteractionContext, float> Accept = (_, _) => 1f;
     public Action<World, InteractionContext, InteractionResult>? Success;

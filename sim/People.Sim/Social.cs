@@ -5,7 +5,7 @@ public enum MemoryType : byte
 {
     None, Married, ChildBorn, Gift, Compliment, Chat, Insulted, Gossiped,
     Affair, SexTrade, SpouseAffair, Exposed, Raided, RaidedBy, LoanGiven, LoanTaken, Foreclosed,
-    Protected, Betrayed, Count,
+    Protected, Betrayed, Threatened, Divorced, Count,
 }
 
 /// <summary>비밀의 종류.</summary>
@@ -134,7 +134,7 @@ public static class Social
         MemoryType.Gossiped => "뒷말을 했다", MemoryType.Affair => "몰래 만났다", MemoryType.SexTrade => "하룻밤 거래를 했다",
         MemoryType.SpouseAffair => "배우자의 불륜을 알았다", MemoryType.Exposed => "비밀이 드러났다", MemoryType.Raided => "약탈당했다",
         MemoryType.RaidedBy => "약탈했다", MemoryType.LoanGiven => "식량을 빌려주었다", MemoryType.LoanTaken => "식량을 빌렸다",
-        MemoryType.Foreclosed => "빚 대신 땅을 빼앗겼다", MemoryType.Protected => "보호를 받기 시작했다", MemoryType.Betrayed => "배신당했다",
+        MemoryType.Foreclosed => "빚 대신 땅을 빼앗겼다", MemoryType.Protected => "보호를 받기 시작했다", MemoryType.Betrayed => "배신당했다", MemoryType.Threatened => "위협을 받았다", MemoryType.Divorced => "갈라섰다",
         _ => "",
     };
 }

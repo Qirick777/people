@@ -149,6 +149,7 @@ public sealed class SimConfig
     public float MaleAppealFloor { get; init; } = 0.8f;      // 남자가 팔면 외모가 이보다 높을 때만 값이 생긴다
     public float SecretBaseRisk { get; init; } = 0.12f;      // 비밀이 해마다 들킬 기본 확률
     public int SecretForgetYears { get; init; } = 15;        // 이만큼 지난 비밀은 묻힌다
+    public float ArrangeWealth { get; init; } = 600f;        // 이만큼 가진 집(과 지배자)은 자식을 혼담으로 맺으려 한다
     // 충성: 관계가 충성을 밀고, 충성이 관계를 받아들이는 눈을 바꾼다
     public float LoyaltyScale { get; init; } = 60f;          // 이만큼의 관계를 "아주 좋다"로 본다
     public float LoyaltyLinear { get; init; } = 0.03f;       // 충성 변화 = (선형 × x + 세제곱 × x³), x = 관계/LoyaltyScale(±1에서 자름)

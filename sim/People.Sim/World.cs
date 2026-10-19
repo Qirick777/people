@@ -466,6 +466,7 @@ public sealed partial class World
         ReleaseExcess();
         WageMarket();
         ProtectionYear();
+        ArrangeYear();
         if (Layout) UpdateTraffic();
         UpgradeHouses();
     }
@@ -1501,6 +1502,7 @@ public sealed partial class World
         {
             if (taken[a]) continue;
             if (!_rng.Chance(0.3f + 0.7f * p.Get(a, Trait.Ambition))) continue;
+            if (!PlayerAutoMarry && IsPlayer(a)) continue;   // 플레이어가 직접 맺기로 했으면 스스로 청혼하지 않는다
             // 주변 3×3 지역 칸의 이성 목록
             near.Clear();
             int total = 0;
@@ -1537,20 +1539,12 @@ public sealed partial class World
                 score[top] = float.MinValue;
             }
             if (best < 0) continue;
-            float back = FastScore(best, a, AgeYears(best), ageA) - CoRaisedPenalty(best, a);
-            float accept = 1f / (1f + MathF.Exp(-(back - Config.AcceptMidpoint) / Config.AcceptSpread));
-            if (_rng.Chance(accept))
+            // 청혼: 받아들일지는 상호작용 정의가 정한다(플레이어 청혼과 같은 셈)
+            if (Interact(InteractionId.Propose, new InteractionContext { Actor = a, Target = best, Third = -1 }).Accepted)
             {
-                int man = p.Male[a] ? a : best, woman = p.Male[a] ? best : a;
-                if (p.WifeCount[man] > 0) Stats.Polygynous++;
-                Stats.Marriages++;
-                float bestR = Lineage.Relatedness(p.Uid[a], p.Uid[best]);
-                Stats.MarriageKinSum += bestR;
-                Marry(man, woman, Math.Clamp((bestScore + back) * 0.5f, 0f, 1f));
-                taken[woman] = true;
-                taken[man] = true;
+                taken[a] = true;
+                taken[best] = true;
             }
-            else RememberRejection(a, p.Uid[best]);
         }
     }
 }

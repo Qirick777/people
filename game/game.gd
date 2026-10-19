@@ -22,6 +22,8 @@ var acc := 0.0
 var since_draw := 0
 var actor := -1                          # 상호작용을 할 내 가족(사람 번호)
 var shown := {}                          # 카드에 띄운 것 {"kind", "uid" | "id"}
+var pending := {}                        # 고르는 중인 상호작용 {"id", "target", "third"}
+var marry_button: Button
 var autotest := false
 
 var date_label: Label
@@ -114,15 +116,74 @@ func _show_person(pd: Dictionary) -> void:
 	if me < 0: return
 	var target := int(pd["i"])
 	if actor < 0 or actor == target: return
+	if not pending.is_empty() and int(pending["target"]) == target:
+		_show_choices(target)
+		return
+	pending = {}
 	var items := []
 	for it in host.Interactions(actor, target):
+		var id := int(it["id"])
+		if it["needsThird"]:
+			items.append({"text": it["name"], "sub": "누구를 고른다 ›", "cb": func(): _begin(id, target)})
+			continue
 		if float(it["chance"]) < 0.01: continue       # 받아들일 리 없는 일은 보이지 않는다
 		var sub := "받아들일 듯 %d%%" % int(round(float(it["chance"]) * 100.0))
 		if it.has("price"): sub += " · 값 %d" % int(float(it["price"]))
-		if it["secret"]: sub += " · 몰래"
-		var id := int(it["id"])
+		if it.has("risk"): sub += " · 들킬 위험 한 해 %d%%" % int(round(float(it["risk"]) * 100.0))
+		elif it["secret"]: sub += " · 몰래"
 		items.append({"text": it["name"], "sub": sub, "warn": it["secret"], "cb": func(): _do(id, target)})
 	card.add_actions("%s(이)가 할 수 있는 일" % _actor_name(), items)
+
+
+## 세 번째 사람이나 값을 고르는 중: 후보마다 받아들일 확률을 보여 준다.
+func _show_choices(target: int) -> void:
+	var id := int(pending["id"])
+	var items := []
+	if not pending.has("third"):
+		for c in host.ThirdCandidates(id, actor, target):
+			var t := int(c["i"])
+			var sub: String = c["sub"]
+			if not host.HasAmounts(id): sub += " · 받아들일 듯 %d%%" % int(round(float(c["chance"]) * 100.0))
+			items.append({"text": c["name"], "sub": sub, "cb": func(): _pick_third(t)})
+		items.append({"text": "그만둔다", "sub": "", "cb": _cancel})
+		card.add_actions(_label_for(id), items)
+		card.scroll_end()
+		return
+	var third := int(pending["third"])
+	for o in host.AmountOptions(id, actor, target, third):
+		var amt := float(o["amount"])
+		items.append({"text": o["name"], "sub": "받아들일 듯 %d%%" % int(round(float(o["chance"]) * 100.0)), "cb": func(): _finish(amt)})
+	items.append({"text": "그만둔다", "sub": "", "cb": _cancel})
+	card.add_actions("얼마를 얹을까", items)
+	card.scroll_end()
+
+
+func _label_for(id: int) -> String:
+	for it in host.Interactions(actor, int(pending["target"])):
+		if int(it["id"]) == id: return "%s: %s" % [it["name"], it["thirdLabel"]]
+	return "누구를"
+
+
+func _begin(id: int, target: int) -> void:
+	pending = {"id": id, "target": target}
+	_refresh_card()
+
+
+func _pick_third(t: int) -> void:
+	pending["third"] = t
+	if host.HasAmounts(int(pending["id"])): _refresh_card()
+	else: _finish(0.0)
+
+
+func _finish(amount: float) -> void:
+	var p := pending
+	pending = {}
+	_do(int(p["id"]), int(p["target"]), int(p.get("third", -1)), amount)
+
+
+func _cancel() -> void:
+	pending = {}
+	_refresh_card()
 
 
 func _show_house(hi: int) -> void:
@@ -140,8 +201,8 @@ func _actor_name() -> String:
 	return ""
 
 
-func _do(id: int, target: int) -> void:
-	var text: String = host.Interact(id, actor, target)
+func _do(id: int, target: int, third := -1, amount := 0.0) -> void:
+	var text: String = host.Interact(id, actor, target, third, amount)
 	_set_hint(text)
 	_redraw()
 
@@ -249,11 +310,20 @@ func _click(sp: Vector2) -> void:
 	if data.is_empty(): return
 	var r: Dictionary = scene.pick(sp)
 	match r.get("kind", ""):
-		"person": _show_person(r["pd"])
+		"person":
+			pending = {}
+			_show_person(r["pd"])
 		"house": _show_house(r["hi"])
 		_:
 			card.visible = false
 			shown = {}
+
+
+## 식구들이 스스로 짝을 찾을지(알아서), 내가 청혼·혼담으로 맺을지(직접).
+func _toggle_marry() -> void:
+	host.AutoMarry = not host.AutoMarry
+	marry_button.text = "혼인: 알아서" if host.AutoMarry else "혼인: 직접"
+	_style_button(marry_button, not host.AutoMarry)
 
 
 func _set_speed(s: int) -> void:
@@ -325,6 +395,11 @@ func _build_ui() -> void:
 		b.pressed.connect(func(): _set_speed(kk))
 		speed_buttons.append(b)
 		tr.add_child(b)
+	marry_button = Button.new()
+	marry_button.text = "혼인: 알아서"
+	_style_button(marry_button, false)
+	marry_button.pressed.connect(_toggle_marry)
+	tr.add_child(marry_button)
 	family_label = _label("맡은 집 없음", 15, MUTED)
 	tr.add_child(family_label)
 	rootc.add_child(top)
@@ -348,6 +423,7 @@ func _build_ui() -> void:
 	card.anchor_left = 1.0; card.anchor_right = 1.0
 	card.offset_left = -398; card.offset_right = -18; card.offset_top = 18
 	card.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	card.max_height = 760.0
 	rootc.add_child(card)
 
 	# 아래: 연대기
@@ -420,11 +496,44 @@ func _run_autotest() -> void:
 		var wp = scene.person_world_pos(int(target["uid"]))
 		scene.aim(wp, 60.0)
 		await _snap("live_person.png")
-		var acts: Array = host.Interactions(actor, int(target["i"]))
-		if acts.size() > 0:
-			_do(int(acts[0]["id"]), int(target["i"]))
+		var ti := int(target["i"])
+		for it in host.Interactions(actor, ti): print("autotest: 할 수 있는 일 ", it["name"])
+		# 떠보기를 성공할 때까지 몇 번 해 보고 카드를 찍는다
+		for k in 5:
+			_do(_id_of("떠보기", ti), ti)
 			print("autotest: ", hint_label.text)
+			var pd2 = scene.find_person(int(target["uid"]))
+			if pd2 != null and pd2.has("talents"): break
+		_show_person(scene.find_person(int(target["uid"])))
+		await _snap("live_probe.png")
+		# 설득: 세 번째 사람 고르기
+		var pid := _id_of("설득", ti)
+		if pid >= 0:
+			_begin(pid, ti)
+			await _snap("live_choose.png")
+			_cancel()
+	# 혼담: 내 집의 혼인할 사람과 이웃의 혼인할 사람을 찾아 지참금 고르기를 띄운다
+	for e in scene.pickables:
+		var pd: Dictionary = e["pd"]
+		if mine.has(int(pd["i"])) or int(pd["age"]) < 16: continue
+		var aid := _id_of("혼담", int(pd["i"]))
+		if aid < 0: continue
+		var cands: Array = host.ThirdCandidates(aid, actor, int(pd["i"]))
+		if cands.is_empty(): continue
+		_show_person(pd)
+		_begin(aid, int(pd["i"]))
+		_pick_third(int(cands[0]["i"]))
+		scene.aim(e["node"].global_position, 60.0)
+		await _snap("live_dowry.png")
+		print("autotest: 혼담 상대 ", pd["name"], " / 내 식구 ", cands[0]["name"])
+		break
 	get_tree().quit()
+
+
+func _id_of(name: String, target: int) -> int:
+	for it in host.Interactions(actor, target):
+		if it["name"] == name: return int(it["id"])
+	return -1
 
 
 func _snap(file: String) -> void:

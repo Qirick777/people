@@ -90,6 +90,7 @@ public sealed partial class World
                 int third = p.Uid[c.Third];
                 Social.Add(p, c.Target, third, -(4f + 10f * p.Get(c.Actor, Trait.Charisma)));
                 Social.Add(p, c.Target, p.Uid[c.Actor], 2f);
+                w.SpreadRumor(c.Actor, c.Target, c.Third);
                 w.Stats.Gossips++;
                 // 험담은 돌고 돌아 당사자 귀에 들어간다
                 if (w._rng.Chance(0.15f))
@@ -185,6 +186,7 @@ public sealed partial class World
                 w.Stats.SexTradeValue += price;
             },
         };
+        AddTalkDefs(d);
         return d;
     }
 
@@ -261,8 +263,15 @@ public sealed partial class World
             var s = _secrets[k];
             bool aAlive = byUid.TryGetValue(s.A, out int a), bAlive = byUid.TryGetValue(s.B, out int b);
             if (s.Exposed || (!aAlive && !bAlive) || Day - s.Day > Config.SecretForgetYears * Config.DaysPerYear) { _secrets.RemoveAt(k); continue; }
-            float risk = Config.SecretBaseRisk;
+            float risk = Config.SecretBaseRisk + MathF.Min(0.3f, 0.03f * MathF.Max(0, s.Known.Count - 2));   // 소문이 돌수록
             int victim = -1;
+            // 함께 사는 사람이 눈치챈다
+            if (aAlive && _rng.Chance(0.1f) && Households.IsAlive(p.Household[a]))
+            {
+                var mem = MembersOf(p.Household[a]);
+                int w = mem.Count > 0 ? mem[_rng.NextInt(mem.Count)] : -1;
+                if (w >= 0 && Adult(w) && !s.Known.Contains(p.Uid[w])) s.Known.Add(p.Uid[w]);
+            }
             if (s.Type == SecretType.HiddenFather)
             {
                 int legal = s.Child >= 0 ? Lineage.Father(s.Child) : -1;
@@ -314,7 +323,10 @@ public sealed partial class World
         bool aAlive = byUid.ContainsKey(s.A), bAlive = byUid.ContainsKey(s.B);
         if (victim >= 0)
         {
+            // 속은 배우자는 갈라서려 할 수 있다(아래 기억을 먼저 남겨 까닭이 되게 한다)
+            int cheat = s.Type == SecretType.HiddenFather ? a : (aAlive && SpouseOf(a) == victim ? a : bAlive && SpouseOf(b) == victim ? b : -1);
             Social.Remember(p, victim, s.Type == SecretType.HiddenFather ? MemoryType.Betrayed : MemoryType.SpouseAffair, s.A, Day, -70);
+            if (cheat >= 0 && cheat != victim) _divorceCheck.Add((victim, cheat));
             Social.Add(p, victim, s.A, -50f);
             if (s.B != p.Uid[victim]) { Social.Add(p, victim, s.B, -40f); Social.Remember(p, victim, MemoryType.Betrayed, s.B, Day, -50); }
         }
@@ -373,6 +385,8 @@ public sealed partial class World
                 wts[(int)InteractionId.Gossip] = 0.8f * (1f - p.Piety[i]) * (0.5f + p.Get(i, Trait.Aggression));
                 int ih = p.Household[i];
                 wts[(int)InteractionId.Gift] = hh.Food[ih] > 30f && opin > 15f ? 0.6f * soc : 0f;
+                wts[(int)InteractionId.Persuade] = 0.3f * p.Get(i, Trait.Charisma);
+                wts[(int)InteractionId.Threaten] = opin < -20f ? 0.8f * p.Get(i, Trait.Aggression) * (1f - p.Piety[i]) : 0f;
                 if (opposite)
                 {
                     int sp = SpouseOf(i);
@@ -388,7 +402,12 @@ public sealed partial class World
                 int pick = 0;
                 for (; pick < wts.Length - 1; pick++) { roll -= wts[pick]; if (roll <= 0) break; }
                 var ctx = new InteractionContext { Actor = i, Target = target, Third = -1 };
-                if ((InteractionId)pick == InteractionId.Gossip) ctx.Third = Disliked(i, v);
+                if ((InteractionId)pick == InteractionId.Gossip)
+                {
+                    int st = _rng.NextBool() ? SecretTarget(i, v) : -1;
+                    ctx.Third = st >= 0 && st != target ? st : Disliked(i, v);
+                }
+                if ((InteractionId)pick == InteractionId.Persuade) ctx.Third = Liked(i, v);
                 // 하룻밤 거래: 형편이 어려운 집 사람 중에서 찾는다(파는 사람이 있는 곳으로)
                 if ((InteractionId)pick == InteractionId.SexTrade)
                 {
@@ -434,7 +453,22 @@ public sealed partial class World
         return worst;
     }
 
-    /// <summary>플레이어 집 사람인가(F 단계에서 쓴다). 지금은 아무도 아니다.</summary>
+    /// <summary>i 가 가장 좋아하는, 같은 마을의 사람(가족 제외, 없으면 -1).</summary>
+    private int Liked(int i, int v)
+    {
+        var p = People;
+        int b = i * PersonStore.RelSlots, best = -1;
+        float w = 10f;
+        for (int k = 0; k < PersonStore.RelSlots; k++)
+        {
+            if (p.RelUid[b + k] < 0 || p.RelAff[b + k] <= w) continue;
+            int t = FindAlive(p.RelUid[b + k], v);
+            if (t >= 0 && p.Household[t] != p.Household[i]) { w = p.RelAff[b + k]; best = t; }
+        }
+        return best;
+    }
+
+    private readonly List<(int victim, int spouse)> _divorceCheck = new();
 
     /// <summary>해마다: 관계가 흐려지고, 비밀이 들킬지 굴리고, 명예·악명이 조금씩 돌아온다.</summary>
     private void SocialYear()
@@ -448,5 +482,7 @@ public sealed partial class World
         }
         LoyaltyYear();
         DetectSecrets();
+        foreach (var (v, s) in _divorceCheck) MaybeDivorce(v, s);
+        _divorceCheck.Clear();
     }
 }
