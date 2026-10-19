@@ -4,7 +4,7 @@ namespace People.Sim;
 public enum Trait : byte
 {
     Height, Strength, Constitution, Fertility, Longevity, Intelligence, Dexterity,
-    Perception, Charisma, Looks, Diligence, Ambition, Stubbornness, Sociability,
+    Perception, Charisma, Looks, Diligence, Ambition, Stubbornness, Sociability, Caution, Aggression,
     SkinTone, HairDark,
     PrefLooks, PrefHeight, PrefStrength, PrefWealth, PrefCharisma,
     Count

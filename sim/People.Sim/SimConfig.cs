@@ -87,6 +87,17 @@ public sealed class SimConfig
     public float WearRoadOn { get; init; } = 4f;             // 이 닳음을 넘으면 길이 생긴다(한 가구만으로는 3.3이라 안 생긴다)
     public float WearRoadOff { get; init; } = 1.5f;          // 이 아래로 내려가면 길이 사라진다
     public float WearMajor { get; init; } = 25f;             // 큰길
+    // 3단계: 일과 배움
+    public float LearnRate { get; init; } = 0.1f;            // 혼자 연습: 해마다 (재능 높이 − 지금) × 이 값 × 나이·재능 계수
+    public float TeachRate { get; init; } = 0.25f;           // 스승 곁: 해마다 (스승 − 지금) × 이 값 × 나이 계수
+    public float SkillRust { get; init; } = 0.03f;           // 손 놓은 기술이 해마다 녹는 비율
+    public float JobFarmShare { get; init; } = 0.4f;         // 일을 맡은 사람이 밭일에 쓰는 몫
+    public float HealerFee { get; init; } = 3f;              // 아이 하나 받을 때 약초꾼 사례(식량)
+    public float HealerEffect { get; init; } = 0.3f;         // 아기·산모 사망 × (1 − 이 값 × 약초 솜씨)
+    public float TradeSaving { get; init; } = 0.6f;          // 썩는 양 × (1 − 이 값 × 장사 솜씨)
+    public float TradeFee { get; init; } = 0.3f;             // 아낀 양 중 장사꾼 몫
+    public float FarmSkillEffect { get; init; } = 0.5f;      // 수확 × (1 + 이 값 × (가구 농사 솜씨 − 기준))
+    public float FarmSkillBaseline { get; init; } = 0.68f;   // 보통 농가의 솜씨(이때 수확이 기술 넣기 전과 같다)
     public int ScrubYears { get; init; } = 12;              // 버려진 밭이 이만큼 묵으면 덤불: 다시 부치려면 개간 한 해
     public int ForestYears { get; init; } = 35;             // 이만큼 묵으면 숲으로 돌아간다
     public float HouseBuildCost { get; init; } = 30f;        // 오두막 하나 짓는 값(식량). 본가가 낸다

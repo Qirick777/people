@@ -38,7 +38,11 @@ public sealed class PersonStore
     public float[] Inbreeding;       // 근교 계수 F = 부모 혈연 / 2
     public byte[] LoadInfant;        // 드러난 유전 부하 중 아기 허약 자리 수
     public byte[] LoadHits;          // 드러난 유전 부하 자리 수(통계·화면용)
-    public int[] RaisedBy;           // 6살 때 가구 주인의 uid. 같은 사람 밑에서 비슷한 나이로 자라면 서로 끌리지 않는다
+    public int[] RaisedBy;
+    public float[] Skills;           // Capacity × Skill.Count, 0~1. 연습으로 오르고 손 놓으면 녹슨다
+    public byte[] JobOf;             // Job
+    public PersonId[] Master;        // 도제로 배우는 스승(없으면 None)
+    public byte[] Experience;        // 경험 태그 비트(ExperienceTag)           // 6살 때 가구 주인의 uid. 같은 사람 밑에서 비슷한 나이로 자라면 서로 끌리지 않는다
 
     // 족보 번호 (Lineage)
     public int[] Uid;
@@ -80,6 +84,10 @@ public sealed class PersonStore
         LoadInfant = new byte[capacity];
         LoadHits = new byte[capacity];
         RaisedBy = new int[capacity];
+        Skills = new float[capacity * (int)Skill.Count];
+        JobOf = new byte[capacity];
+        Master = new PersonId[capacity];
+        Experience = new byte[capacity];
         Uid = new int[capacity];
         Husband = new PersonId[capacity];
         WifeCount = new byte[capacity];
@@ -105,6 +113,8 @@ public sealed class PersonStore
     public PersonId IdAt(int i) => new(i, _gen[i]);
 
     public Span<byte> Genome(int i) => Genomes.AsSpan(i * GenomeLayout.BytesPerGenome, GenomeLayout.BytesPerGenome);
+    public float GetSkill(int i, Skill s) => Skills[i * (int)Skill.Count + (int)s];
+    public void SetSkill(int i, Skill s, float v) => Skills[i * (int)Skill.Count + (int)s] = Math.Clamp(v, 0f, 1f);
     public float Get(int i, Trait t) => Phenotype[i * (int)Trait.Count + (int)t];
     public void Set(int i, Trait t, float v) => Phenotype[i * (int)Trait.Count + (int)t] = v;
 
@@ -129,6 +139,10 @@ public sealed class PersonStore
         Inbreeding[i] = 0f;
         LoadInfant[i] = LoadHits[i] = 0;
         RaisedBy[i] = -1;
+        Skills.AsSpan(i * (int)Skill.Count, (int)Skill.Count).Clear();
+        JobOf[i] = 0;
+        Master[i] = PersonId.None;
+        Experience[i] = 0;
         Uid[i] = -1;
         Husband[i] = PersonId.None;
         WifeCount[i] = 0;
@@ -167,6 +181,8 @@ public sealed class PersonStore
             if (Genetics.AffectedByInbreeding(trait)) v *= depress;
             Set(i, trait, v);
         }
+        // 한 유전자가 여러 곳에 걸친다: 다산 유전자는 수명을 조금 깎는다.
+        Set(i, Trait.Longevity, Get(i, Trait.Longevity) * (1.1f - 0.2f * Genetics.Score(g, Trait.Fertility)));
         Span<int> load = stackalloc int[4];
         int hits = Genetics.LoadHits(g, load);
         LoadHits[i] = (byte)hits;
@@ -207,6 +223,10 @@ public sealed class PersonStore
         Array.Resize(ref LoadInfant, cap);
         Array.Resize(ref LoadHits, cap);
         Array.Resize(ref RaisedBy, cap);
+        Array.Resize(ref Skills, cap * (int)Skill.Count);
+        Array.Resize(ref JobOf, cap);
+        Array.Resize(ref Master, cap);
+        Array.Resize(ref Experience, cap);
         Array.Resize(ref Uid, cap);
         Array.Resize(ref Husband, cap);
         Array.Resize(ref WifeCount, cap);

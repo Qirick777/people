@@ -225,6 +225,42 @@ switch (cmd)
         MapRender.Save(w, map, path.Replace(".csv", "_zoom.png"), w.SpawnX - 120, w.SpawnY - 80, 240, 160, 4);
         break;
     }
+    case "people":
+    {
+        // 정착을 돌린 뒤 가장 큰 마을 사람들의 일, 이름표, 기술, 재능을 본다.
+        var map = WorldMap.Generate((uint)Arg("--seed", 1), Arg("--size", 48));
+        var w = new World((ulong)Arg("--seed", 1), map, Config());
+        w.SeedCouples(Arg("--couples", 10));
+        int years = Arg("--years", 150);
+        for (int d = 0; d < years * w.Config.DaysPerYear; d++) w.Step();
+        var vl = w.VillageList;
+        var p = w.People;
+        int best = Enumerable.Range(0, vl.Count).Where(v => vl.Alive[v]).OrderByDescending(v => vl.Households[v]).First();
+        var folk = Enumerable.Range(0, p.HighWater).Where(i => p.IsAliveIndex(i) && w.Households.IsAlive(p.Household[i]) && w.Households.Village[p.Household[i]] == best).ToList();
+        Console.WriteLine($"마을 {best}: {vl.Households[best]}가구, {folk.Count}명");
+        string Sk(int i) => string.Join(" ", Enumerable.Range(0, (int)Skill.Count).Where(s => p.GetSkill(i, (Skill)s) >= 0.15f)
+            .Select(s => $"{Skills.SkillName((Skill)s)} {p.GetSkill(i, (Skill)s):F2}(재능 {Skills.Talent(p, i, (Skill)s):F2})"));
+        Console.WriteLine("-- 일을 맡은 사람");
+        foreach (int i in folk.Where(i => p.JobOf[i] != 0))
+        {
+            var job = (Job)p.JobOf[i];
+            var fj = w.Lineage.JobOf(w.Lineage.Father(p.Uid[i])); var mj = w.Lineage.JobOf(w.Lineage.Mother(p.Uid[i]));
+            string from = fj == job || mj == job ? "가업" : "새로";
+            Console.WriteLine($"  {Skills.JobName(job)} {(p.Male[i] ? "남" : "여")} {(w.Day - p.BirthDay[i]) / w.Config.DaysPerYear}세 [{from}] {string.Join(", ", Skills.Labels(p, i))} | {Sk(i)}");
+        }
+        Console.WriteLine("-- 도제");
+        foreach (int i in folk.Where(i => !p.Master[i].IsNone && p.IsValid(p.Master[i])))
+        {
+            int m = p.Master[i].Index;
+            Console.WriteLine($"  {(w.Day - p.BirthDay[i]) / w.Config.DaysPerYear}세 → {Skills.JobName((Job)p.JobOf[m])} 밑 | {Sk(i)}");
+        }
+        var adultsV = folk.Where(i => (w.Day - p.BirthDay[i]) / w.Config.DaysPerYear >= 16).ToList();
+        Console.WriteLine($"-- 성격 축 평균(어른): 활동성 {adultsV.Average(i => p.Get(i, Trait.Diligence)):F2}, 신중함 {adultsV.Average(i => p.Get(i, Trait.Caution)):F2}, 사교성 {adultsV.Average(i => p.Get(i, Trait.Sociability)):F2}, 공격성 {adultsV.Average(i => p.Get(i, Trait.Aggression)):F2}, 욕심 {adultsV.Average(i => p.Get(i, Trait.Ambition)):F2}");
+        Console.WriteLine("-- 어른 몇 명");
+        foreach (int i in folk.Where(i => p.JobOf[i] == 0 && (w.Day - p.BirthDay[i]) / w.Config.DaysPerYear >= 16).Take(Arg("--n", 12)))
+            Console.WriteLine($"  농부 {(p.Male[i] ? "남" : "여")} {(w.Day - p.BirthDay[i]) / w.Config.DaysPerYear}세 {string.Join(", ", Skills.Labels(p, i))} | {Sk(i)}");
+        break;
+    }
     case "export":
     {
         // 정착을 돌린 뒤 가장 큰 마을 주변을 화면용 JSON 으로 내보낸다(Godot 이 읽어 그린다).

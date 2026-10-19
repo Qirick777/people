@@ -4,7 +4,7 @@ namespace People.Sim;
 /// 시뮬레이션 전체 상태와 하루 진행. Godot 에 의존하지 않는다.
 /// 1단계: 사람, 유전, 사망, 짝짓기, 임신과 출산, 가구, 땅, 농사, 굶주림.
 /// </summary>
-public sealed class World
+public sealed partial class World
 {
     public SimConfig Config { get; }
     public PersonStore People { get; } = new();
@@ -106,6 +106,7 @@ public sealed class World
         People.Uid[id.Index] = Lineage.Add(male, birth, -1, -1);
         Genetics.Randomize(People.Genome(id.Index), male, ref _rng);
         People.ComputePhenotype(id.Index);
+        SeedSkills(id.Index, ageYears);
         if (ageYears >= 16) People.GrownUp[id.Index] = true;
         return id;
     }
@@ -406,7 +407,7 @@ public sealed class World
         if (doy == 0) Timed("한 해 시작(분가·땅·집)", BeginYear);
         if (cal.DayOfSeason == 0)
         {
-            Timed("부패", Spoil);
+            Timed("부패", SpoilWithTrade);
             Timed("구애", Courtship);
         }
         Timed("식량 소비", Consume);
@@ -430,6 +431,7 @@ public sealed class World
         ChooseFloods();
         RecountHouseholds();
         DecayVacant();
+        YearOfWork();
         if (Layout) Stats.RegrownForest += Map.AgeAbandoned(Config.ForestYears);
         Splits();
         ClaimLand();
@@ -472,8 +474,12 @@ public sealed class World
             if (!hh.IsAlive(h)) continue;
             int age = AgeYears(i);
             hh.Members[h]++;
-            hh.Need[h] += NeedByAge(age);
-            hh.Labor[h] += LaborByAge(age) * (0.7f + 0.6f * p.Get(i, Trait.Diligence)) * (0.8f + 0.4f * MathF.Min(1f, p.Get(i, Trait.Strength)));
+            // 부지런하고 힘센 사람은 일을 더 하지만 더 먹는다(유전자 대가).
+            float dil = p.Get(i, Trait.Diligence), str = MathF.Min(1f, p.Get(i, Trait.Strength));
+            hh.Need[h] += NeedByAge(age) * (0.8f + 0.2f * dil + 0.2f * str);
+            float lab = LaborByAge(age) * (0.7f + 0.6f * dil) * (0.8f + 0.4f * str);
+            if (p.JobOf[i] != 0) lab *= Config.JobFarmShare;
+            hh.Labor[h] += lab;
         }
     }
 
@@ -521,6 +527,7 @@ public sealed class World
         {
             if (!hh.IsAlive(h) || hh.PlotCount[h] == 0) continue;
             float capacity = hh.Labor[h] * Config.PlotsPerWorker;
+            float farmK = 1f + Config.FarmSkillEffect * (FarmSkillOf(h) - Config.FarmSkillBaseline);
             var mine = map.PlotsOf(h);
             mine.Sort((a, b) => map.Fert(b).CompareTo(map.Fert(a)));
             float yield = 0;
@@ -556,7 +563,7 @@ public sealed class World
                         continue;
                     }
                 }
-                yield += Config.PlotYield * map.Fert(plot) * Weather * part;
+                yield += Config.PlotYield * map.Fert(plot) * Weather * part * farmK;
             }
             hh.Food[h] += yield;
             total += yield;
@@ -963,8 +970,7 @@ public sealed class World
     /// <summary>새 집을 짓는 값. 본가가 낼 수 있는 만큼 낸다(모자라면 손으로 지은 셈).</summary>
     private void PayBuild(int parent)
     {
-        var hh = Households;
-        if (hh.IsAlive(parent)) hh.Food[parent] = MathF.Max(0f, hh.Food[parent] - Config.HouseBuildCost);
+        if (Households.IsAlive(parent)) PayCarpenter(parent, Config.HouseBuildCost);
     }
 
     /// <summary>빈집은 해마다 낡는다. 다 낡으면 무너져 터가 빈다.</summary>
@@ -1034,7 +1040,7 @@ public sealed class World
             if (!hh.IsAlive(h) || hh.Capacity[h] >= Config.MaxCapacity) continue;
             if (hh.Crowding(h) > 1.2f && Surplus(h) > 1.3f && hh.Food[h] > Config.HouseUpgradeCost * 2)
             {
-                hh.Food[h] -= Config.HouseUpgradeCost;
+                PayCarpenter(h, Config.HouseUpgradeCost);
                 hh.Capacity[h] = Math.Min(Config.MaxCapacity, hh.Capacity[h] + 2);
             }
         }
@@ -1059,6 +1065,7 @@ public sealed class World
             if (age >= 16 && !p.GrownUp[i])
             {
                 p.ApplyChildhoodHunger(i, dpy);
+                ApplyExperience(i);
                 p.GrownUp[i] = true;
             }
 
@@ -1067,6 +1074,8 @@ public sealed class World
             if (hh.IsAlive(h)) situ *= 1f + Config.CrowdingMortality * MathF.Max(0f, hh.Crowding(h) - 1f);
             if (age < 5 && Genetics.Expressed(p.Genome(i), Marker.DiseaseA, p.Male[i])) situ *= 4f;
             if (age < 5 && p.LoadInfant[i] > 0) situ *= MathF.Pow(Config.LoadInfantMortality, p.LoadInfant[i]);
+            if (age < 5) situ *= 1f - Config.HealerEffect * HealerSkillAt(h);
+            else if (age >= 16 && age < 60) situ *= 1.15f - 0.3f * p.Get(i, Trait.Caution);   // 신중한 사람은 덜 다친다
             if (age == 6 && p.RaisedBy[i] < 0) RecordRaisedBy(i);
             float d = Mortality.Daily(age, p.Get(i, Trait.Longevity), p.Get(i, Trait.Constitution), situ);
             if (_rng.Chance(d))
@@ -1121,13 +1130,14 @@ public sealed class World
         if (_rng.Chance(Config.TripletRate)) n = 3;
         else if (_rng.Chance(twin)) n = 2;
         if (n > 1) Stats.MultipleBirths++;
+        PayHealer(h);
         for (int k = 0; k < n; k++)
         {
             if (_rng.Chance(Config.StillbirthBase * (1.5f - con) * (n > 1 ? 2f : 1f))) { Stats.Stillbirths++; continue; }
             BirthChild(w, h);
             if (p.BirthsGiven[w] < 255) p.BirthsGiven[w]++;
         }
-        float maternal = Config.MaternalDeathBase * (age >= 35 ? 2f : 1f) * (1.5f - con) * (p.BirthsGiven[w] >= 6 ? 1.5f : 1f) * (n > 1 ? 1.5f : 1f);
+        float maternal = (1f - Config.HealerEffect * HealerSkillAt(p.Household[w])) * Config.MaternalDeathBase * (age >= 35 ? 2f : 1f) * (1.5f - con) * (p.BirthsGiven[w] >= 6 ? 1.5f : 1f) * (n > 1 ? 1.5f : 1f);
         if (_rng.Chance(maternal))
         {
             Stats.MaternalDeaths++;
