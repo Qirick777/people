@@ -92,6 +92,26 @@ public sealed partial class World
     // ------------------------------------------------------------------ 권위
 
     /// <summary>맨 위 조직 하나의 권위(자금, 권력, 무력, 충성). 무작위를 쓰지 않는다(화면에서 불러도 역사가 바뀌지 않게).</summary>
+    private Dictionary<int, List<int>>? _directClients;
+    private int _directClientsDay = -1;
+
+    /// <summary>지배자 집을 바로 따르는 집들(하루에 한 번 만든다. 쓰는 쪽에서 지금도 따르는지 본다).</summary>
+    private List<int> DirectClients(int lord)
+    {
+        if (_directClients == null || _directClientsDay != Day)
+        {
+            _directClients ??= new();
+            foreach (var l in _directClients.Values) l.Clear();
+            for (int h = 0; h < Households.HighWater; h++)
+            {
+                int l = Households.IsAlive(h) ? PatronOf(h) : -1;
+                if (l >= 0) (_directClients.TryGetValue(l, out var list) ? list : _directClients[l] = new()).Add(h);
+            }
+            _directClientsDay = Day;
+        }
+        return _directClients.TryGetValue(lord, out var x) ? x : _noHouses;
+    }
+
     private void ComputeAuthority(Group g)
     {
         var p = People; var hh = Households;
@@ -105,7 +125,7 @@ public sealed partial class World
         if (g.Home >= 0)
         {
             float s = 0f; int n = 0;
-            for (int h = 0; h < hh.HighWater; h++)
+            foreach (int h in DirectClients(g.Home))
             {
                 if (!hh.IsAlive(h) || PatronOf(h) != g.Home || HeadIdx(h) is not (int hd and >= 0)) continue;
                 s += p.LoyalUid[hd] == g.LeaderUid ? p.Loyalty[hd] : 0.4f;

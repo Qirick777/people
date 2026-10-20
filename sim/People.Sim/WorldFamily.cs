@@ -400,7 +400,7 @@ public sealed partial class World
             if (s.Exposed || (s.A != u && s.B != u) || s.Known.Count <= 2) continue;
             foreach (int ku in s.Known)
             {
-                if (ku == s.A || ku == s.B || !_uidIndex.TryGetValue(ku, out int k) || !p.IsAliveIndex(k) || p.Uid[k] != ku) continue;
+                if (ku == s.A || ku == s.B || !_uidIndex.TryGetValue(ku, out int k) || !p.IsAliveIndex(k) || p.Uid[k] != ku || !Adult(k)) continue;
                 float amt = Households.Food[h] > 300f ? 120f : Households.Food[h] > 100f ? 40f : 10f;
                 Interact(InteractionId.Hush, new InteractionContext { Actor = i, Target = k, Third = -1, Amount = amt });
                 return;

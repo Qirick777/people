@@ -13,6 +13,20 @@ public sealed partial class World
     private float[] _incTribute = new float[256]; // 올해 받은 공납
     private readonly List<float> _danger = new(); // 마을별 위험(약탈당한 횟수, 해마다 줄어든다)
     private readonly Dictionary<int, int> _employer = new();   // 군인·징수관 → 고용한 지배자 가구
+    private int _employerVer, _staffVer = -1;                     // _employer 가 바뀔 때마다 올린다
+    private readonly Dictionary<int, List<int>> _staff = new();   // 지배자 가구 → 고용한 사람(_employer 를 뒤집은 것)
+
+    /// <summary>지배자가 고용한 사람들. 죽었거나 일을 그만뒀을 수 있으니 쓰는 쪽에서 확인한다.</summary>
+    private List<int> StaffOf(int lord)
+    {
+        if (_staffVer != _employerVer)
+        {
+            foreach (var l in _staff.Values) l.Clear();
+            foreach (var (person, l) in _employer) (_staff.TryGetValue(l, out var list) ? list : _staff[l] = new()).Add(person);
+            _staffVer = _employerVer;
+        }
+        return _staff.TryGetValue(lord, out var x) ? x : _noHouses;
+    }
 
     private void EnsurePowerArrays()
     {
@@ -51,7 +65,7 @@ public sealed partial class World
     public int RetainerCount(int lord, Job j)
     {
         int n = 0;
-        foreach (var (person, l) in _employer) if (l == lord && People.IsAliveIndex(person) && People.JobOf[person] == (byte)j) n++;
+        foreach (int person in StaffOf(lord)) if (People.IsAliveIndex(person) && People.JobOf[person] == (byte)j && _employer.GetValueOrDefault(person, -1) == lord) n++;
         return n;
     }
 
@@ -80,8 +94,9 @@ public sealed partial class World
     private float LordPower(int lord)
     {
         float s = HouseholdPower(lord);
-        foreach (var (person, l) in _employer)
-            if (l == lord && People.IsAliveIndex(person) && People.JobOf[person] == (byte)Job.Soldier) s += FightPower(person) * (1f + 0.3f * WeaponCov(lord));   // 무장
+        float arm = 1f + 0.3f * WeaponCov(lord);   // 무장
+        foreach (int person in StaffOf(lord))
+            if (People.IsAliveIndex(person) && People.JobOf[person] == (byte)Job.Soldier && _employer.GetValueOrDefault(person, -1) == lord) s += FightPower(person) * arm;
         return s;
     }
 
@@ -199,6 +214,7 @@ public sealed partial class World
             {
                 if (p.IsAliveIndex(person) && (p.JobOf[person] == (byte)Job.Soldier || p.JobOf[person] == (byte)Job.Collector)) p.JobOf[person] = 0;
                 _employer.Remove(person);
+                _employerVer++;
             }
         }
 
@@ -421,6 +437,7 @@ public sealed partial class World
         if (to < _patron.Length && PatronOf(to) == from) _patron[to] = -1;
         Resnap(to);
         foreach (var person in _employer.Keys.ToList()) if (_employer[person] == from) _employer[person] = to;
+        _employerVer++;
         Map.Transfer(from, to, hh.PlotCount[from], hh);
         hh.Food[to] += hh.Food[from];
         hh.Food[from] = 0;
@@ -498,6 +515,7 @@ public sealed partial class World
                 if (l != lord || p.JobOf[person] != (byte)job) continue;
                 p.JobOf[person] = 0;
                 _employer.Remove(person);
+                _employerVer++;
                 count++;
             }
             return;
@@ -533,6 +551,7 @@ public sealed partial class World
             p.JobOf[best] = (byte)job;
             Lineage.SetJob(p.Uid[best], job);
             _employer[best] = lord;
+            _employerVer++;
             if (job == Job.Soldier) Stats.NewSoldiers++; else Stats.NewCollectors++;
         }
     }
@@ -558,7 +577,7 @@ public sealed partial class World
         {
             // 가까운 집부터 직접 챙기고, 나머지는 징수관에게
             list.Sort((a, b) => Dist2(a, lord).CompareTo(Dist2(b, lord)));
-            var collectors = _employer.Where(e => e.Value == lord && p.IsAliveIndex(e.Key) && p.JobOf[e.Key] == (byte)Job.Collector).Select(e => e.Key).ToList();
+            var collectors = StaffOf(lord).Where(e => p.IsAliveIndex(e) && p.JobOf[e] == (byte)Job.Collector && _employer.GetValueOrDefault(e, -1) == lord).ToList();
             int direct = DirectSpan(lord);
             int idx = 0;
             float got = 0;
@@ -584,9 +603,9 @@ public sealed partial class World
             _incTribute[lord] += got;
             Stats.Tribute += got;
             // 군인 품삯
-            foreach (var (person, l) in _employer)
+            foreach (int person in StaffOf(lord))
             {
-                if (l != lord || !p.IsAliveIndex(person) || p.JobOf[person] != (byte)Job.Soldier) continue;
+                if (_employer.GetValueOrDefault(person, -1) != lord || !p.IsAliveIndex(person) || p.JobOf[person] != (byte)Job.Soldier) continue;
                 int sh = p.Household[person];
                 float pay = MathF.Min(Config.SoldierWage, MathF.Max(0f, hh.Food[lord]));
                 hh.Food[lord] -= pay;

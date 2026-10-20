@@ -377,11 +377,10 @@ public sealed partial class World
         var p = People;
         var hh = Households;
         var byVillage = new Dictionary<int, List<int>>();
-        _uidIndex.Clear();
+        RebuildUidIndex();
         for (int i = 0; i < p.HighWater; i++)
         {
             if (!Adult(i)) continue;
-            _uidIndex[p.Uid[i]] = i;
             int h = p.Household[i];
             if (!hh.IsAlive(h) || hh.Village[h] < 0) continue;
             (byVillage.TryGetValue(hh.Village[h], out var l) ? l : byVillage[hh.Village[h]] = new()).Add(i);
@@ -466,7 +465,17 @@ public sealed partial class World
         AbortChecks();
     }
 
+    // uid → 사람 칸. 태어날 때 넣고 계절마다 다시 만든다. 없으면 죽은 사람이다(uid 는 다시 쓰지 않는다)
     private readonly Dictionary<int, int> _uidIndex = new();
+    private bool _uidIndexReady;
+
+    private void RebuildUidIndex()
+    {
+        var p = People;
+        _uidIndex.Clear();
+        for (int i = 0; i < p.HighWater; i++) if (p.IsAliveIndex(i) && p.Uid[i] >= 0) _uidIndex[p.Uid[i]] = i;
+        _uidIndexReady = true;
+    }
     private readonly List<int> _disownCheck = new();
 
     private bool TryOfferSelf(int i, List<int> folk)
@@ -512,7 +521,7 @@ public sealed partial class World
     /// <summary>uid 의 사람이 살아서 마을 v 에 있으면 그 번호(없으면 -1).</summary>
     private int FindAlive(int uid, int v)
     {
-        if (!_uidIndex.TryGetValue(uid, out int k) || !People.IsAliveIndex(k) || People.Uid[k] != uid) return -1;   // 이번 계절에 죽었을 수 있다
+        if (!_uidIndex.TryGetValue(uid, out int k) || !People.IsAliveIndex(k) || People.Uid[k] != uid || !Adult(k)) return -1;   // 이번 계절에 죽었을 수 있다
         int h = People.Household[k];
         return Households.IsAlive(h) && Households.Village[h] == v ? k : -1;
     }

@@ -218,10 +218,12 @@ public sealed partial class World
             if (!_rng.Chance(Math.Clamp(accept, 0.02f, 0.9f))) continue;
             _patron[h] = lh;
             _patronFounded[h] = hh.FoundedDay[lh];
+            // 따르는 집 수는 그 자리에서 고친다(집 전체를 다시 세지 않는다)
+            if (cur >= 0) _clientsOf[cur] = Math.Max(0, _clientsOf.GetValueOrDefault(cur) - 1);
+            _clientsOf[lh] = _clientsOf.GetValueOrDefault(lh) + 1;
             HeadsRelate(h, lh, 0f, 15f, 0f, MemoryType.Protected, 5);
             Stats.ProtectionTaken++;
         }
-        RecountClients();
     }
 
     /// <summary>설교: 마을 사람의 신앙을 올리고, 깊어진 사람을 신도로 들인다. 넉넉한 신도 집은 헌금을 낸다.</summary>

@@ -160,6 +160,10 @@ public sealed partial class World
         for (int h = 0; h < hh.HighWater; h++)
             if (hh.IsAlive(h) && hh.Village[h] >= 0)
                 (byVillage.TryGetValue(hh.Village[h], out var l) ? l : byVillage[hh.Village[h]] = new()).Add(h);
+        _knownBy = new Dictionary<int, List<Secret>>();
+        foreach (var s in _secrets)
+            if (!s.Exposed)
+                foreach (int ku in s.Known) (_knownBy.TryGetValue(ku, out var kl) ? kl : _knownBy[ku] = new()).Add(s);
         for (int i = 0; i < p.HighWater; i++)
         {
             if (!Adult(i) || IsPlayer(i)) continue;
@@ -210,7 +214,9 @@ public sealed partial class World
                     Interact(InteractionId.Extort, new InteractionContext { Actor = i, Target = mark, Third = -1 });
             }
         }
+        _knownBy = null;
     }
+    private Dictionary<int, List<Secret>>? _knownBy;
 
     /// <summary>같은 마을의 집 넷 가운데 남는 식량이 가장 많은 집의 가장.</summary>
     private int TheftTarget(int own, List<int> houses)
@@ -249,7 +255,9 @@ public sealed partial class World
     {
         var p = People;
         int u = p.Uid[i];
-        foreach (var s in _secrets)
+        // 계절 중에는 'uid → 아는 비밀' 목록을 쓴다(사람마다 비밀 전체를 훑지 않게)
+        IEnumerable<Secret> known = _knownBy != null ? _knownBy.GetValueOrDefault(u) ?? (IEnumerable<Secret>)Array.Empty<Secret>() : _secrets;
+        foreach (var s in known)
         {
             if (s.Exposed || s.A == u || s.B == u || !s.Known.Contains(u)) continue;
             int a = FindAlive(s.A);
@@ -738,6 +746,7 @@ public sealed partial class World
         {
             p.JobOf[culprit] = 0;
             _employer.Remove(culprit);
+            _employerVer++;
         }
         CrimeLoyalty(c, punished, v is Verdict.Covered or Verdict.Released);
     }

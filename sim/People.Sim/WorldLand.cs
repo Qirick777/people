@@ -119,24 +119,32 @@ public sealed partial class World
             float ratio = want / (float)supply.Count;
             float rate = Math.Clamp(Config.RentBase + Config.RentSlope * (ratio - 1f), Config.RentMin, Config.RentMax);
             _rentRate[v] = rate;
-            var taken = new HashSet<int>();
+            // 남은 땅 목록에서 집에 가까운 것부터 하나씩 집어 낸다(집어 낸 땅은 맨 끝 땅과 자리를 바꿔 지운다)
+            int left = supply.Count;
+            var px = new int[left]; var py = new int[left]; var pid = supply.ToArray();
+            for (int k = 0; k < left; k++) (px[k], py[k]) = Map.Pos(pid[k]);
             foreach (var (t, n) in demand)
             {
                 int got = 0;
                 int tx = hh.X[t], ty = hh.Y[t];
-                // 집에서 가까운 것부터
-                var near = supply.Where(p => !taken.Contains(p)).OrderBy(p => { var (x, y) = Map.Pos(p); return (x - tx) * (x - tx) + (y - ty) * (y - ty); }).Take(n);
-                foreach (int plot in near)
+                for (; got < n && left > 0; got++)
                 {
-                    taken.Add(plot);
+                    int best = 0; long bd = long.MaxValue;
+                    for (int k = 0; k < left; k++)
+                    {
+                        long dx = px[k] - tx, dy = py[k] - ty, d = dx * dx + dy * dy;
+                        if (d < bd) { bd = d; best = k; }
+                    }
+                    int plot = pid[best];
+                    left--;
+                    pid[best] = pid[left]; px[best] = px[left]; py[best] = py[left];
                     _tiller[plot] = t;
                     (_leasedIn.TryGetValue(t, out var li) ? li : _leasedIn[t] = new()).Add(plot);
-                    got++;
                 }
                 Stats.LeasedPlots += got;
-                if (taken.Count >= supply.Count) break;
+                if (left == 0) break;
             }
-            _leaseSlack[v] = supply.Count - taken.Count;
+            _leaseSlack[v] = left;
             Stats.RentRateSum += rate; Stats.RentMarkets++;
         }
     }
@@ -239,21 +247,32 @@ public sealed partial class World
             if (hh.IsAlive(h) && hh.Village[h] >= 0) (byVillage.TryGetValue(hh.Village[h], out var l) ? l : byVillage[hh.Village[h]] = new()).Add(h);
         foreach (var (v, list) in byVillage)
         {
+            // 여유가 가장 큰 두 집을 한 번 찾아 두고, 누군가의 식량이 움직였을 때만 다시 찾는다
+            int top1 = -1, top2 = -1;
+            float sp1 = 0f, sp2 = 0f;
+            bool dirty = true;
             foreach (int h in list)
             {
                 float need = hh.Need[h] * days;
                 if (need <= 0 || hh.Food[h] >= need * Config.DistressLevel) continue;
                 float deficit = need * Config.DistressCover - hh.Food[h];
                 if (deficit <= 1f) continue;
-                // 1) 빌리기: 여유가 가장 큰 이웃. 사교성이 높은 가장일수록 잘 빌려준다.
-                int lender = -1;
-                float spare = 0;
-                foreach (int o in list)
+                if (dirty)
                 {
-                    if (o == h) continue;
-                    float sp = hh.Food[o] - hh.Need[o] * days * 1.3f;
-                    if (sp > spare) { spare = sp; lender = o; }
+                    top1 = top2 = -1; sp1 = sp2 = 0f;
+                    foreach (int o in list)
+                    {
+                        float sp = hh.Food[o] - hh.Need[o] * days * 1.3f;
+                        if (sp > sp1) { top2 = top1; sp2 = sp1; top1 = o; sp1 = sp; }
+                        else if (sp > sp2) { top2 = o; sp2 = sp; }
+                    }
+                    dirty = false;
                 }
+                // 1) 빌리기: 여유가 가장 큰 이웃. 사교성이 높은 가장일수록 잘 빌려준다.
+                int lender = top1 != h ? top1 : top2;
+                float spare = top1 != h ? sp1 : sp2;
+                int raidsBefore = Stats.Raids;
+                dirty = true;
                 if (lender >= 0 && _rng.Chance(0.3f + 0.5f * HeadTrait(lender, Trait.Sociability)))
                 {
                     float amount = MathF.Min(deficit, spare);
@@ -269,6 +288,7 @@ public sealed partial class World
                 if (lender < 0 || hh.PlotCount[h] <= 1 || !_rng.Chance(0.3f + 0.6f * HeadTrait(lender, Trait.Ambition)))
                 {
                     TryRaid(h, deficit);
+                    dirty = Stats.Raids != raidsBefore;   // 털지 않았으면 아무 식량도 움직이지 않았다
                     continue;
                 }
                 var mine = Map.PlotsOf(h).Where(x => !_tiller.ContainsKey(x)).ToList();

@@ -209,8 +209,10 @@ switch (cmd)
         string path = SArg("--out", "out/settle.csv");
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
         var sw = Stopwatch.StartNew();
+        int profFrom = Arg("--profile", 0);   // 마지막 몇 해의 단계별 시간을 잰다
         for (int y = 1; y <= years; y++)
         {
+            if (profFrom > 0 && y == years - profFrom + 1) w.Profiling = true;
             for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
             if (every > 0 && y % every == 0)
                 MapRender.Save(w, map, path.Replace(".csv", $"_y{y:D4}.png"), 0, 0, map.Width, map.Height, 1);
@@ -219,6 +221,9 @@ switch (cmd)
         Console.WriteLine($"settle: {years}년, 인구 {w.People.AliveCount}, 가구 {w.Households.AliveCount}, 마을 {w.Villages().count}, 청크 {map.GeneratedChunks}, {sw.Elapsed.TotalSeconds:F1}초");
         Console.WriteLine($"  물에서 80 m 안: 가구 {w.NearWaterFraction():P0}, 경작 가능 땅 {map.FarmableNearWaterFraction(10):P0}");
         Summary(w);
+        if (profFrom > 0)
+            foreach (var kv in w.Profile.OrderByDescending(k => k.Value).Take(15))
+                Console.WriteLine($"  {kv.Key}: 한 해 평균 {kv.Value / profFrom:F1} ms");
         long tot = w.Stats.PopYears, big = w.Stats.PopBigYears;
         int allTrades = w.Stats.SexTradesTotal;
         if (big > 0 && tot > big) Console.WriteLine($"  하룻밤 거래(사람·해 천 명당): 30집 넘는 마을 {w.Stats.SexTradesBig * 1000.0 / big:F2}, 작은 마을 {(allTrades - w.Stats.SexTradesBig) * 1000.0 / (tot - big):F2}");

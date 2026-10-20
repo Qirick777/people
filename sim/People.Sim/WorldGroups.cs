@@ -371,9 +371,11 @@ public sealed partial class World
 
     private int FindAlive(int uid)
     {
+        if (uid < 0) return -1;
         if (_uidIndex.TryGetValue(uid, out int k) && People.IsAliveIndex(k) && People.Uid[k] == uid) return k;
-        for (int i = 0; i < People.HighWater; i++) if (People.IsAliveIndex(i) && People.Uid[i] == uid) { _uidIndex[uid] = i; return i; }
-        return -1;
+        if (_uidIndexReady) return -1;
+        RebuildUidIndex();
+        return _uidIndex.TryGetValue(uid, out k) && People.IsAliveIndex(k) && People.Uid[k] == uid ? k : -1;
     }
 
     /// <summary>
@@ -429,18 +431,26 @@ public sealed partial class World
         }
     }
 
-    /// <summary>마을 자경단의 지킬 힘(인정받았으면 더 단단하다).</summary>
+    private readonly Dictionary<int, float> _watchPow = new();
+    private int _watchPowDay = -1;
+
+    /// <summary>마을 자경단의 지킬 힘(인정받았으면 더 단단하다). 하루에 한 번 모든 마을 몫을 센다.</summary>
     private float WatchPower(int v)
     {
-        float s = 0f;
-        foreach (var g in _groups)
+        if (_watchPowDay != Day)
         {
-            if (!g.Alive) continue;
-            foreach (var t in g.Tasks)
-                if (t.Verb == Verb.Guard && t.Village == v) s += g.OwnStrength * t.Weight * WorkFactor(g) * (g.Paid || g.Parent >= 0 || g.Sanction >= 0 ? 0.6f : 0.4f);
+            _watchPow.Clear();
+            foreach (var g in _groups)
+            {
+                if (!g.Alive) continue;
+                foreach (var t in g.Tasks)
+                    if (t.Verb == Verb.Guard)
+                        _watchPow[t.Village] = _watchPow.GetValueOrDefault(t.Village) + g.OwnStrength * t.Weight * WorkFactor(g) * (g.Paid || g.Parent >= 0 || g.Sanction >= 0 ? 0.6f : 0.4f);
+            }
+            foreach (var (mv, ms) in _mercGuard) _watchPow[mv] = _watchPow.GetValueOrDefault(mv) + 0.6f * ms;   // 용병 계약
+            _watchPowDay = Day;
         }
-        foreach (var (mv, ms) in _mercGuard) if (mv == v) s += 0.6f * ms;   // 용병 계약
-        return s;
+        return _watchPow.GetValueOrDefault(v);
     }
 
     /// <summary>계절마다: 도적 떼가 함께 턴다(굶지 않아도).</summary>

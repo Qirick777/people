@@ -205,7 +205,7 @@ public sealed partial class World
         int v = hh.Village[lord];
         int teacher = -1;
         var kids = new List<int>();
-        for (int h = 0; h < hh.HighWater; h++)
+        foreach (int h in VillageHouses(v))
         {
             if (!hh.IsAlive(h) || hh.Village[h] != v) continue;
             for (int k = hh.FirstMember[h]; k >= 0; k = p.HhNext[k])

@@ -21,7 +21,8 @@ public sealed partial class World
     private float[] _clothShort = new float[256];
     private int[] _goodsFounded = Enumerable.Repeat(-1, 256).ToArray();   // 재고를 쓴 집이 같은 집인지(번호를 다시 쓰면 비운다)
     private readonly List<float> _price = new();     // 마을 × 재화 → 값(식량)
-    private readonly List<float> _resid = new();     // 마을 × 재화 → 시장이 끝난 뒤 남은 공급(+) 또는 못 채운 수요(−)
+    private readonly List<float> _resid = new();
+    private readonly Dictionary<int, float> _buildWant = new();   // 마을 → 지난해 지으며 모자랐던 자재     // 마을 × 재화 → 시장이 끝난 뒤 남은 공급(+) 또는 못 채운 수요(−)
 
     public static string GoodName(Good g) => g switch
     {
@@ -60,18 +61,23 @@ public sealed partial class World
             // 새 집은 부모 집에서 도구와 옷가지를 조금 들고 나온다
             _goods[h * GoodCount + (int)Good.Tools] = 1f;
             _goods[h * GoodCount + (int)Good.Cloth] = 1f;
+            _clothShort[h] = 0f;
             _goodsFounded[h] = f;
         }
         return ref _goods[h * GoodCount + (int)g];
     }
     public float PriceAt(int v, Good g) => v >= 0 && v * GoodCount + (int)g < _price.Count ? _price[v * GoodCount + (int)g] : BasePrice[(int)g];
 
-    /// <summary>집의 일손(16~60세).</summary>
-    private int Workers(int h)
+    /// <summary>집의 일손. 16~60세는 하나, 12~15세와 61세 넘은 사람은 반(노부부도 재료를 모으고 옷을 짠다).</summary>
+    private float Workers(int h)
     {
         var p = People;
-        int n = 0;
-        for (int k = Households.FirstMember[h]; k >= 0; k = p.HhNext[k]) { int a = AgeYears(k); if (a >= 16 && a <= 60) n++; }
+        float n = 0;
+        for (int k = Households.FirstMember[h]; k >= 0; k = p.HhNext[k])
+        {
+            int a = AgeYears(k);
+            n += a >= 16 && a <= 60 ? 1f : a >= 12 ? 0.5f : 0f;
+        }
         return n;
     }
 
@@ -79,15 +85,15 @@ public sealed partial class World
     public float ToolCov(int h)
     {
         if (!Households.IsAlive(h) || h * GoodCount >= _goods.Length) return 0.5f;
-        int w = Workers(h);
-        return w == 0 ? 1f : MathF.Min(1f, G(h, Good.Tools) / w);
+        float w = Workers(h);
+        return w <= 0f ? 1f : MathF.Min(1f, G(h, Good.Tools) / w);
     }
 
     /// <summary>수확에 곱한다. 도구가 없으면 0.85배.</summary>
     private float ToolFactor(int h) => 0.85f + 0.15f * ToolCov(h);
 
     /// <summary>겨울에 의류가 모자란 정도(0~1).</summary>
-    private float ClothShort(int h) => h >= 0 && h < _clothShort.Length ? _clothShort[h] : 0f;
+    private float ClothShort(int h) => h >= 0 && h < _clothShort.Length && _goodsFounded[h] == Households.FoundedDay[h] ? _clothShort[h] : 0f;
 
     /// <summary>지배자 군인의 무장(0~1): 군인 하나에 고급 재료 하나.</summary>
     private float WeaponCov(int lord)
@@ -122,7 +128,7 @@ public sealed partial class World
             if (!hh.IsAlive(h) || hh.Village[h] < 0) continue;
             float cov = ToolCov(h);
             covSum += cov;
-            int w = Workers(h);
+            float w = Workers(h);
             float got = 3f * w * (0.6f + 0.4f * cov);   // 나무, 섬유, 돌은 흔하다
             G(h, Good.Basic) += got;
             basic += got;
@@ -191,6 +197,7 @@ public sealed partial class World
         foreach (var (v, list) in byVillage)
             foreach (var g in new[] { Good.Tools, Good.Cloth, Good.Fine, Good.Build })
                 Market(v, list, g);
+        _buildWant.Clear();
     }
 
     private Dictionary<int, List<int>> HousesByVillage()
@@ -203,26 +210,19 @@ public sealed partial class World
         return map;
     }
 
-    /// <summary>집 h 가 재화 g 를 얼마나 바라는가(가진 것을 뺀 모자람).</summary>
-    private float Want(int h, Good g)
-    {
-        var hh = Households; var p = People;
-        float target = g switch
-        {
-            Good.Tools => Workers(h),
-            Good.Cloth => 1.2f * ClothNeed * hh.Members[h],
-            Good.Basic => 6f * CraftersIn(h),
-            Good.Fine => _soldiersOf.GetValueOrDefault(h) + (ClientCount(h) > 0 ? 1f : 0f),
-            _ => 0f,   // 자재는 지을 때 산다
-        };
-        return MathF.Max(0f, target - G(h, g));
-    }
+    /// <summary>집 h 가 재화 g 를 얼마나 바라는가(지닐 양에서 가진 것을 뺀 모자람). 자재는 지을 때 산다.</summary>
+    private float Want(int h, Good g) => g == Good.Build ? 0f : MathF.Max(0f, KeepOf(h, g) - G(h, g));
 
-    private int CraftersIn(int h)
+    /// <summary>장인·목수가 한 해 만들 만큼의 기초 재료.</summary>
+    private float CraftNeed(int h)
     {
-        int n = 0;
         var p = People;
-        for (int k = Households.FirstMember[h]; k >= 0; k = p.HhNext[k]) if (p.JobOf[k] is (byte)Job.Crafter or (byte)Job.Carpenter) n++;
+        float n = 0f;
+        for (int k = Households.FirstMember[h]; k >= 0; k = p.HhNext[k])
+        {
+            if (p.JobOf[k] == (byte)Job.Crafter) n += (4f + 10f * p.GetSkill(k, Skill.Craft)) * 2.5f;
+            else if (p.JobOf[k] == (byte)Job.Carpenter) n += (4f + 10f * p.GetSkill(k, Skill.Carpentry)) * Input[(int)Good.Build];
+        }
         return n;
     }
 
@@ -241,15 +241,16 @@ public sealed partial class World
         foreach (int h in houses)
         {
             float want = Want(h, g);
-            float keep = g switch { Good.Tools => Workers(h), Good.Cloth => 1.2f * ClothNeed * hh.Members[h], Good.Basic => 6f * CraftersIn(h), Good.Fine => _soldiersOf.GetValueOrDefault(h), _ => 0f };
-            float spare = G(h, g) - keep;
+            float spare = G(h, g) - KeepOf(h, g);
             if (spare > 0.05f) { sellers.Add((h, spare)); supply += spare; }
             else if (want > 0.05f) { buyers.Add((h, want)); demand += want; }
         }
-        float price = supply > 0f ? BasePrice[gi] * Math.Clamp(demand / supply, 0.4f, 3f) : BasePrice[gi] * 3f;
         int pi = v * GoodCount + gi;
+        // 자재는 지난해 지으려다 모자랐던 양이 수요다. 팔 것도 바라는 이도 없으면 값은 기본값으로 돌아간다
+        float pd = demand + (g == Good.Build ? _buildWant.GetValueOrDefault(v) : 0f);
+        float price = supply > 0f ? BasePrice[gi] * Math.Clamp(pd / supply, 0.4f, 3f) : pd > 0f ? BasePrice[gi] * 3f : BasePrice[gi];
         if (pi < _price.Count) _price[pi] = 0.7f * _price[pi] + 0.3f * price;   // 값은 천천히 움직인다
-        if (supply <= 0f || demand <= 0f) { if (pi < _resid.Count) _resid[pi] = supply - demand; return; }
+        if (supply <= 0f || demand <= 0f) { if (pi < _resid.Count) _resid[pi] = supply > 0f ? supply : -demand; return; }
         // 사는 쪽: 모자람 비율대로, 쓸 수 있는 식량만큼
         float wanted = MathF.Min(supply, demand);
         float bought = 0f;
@@ -271,7 +272,8 @@ public sealed partial class World
             hh.Food[h] += give * price;
         }
         Stats.GoodsSold += bought * price;
-        if (pi < _resid.Count) _resid[pi] = (supply - bought) - (demand - bought);
+        // 남은 공급이 있으면 내다 팔 것(+), 없으면 못 채운 수요(−)
+        if (pi < _resid.Count) _resid[pi] = supply - bought > 0.05f ? supply - bought : -(demand - bought);
     }
 
     // ------------------------------------------------------------------ 짓기
@@ -288,9 +290,11 @@ public sealed partial class World
         need -= own;
         if (need <= 0f) return;
         int v = hh.Village[payer];
+        if (v >= 0) _buildWant[v] = _buildWant.GetValueOrDefault(v) + need;
         float price = PriceAt(v, Good.Build);
-        for (int h = 0; h < hh.HighWater && need > 0.01f; h++)
+        foreach (int h in v >= 0 ? VillageHouses(v) : _noHouses)
         {
+            if (need <= 0.01f) break;
             if (!hh.IsAlive(h) || h == payer || hh.Village[h] != v || G(h, Good.Build) < 0.5f) continue;
             float take = MathF.Min(need, MathF.Min(G(h, Good.Build), MathF.Max(0f, hh.Food[payer]) / price));
             if (take <= 0f) break;
@@ -351,43 +355,72 @@ public sealed partial class World
     {
         var hh = Households;
         float got = 0f;
-        for (int h = 0; h < hh.HighWater && got < vol; h++)
+        var bought = new List<(int h, float amt)>();
+        foreach (int h in VillageHouses(from))
         {
+            if (got >= vol) break;
             if (!hh.IsAlive(h) || hh.Village[h] != from) continue;
             float spare = G(h, g) - KeepOf(h, g);
             if (spare <= 0.05f) continue;
             float take = MathF.Min(spare, vol - got);
             G(h, g) -= take; hh.Food[h] += take * lo; got += take;
+            bought.Add((h, take));
         }
         float sold = 0f;
-        for (int h = 0; h < hh.HighWater && sold < got; h++)
+        int days = DaysToHarvest();
+        foreach (int h in VillageHouses(to))
         {
+            if (sold >= got) break;
             if (!hh.IsAlive(h) || hh.Village[h] != to) continue;
             float want = Want(h, g);
             if (want <= 0.05f) continue;
-            float afford = MathF.Max(0f, hh.Food[h] - hh.Need[h] * DaysToHarvest()) * 0.5f / hi;
+            float afford = MathF.Max(0f, hh.Food[h] - hh.Need[h] * days) * 0.5f / hi;
             float give = MathF.Min(MathF.Min(want, afford), got - sold);
             if (give <= 0f) continue;
             G(h, g) += give; hh.Food[h] -= give * hi; sold += give;
         }
-        // 못 판 짐은 산 값에 되돌려 놓는다(장사꾼이 떠안지 않는다)
+        // 못 판 짐은 판 집들에게 산 값에 되돌려 놓는다(장사꾼이 떠안지 않는다)
         if (sold < got)
-            for (int h = 0; h < hh.HighWater && sold < got; h++)
+        {
+            float back = (got - sold) / got;
+            foreach (var (h, amt) in bought)
             {
-                if (!hh.IsAlive(h) || hh.Village[h] != from) continue;
-                float back = got - sold;
-                G(h, g) += back; hh.Food[h] -= back * lo;
-                got = sold;
-                break;
+                if (!hh.IsAlive(h)) continue;
+                float r = amt * back;
+                G(h, g) += r; hh.Food[h] -= r * lo;
             }
+        }
         return sold;
     }
 
+    /// <summary>집이 지니려는 양(이만큼은 팔지 않고, 모자라면 산다).</summary>
     private float KeepOf(int h, Good g) => g switch
     {
-        Good.Tools => Workers(h), Good.Cloth => 1.2f * ClothNeed * Households.Members[h], Good.Basic => 6f * CraftersIn(h),
-        Good.Fine => _soldiersOf.GetValueOrDefault(h), _ => 0f,
+        Good.Tools => Workers(h), Good.Cloth => 1.2f * ClothNeed * Households.Members[h], Good.Basic => CraftNeed(h),
+        Good.Fine => _soldiersOf.GetValueOrDefault(h) + (ClientCount(h) > 0 ? 1f : 0f), _ => 0f,
     };
+
+    /// <summary>새 집은 본가에서 도구와 옷가지를 나눠 들고 나온다(본가 것의 절반, 하나까지).</summary>
+    private void StarterGoods(int nh, int parent)
+    {
+        EnsureGoods();
+        var hh = Households;
+        G(nh, Good.Basic);   // 새 집 칸을 비운다
+        foreach (var g in new[] { Good.Tools, Good.Cloth })
+        {
+            float t = hh.IsAlive(parent) && parent != nh ? MathF.Min(1f, 0.5f * G(parent, g)) : 0f;
+            if (hh.IsAlive(parent) && parent != nh) G(parent, g) -= t;
+            G(nh, g) = t;
+        }
+    }
+
+    /// <summary>끊긴 집의 재화는 그 집 사람을 맡은 집이 물려받는다.</summary>
+    private void PassGoods(int h, int heir)
+    {
+        if (h * GoodCount >= _goods.Length || _goodsFounded[h] != Households.FoundedDay[h]) return;
+        if (heir < 0 || !Households.IsAlive(heir) || heir == h) return;
+        for (int k = 0; k < GoodCount; k++) G(heir, (Good)k) += _goods[h * GoodCount + k];
+    }
 
     /// <summary>약탈: 식량과 함께 도구, 의류, 고급 재료의 30%를 가져간다.</summary>
     private void LootGoods(int from, int to)

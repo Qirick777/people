@@ -197,7 +197,7 @@ public sealed partial class World
         if (g.Parent >= 0 && GroupById(g.Parent) is { } up)
         {
             int n = 1;
-            foreach (var c in ChildrenOf(up)) if (c.Id < g.Id) n++;
+            foreach (var c in _kids != null ? _kids.GetValueOrDefault(up.Id) ?? new List<Group>() : ChildrenOf(up)) if (c.Id < g.Id) n++;
             g.Name = $"{up.Name} {n}갈래";
         }
         else if (g.Home >= 0 && Households.IsAlive(g.Home) && People.IsValid(Households.Head[g.Home]))
@@ -210,13 +210,18 @@ public sealed partial class World
     /// <summary>맨 위부터 아래로 이름을 맞춘다(위 이름이 바뀌면 갈래 이름도 따라간다).</summary>
     public void RefreshNames()
     {
+        // 갈래 목록을 한 번 만들어 둔다(조직마다 전체를 훑지 않게)
+        _kids = new Dictionary<int, List<Group>>();
+        foreach (var g in _groups) if (g.Alive && g.Parent >= 0) (_kids.TryGetValue(g.Parent, out var l) ? l : _kids[g.Parent] = new()).Add(g);
         void Walk(Group g, int d)
         {
             AutoName(g);
-            if (d < 16) foreach (var c in ChildrenOf(g).ToList()) Walk(c, d + 1);
+            if (d < 16 && _kids.TryGetValue(g.Id, out var cs)) foreach (var c in cs) Walk(c, d + 1);
         }
         foreach (var g in _groups.ToList()) if (g.Alive && g.Parent < 0) Walk(g, 0);
+        _kids = null;
     }
+    private Dictionary<int, List<Group>>? _kids;
 
     /// <summary>이름을 짓는다. 빈 이름이면 지은 이름을 버리고 저절로 붙는 이름으로 돌아간다.</summary>
     public void RenameGroup(Group g, string name)

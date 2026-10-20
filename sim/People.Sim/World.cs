@@ -104,6 +104,7 @@ public sealed partial class World
         var id = People.Add(male, birth, PersonId.None, PersonId.None, household);
         Join(id.Index, household);
         People.Uid[id.Index] = Lineage.Add(male, birth, -1, -1);
+        _uidIndex[People.Uid[id.Index]] = id.Index;
         // 시작 가문마다 상속 방식을 정한다(반반). 자손은 가문의 방식을 따른다.
         Lineage.SetPolicy(Lineage.FamilyOf(People.Uid[id.Index]), _rng.NextBool() ? InheritPolicy.Partible : InheritPolicy.Primogeniture);
         Genetics.Randomize(People.Genome(id.Index), male, ref _rng);
@@ -249,6 +250,7 @@ public sealed partial class World
         Map.Release(h, hh);
         _deadHead.Remove(h);
         var (level, fp) = TakeResidence(h);
+        PassGoods(h, heir);
         if (keepHouse) { hh.Remove(h); return; }   // 집(성)은 상속자가 들어가 산다
         if (Layout && hh.Village[h] >= 0)
             _vacant.Add(new VacantHouse
@@ -369,6 +371,7 @@ public sealed partial class World
         Join(child.Index, household);
         int legal = p.PregnancyLegalFatherUid[mother];
         p.Uid[child.Index] = Lineage.Add(male, Day, p.PregnancyFatherUid[mother], p.Uid[mother], legal);
+        _uidIndex[p.Uid[child.Index]] = child.Index;
         if (legal != p.PregnancyFatherUid[mother]) Stats.HiddenFatherBirths += legal >= 0 ? 1 : 0;
         if (legal < 0) Stats.Bastards++;
         if (legal >= 0 && p.Concubine[mother] && p.IsValid(p.Husband[mother]) && p.Uid[p.Husband[mother].Index] == legal)
@@ -462,28 +465,28 @@ public sealed partial class World
         float zz = Config.WeatherCorrelation * prev + MathF.Sqrt(1 - Config.WeatherCorrelation * Config.WeatherCorrelation) * z;
         Weather = Math.Clamp(1f + Config.WeatherSd * zz, 0.3f, 1.4f);
         Stats.Begin(Day, Weather);
-        RebuildHouseholdGrid();
-        ChooseFloods();
-        RecountHouseholds();
-        DecayVacant();
-        SocialYear();
-        YearOfWork();
-        GoodsYear();
+        Timed("해/RebuildHouseholdGrid", RebuildHouseholdGrid);
+        Timed("해/ChooseFloods", ChooseFloods);
+        Timed("해/RecountHouseholds", RecountHouseholds);
+        Timed("해/DecayVacant", DecayVacant);
+        Timed("해/SocialYear", SocialYear);
+        Timed("해/YearOfWork", YearOfWork);
+        Timed("해/GoodsYear", GoodsYear);
         if (Layout) Stats.RegrownForest += Map.AgeAbandoned(Config.ForestYears);
-        Splits();
-        ClaimLand();
+        Timed("해/Splits", Splits);
+        Timed("해/ClaimLand", ClaimLand);
         if (Layout) Stats.Swaps += Map.Consolidate(Households, Households.HighWater, Config.SwapTolerance);
-        LeaseMarket();
-        ReleaseExcess();
-        WageMarket();
-        ProtectionYear();
-        ArrangeYear();
-        FamilyYear();
-        GroupYear();
-        RiseYear();
-        CrimeYear();
+        Timed("해/LeaseMarket", LeaseMarket);
+        Timed("해/ReleaseExcess", ReleaseExcess);
+        Timed("해/WageMarket", WageMarket);
+        Timed("해/ProtectionYear", ProtectionYear);
+        Timed("해/ArrangeYear", ArrangeYear);
+        Timed("해/FamilyYear", FamilyYear);
+        Timed("해/GroupYear", GroupYear);
+        Timed("해/RiseYear", RiseYear);
+        Timed("해/CrimeYear", CrimeYear);
         if (Layout) UpdateTraffic();
-        UpgradeHouses();
+        Timed("해/UpgradeHouses", UpgradeHouses);
     }
 
     private HashSet<int> _flooded = new();
@@ -717,6 +720,7 @@ public sealed partial class World
         list ??= MembersOf(h);
         int nh = SettleNewHousehold(h);
         if (nh < 0) return -1;
+        StarterGoods(nh, h);
         // 이 남자, 아내들, 그 사이 아이들을 옮긴다.
         int moved = 0;
         var me = p.IdAt(i);
