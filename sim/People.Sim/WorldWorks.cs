@@ -237,7 +237,7 @@ public sealed partial class World
             int i = RandomVillager(v);
             if (i < 0) continue;
             p.Piety[i] = MathF.Min(1f, p.Piety[i] + 0.01f * (0.5f + cha));
-            if (p.Piety[i] > 0.6f && !InGroup(i, root) && GroupsOf(i).Count() < GroupSlots && RuleAllows(root, i) && JoinFactor(root, i) > 0f && _rng.Chance(0.2f))
+            if (p.Piety[i] > 0.6f && !InGroup(i, root) && GroupsOf(i).Count() < GroupSlots && RuleAllows(root, i) && JoinFactor(root, i) > 0f && _rng.Chance(0.15f + 0.1f * AuthorityPull(i, root)))
                 if (JoinGroup(i, root)) Stats.Converts++;
         }
         // 헌금은 이 갈래에 바로 딸린 신도에게서만 받는다(갈래마다 같은 신도에게 거두지 않게)
@@ -385,7 +385,8 @@ public sealed partial class World
         if (uid < 0 || p.RelAff[sl] < 10f) return;
         int t = FindAlive(uid);
         if (t < 0 || !Adult(t) || IsPlayer(t) || InGroup(t, root) || GroupOfKind(t, root.Kind) != null || GroupsOf(t).Count() >= GroupSlots || !RuleAllows(root, t)) return;
-        float a = 0.2f + Social.Opinion(p, t, p.Uid[r]) / 100f + 0.2f * p.Get(t, Trait.Ambition) + (IsIdleScholar(t) ? 0.2f : 0f);   // 자리 없는 배운 사람은 잘 넘어온다
+        float a = 0.2f + Social.Opinion(p, t, p.Uid[r]) / 100f + 0.2f * p.Get(t, Trait.Ambition) + (IsIdleScholar(t) ? 0.2f : 0f)   // 자리 없는 배운 사람은 잘 넘어온다
+                + 0.2f * (AuthorityPull(t, root) - 0.5f);
         if (_rng.Chance(Math.Clamp(a, 0.02f, 0.9f)) && JoinGroup(t, unit)) Stats.SecretRecruits++;
     }
 

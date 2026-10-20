@@ -199,7 +199,9 @@ public sealed partial class World
                 if (hh.IsAlive(x) && hh.Village[x] == v && HeadIdx(x) is int xh && xh >= 0 && p.LoyalUid[xh] == lu && p.Loyalty[xh] > 0.5f) loyal++;
             }
             float dist = MathF.Sqrt(Dist2(lord, cur));
-            float notice = 0.2f + 0.2f * Established(v) + 0.06f * MathF.Min(6, loyal) + (_collectorsOf.GetValueOrDefault(lord) > 0 ? 0.15f : 0f)
+            // 올라서는 세력이 센 줄 알수록 잘 알아챈다(지배자 가장이 아는 권위)
+            var riserOrg = LordOrg(cur, false);
+            float notice = 0.1f + 0.2f * (riserOrg != null ? AuthorityPull(lh, riserOrg) : 0.5f) + 0.2f * Established(v) + 0.06f * MathF.Min(6, loyal) + (_collectorsOf.GetValueOrDefault(lord) > 0 ? 0.15f : 0f)
                          + 0.3f * Notoriety(cur) - 0.4f * MathF.Min(1f, dist / Config.VassalRange);
             if (!_rng.Chance(Math.Clamp(notice, 0.05f, 0.95f))) continue;
             Stats.RiseNoticed++;
@@ -215,7 +217,7 @@ public sealed partial class World
         foreach (var (lord, cur) in noticed)
         {
             int rh = HeadIdx(cur), lh = HeadIdx(lord);
-            if (rh >= 0 && lh >= 0) Chron(rh, $"{Subj(Names.Full(Lineage, p.Uid[lh]))} 우리 집이 세를 늘리는 것을 알아챘다");
+            if (rh >= 0 && lh >= 0) Chron(rh, $"{Subj(Names.Full(Lineage, p.Uid[lh]))} 우리 집의 세가 느는 것을 알아챘다");
         }
     }
 

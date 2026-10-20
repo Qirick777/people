@@ -23,7 +23,8 @@ var acc := 0.0
 var since_draw := 0
 var actor := -1                          # 상호작용을 할 내 가족(사람 번호)
 var shown := {}                          # 카드에 띄운 것 {"kind", "uid" | "id"}
-var pending := {}                        # 고르는 중인 상호작용 {"id", "target", "third"}
+var pending := {}                        # 고르는 중인 상호작용 {"id", "target", "third", "actor"}
+var shown_crimes_for := -1               # 범죄 묶음을 펼친 상대(사람 번호)
 var marry_button: Button
 var kin_box: VBoxContainer
 var kin_title: Label
@@ -55,6 +56,8 @@ var review := false                      # 검토용 세계
 var show_button: Button
 var show_panel: PanelContainer
 var show_box: VBoxContainer
+var hint_age := 0.0
+var hint_sticky := false
 
 
 func _ready() -> void:
@@ -77,6 +80,7 @@ func _ready() -> void:
 func _start(rev: bool) -> void:
 	review = rev
 	started = true
+	_set_hint("")
 	start_panel.visible = false
 	boot_panel.visible = true
 	show_button.visible = rev
@@ -86,6 +90,9 @@ func _start(rev: bool) -> void:
 
 func _process(dt: float) -> void:
 	if not started: return
+	if notice.visible and not hint_sticky:
+		hint_age += dt
+		if hint_age > 30.0: _set_hint("")
 	if not host.Ready:
 		boot_label.text = "세계를 만드는 중… %d년째" % host.BootYear
 		if host.BootError != "": boot_label.text = host.BootError
@@ -95,9 +102,9 @@ func _process(dt: float) -> void:
 		_recenter(host.BiggestVillage())
 		if autotest: _run_autotest()
 		elif review:
-			_set_hint("볼 만한 집을 골라 맡는다. 위 막대의 '둘러보기'로 다시 연다.")
+			_set_hint("볼 만한 집을 골라 맡는다. 위 막대의 '둘러보기'로 다시 연다.", true)
 			_open_showcase()
-		else: _set_hint("집을 눌러 '이 집을 맡는다'를 고르면 시작한다.")
+		else: _set_hint("집을 눌러 '이 집을 맡는다'를 고르면 시작한다.", true)
 	if speed > 0 and host.Player >= 0:
 		acc += dt * SPEEDS[speed]
 		var days := int(acc)
@@ -116,7 +123,15 @@ func _process(dt: float) -> void:
 			_refresh_judge_button()
 			since_draw += days
 			if int(host.Player) != last_player and last_player >= 0:
-				_on_player_changed()
+				if int(host.Player) < 0:
+					# 혈통이 끊겼다: 맡을 혈족 집이 없다
+					last_player = -1
+					actor = -1
+					pending = {}
+					_set_speed(0)
+					_set_hint("대가 끊겨 맡은 집이 사라졌다. 이어 맡을 혈족 집이 없다. 다른 집을 눌러 새로 맡을 수 있다.", true)
+				else:
+					_on_player_changed()
 				since_draw = 6
 			if since_draw >= 6:
 				since_draw = 0
@@ -140,6 +155,7 @@ func _redraw() -> void:
 	scene.show_data(data)
 	_refresh_family()
 	_refresh_card()
+	_refresh_judge_button()
 	for line in host.DrainChronicle(): _log(line)
 
 
@@ -150,9 +166,17 @@ func _refresh_card() -> void:
 		if pd == null: card.visible = false; scene.ring.visible = false; return
 		_show_person(pd)
 	else:
-		var hi: int = scene.house_index(shown["id"])
+		var hi: int = scene.house_index(shown["id"]) if int(shown["id"]) >= 0 else _house_at(int(shown["x"]), int(shown["y"]))
 		if hi < 0: card.visible = false; scene.ring.visible = false; return
 		_show_house(hi)
+
+
+## 빈집은 번호가 없어 자리로 찾는다.
+func _house_at(x: int, y: int) -> int:
+	var hs: Array = data.get("houses", [])
+	for k in hs.size():
+		if origin.x + int(hs[k][0]) == x and origin.y + int(hs[k][1]) == y: return k
+	return -1
 
 
 # ------------------------------------------------------------------ 카드
@@ -169,13 +193,14 @@ func _show_person(pd: Dictionary) -> void:
 		for it in host.SelfActions(actor):
 			var key: String = it["key"]
 			own.append({"text": it["name"], "note": it["note"], "risky": it["risky"], "cb": func(): _do_self(key)})
-		card.add_actions("모임 세우기·나가기", own)
+		card.add_actions("조직 세우기·나가기", own)
 		return
 	if actor < 0: return
-	if not pending.is_empty() and int(pending["target"]) == target:
+	if not pending.is_empty() and int(pending["target"]) == target and int(pending.get("actor", -1)) == actor:
 		_show_choices(target)
 		return
 	pending = {}
+	if int(shown_crimes_for) != target: shown_crimes_for = -1
 	var items := []
 	var crimes := []
 	for it in host.Interactions(actor, target):
@@ -185,6 +210,7 @@ func _show_person(pd: Dictionary) -> void:
 			if it.has("take"): cn.append("식량 %d" % int(float(it["take"])))
 			cn.append("잡힐 확률 %d%%" % int(round(float(it["caught"]) * 100.0)))
 			cn.append("벌: " + it["punish"])
+			if float(it["chance"]) < 0.02: continue      # 해낼 리 없는 범죄는 보이지 않는다
 			crimes.append({"text": it["name"], "note": " · ".join(cn), "chance": float(it["chance"]), "risky": true, "cb": func(): _do(id, target)})
 			continue
 		if it["needsThird"]:
@@ -200,7 +226,14 @@ func _show_person(pd: Dictionary) -> void:
 		elif it["secret"]: notes.append("몰래 하는 일")
 		items.append({"text": it["name"], "note": " · ".join(notes), "chance": float(it["chance"]), "risky": it["secret"] or it["harsh"], "cb": func(): _do(id, target)})
 	card.add_actions("할 수 있는 일", items, "%s 하는 일 · 오른쪽 숫자는 받아들일 확률" % World_subj(_actor_name()))
-	if not crimes.is_empty(): card.add_actions("범죄", crimes, "오른쪽 숫자는 해낼 확률. 잡힐 확률은 들켜서 신고되고 붙잡힐 확률이다")
+	if not crimes.is_empty():
+		# 범죄는 접어 둔다(카드가 길어 다른 일이 밀리지 않게)
+		if shown_crimes_for == target:
+			card.add_actions("범죄", crimes, "오른쪽 숫자는 해낼 확률. 잡힐 확률은 들켜서 신고되고 붙잡힐 확률이다")
+		else:
+			card.add_actions("범죄", [{"text": "범죄 %d가지 펼치기" % crimes.size(), "ghost": true, "cb": func():
+				shown_crimes_for = target
+				_refresh_card()}])
 
 
 ## 세 번째 사람이나 값을 고르는 중: 후보마다 받아들일 확률을 보여 준다.
@@ -211,6 +244,7 @@ func _show_choices(target: int) -> void:
 		for c in host.ThirdCandidates(id, actor, target):
 			var t := int(c["i"])
 			var ch := -1.0 if host.HasAmounts(id) else float(c["chance"])
+			if ch >= 0.0 and ch < 0.01: continue
 			items.append({"text": c["name"], "note": c["sub"], "chance": ch, "cb": func(): _pick_third(t)})
 		items.append({"text": "그만둔다", "ghost": true, "cb": _cancel})
 		card.add_actions(_label_for(id), items)
@@ -219,6 +253,7 @@ func _show_choices(target: int) -> void:
 	var third := int(pending["third"])
 	for o in host.AmountOptions(id, actor, target, third):
 		var amt := float(o["amount"])
+		if float(o["chance"]) < 0.01: continue
 		items.append({"text": o["name"], "note": "식량 %d" % int(amt) if amt > 0 else "", "chance": float(o["chance"]), "cb": func(): _finish(amt)})
 	items.append({"text": "그만둔다", "ghost": true, "cb": _cancel})
 	card.add_actions("얼마를 줄까" if third < 0 else "얼마를 얹을까", items)
@@ -232,12 +267,12 @@ func _label_for(id: int) -> String:
 
 
 func _begin_amount(id: int, target: int) -> void:
-	pending = {"id": id, "target": target, "third": -1}
+	pending = {"id": id, "target": target, "third": -1, "actor": actor}
 	_refresh_card()
 
 
 func _begin(id: int, target: int) -> void:
-	pending = {"id": id, "target": target}
+	pending = {"id": id, "target": target, "actor": actor}
 	_refresh_card()
 
 
@@ -260,7 +295,8 @@ func _cancel() -> void:
 
 func _show_house(hi: int) -> void:
 	var hinfo: Dictionary = data["hinfo"][hi]
-	shown = {"kind": "house", "id": int(hinfo.get("id", -1))}
+	var hd: Array = data["houses"][hi]
+	shown = {"kind": "house", "id": int(hinfo.get("id", -1)), "x": origin.x + int(hd[0]), "y": origin.y + int(hd[1])}
 	card.show_house(data["houses"][hi], hinfo, scene.members_of(hi))
 	scene.mark_house(hi)
 	if int(data["houses"][hi][2]) > 0 and int(hinfo.get("id", -1)) != host.Player:
@@ -296,6 +332,8 @@ func _do(id: int, target: int, third := -1, amount := 0.0) -> void:
 func _on_player_changed() -> void:
 	last_player = host.Player
 	actor = -1
+	pending = {}
+	_set_hint("")
 	var pos: Vector2i = host.HousePos(last_player)
 	if pos.x >= 0 and (pos.x - origin.x < 8 or pos.y - origin.y < 8 or pos.x - origin.x >= REGION.x - 8 or pos.y - origin.y >= REGION.y - 8):
 		_recenter(pos)
@@ -393,7 +431,10 @@ func _refresh_kin() -> void:
 		var nm := UI.label(e["head"], 13, UI.INK, true)
 		nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		inner.add_child(nm)
-		inner.add_child(_center(UI.label("%d촌 · %s · %d명" % [int(e["chon"]), e["label"], int(e["members"])], 11, UI.MUTED)))
+		var parts := ["%d촌" % int(e["chon"])]
+		if e["label"] != "": parts.append(e["label"])
+		parts.append("%d명" % int(e["members"]))
+		inner.add_child(_center(UI.label(" · ".join(parts), 11, UI.MUTED)))
 		b.add_child(inner)
 		var hx := int(e["x"]); var hy := int(e["y"])
 		b.pressed.connect(func(): _look_at_house(id, hx, hy))
@@ -457,7 +498,7 @@ func _open_tree() -> void:
 				tree_panel.visible = false)
 			r.add_child(t)
 		tree_box.add_child(r)
-	tree_panel.visible = true
+	_show_panel(tree_panel)
 
 
 func _open_orgs() -> void:
@@ -465,7 +506,7 @@ func _open_orgs() -> void:
 	for c in org_box.get_children(): c.queue_free()
 	var rows: Array = host.OrgPanel()
 	if rows.is_empty():
-		org_box.add_child(UI.label("내 집과 이어진 조직이 없다. 식구를 골라 자기 자신을 누르면 모임을 세울 수 있다.", 13, UI.MUTED))
+		org_box.add_child(UI.label("내 집과 이어진 조직이 없다. 식구를 골라 자기 자신을 누르면 조직을 세울 수 있다.", 13, UI.MUTED))
 	for e in rows:
 		var depth := int(e["depth"])
 		if depth == 0 and org_box.get_child_count() > 0: org_box.add_child(HSeparator.new())
@@ -482,8 +523,8 @@ func _open_orgs() -> void:
 		var info := "%s · 바로 %d명" % [e["leader"], int(e["members"])]
 		if int(e["inner"]) > 0: info += "(측근 %d, 소속원 %d)" % [int(e["inner"]), max(0, int(e["members"]) - int(e["inner"]) - 1)]
 		if int(e["total"]) != int(e["members"]): info += " · 모두 %d명" % int(e["total"])
-		info += " · 힘 %.0f" % float(e["strength"])
-		if depth == 0: info += " · 권위 %.0f · %s" % [float(e["authority"]), e["visibilityName"]]
+		info += " · 싸움 힘 %.0f" % float(e["strength"])
+		if depth == 0: info += " · 권위 %s(%.0f) · %s" % [_authority_word(float(e["authority"])), float(e["authority"]), e["visibilityName"]]
 		tv.add_child(UI.label(info, 12, UI.MUTED))
 		tv.add_child(UI.label(("정한 일: " if e["manual"] else "맡은 일: ") + e["tasks"], 12, UI.INK))
 		var teach: String = "가르침: " + e["lesson"] + (" %d%%" % int(float(e["teachShare"]) * 100.0) if float(e["teachShare"]) > 0.0 else "")
@@ -494,6 +535,7 @@ func _open_orgs() -> void:
 			var id := int(e["id"])
 			if e["canSplit"]:
 				var sb := UI.ghost("갈래 나누기")
+				sb.tooltip_text = "바로 딸린 사람의 절반으로 새 갈래를 만든다"
 				sb.pressed.connect(func():
 					host.SplitOrg(id)
 					_open_orgs())
@@ -502,13 +544,16 @@ func _open_orgs() -> void:
 			nb.pressed.connect(func(): _open_org_name(id, e["name"], e["named"]))
 			r.add_child(_center(nb))
 			var lb := UI.ghost("가르치기")
+			lb.tooltip_text = "무엇을 얼마나 가르칠지(가르치는 만큼 일이 준다)"
 			lb.pressed.connect(func(): _open_org_lessons(id, e["name"]))
 			r.add_child(_center(lb))
 			var tb := UI.ghost("일 정하기")
+			tb.tooltip_text = "이 갈래가 할 일을 직접 정한다"
 			tb.pressed.connect(func(): _open_org_tasks(id, e["name"]))
 			r.add_child(_center(tb))
 			if e["manual"]:
-				var ab := UI.ghost("AI에게")
+				var ab := UI.ghost("알아서 하게")
+				ab.tooltip_text = "정한 일을 풀고 우두머리가 스스로 일을 고르게 한다"
 				ab.pressed.connect(func():
 					host.OrgAuto(id)
 					_open_orgs())
@@ -521,6 +566,9 @@ func _open_orgs() -> void:
 			var pad2 := Control.new()
 			pad2.custom_minimum_size = Vector2(22, 0)
 			seg.add_child(pad2)
+			var vl := UI.label("알려진 정도 ", 12, UI.MUTED)
+			vl.tooltip_text = "숨길수록 의심을 피하지만 사람을 직접 끌어들여야 한다. 드러낼수록 사람이 스스로 모인다"
+			seg.add_child(_center(vl))
 			var vnames := ["완전 은폐", "일부 은폐", "중립", "공개", "완전 공개"]
 			var gid := int(e["id"])
 			for k in 5:
@@ -540,6 +588,7 @@ func _open_orgs() -> void:
 				var rs := HBoxContainer.new()
 				rs.add_theme_constant_override("separation", 0)
 				var lab := UI.label("   " + row[0] + " ", 12, UI.MUTED)
+				lab.tooltip_text = "누가 들어올 수 있나" if row[0] == "들기" else "번 것을 어떻게 나누나"
 				lab.custom_minimum_size = Vector2(60, 0)
 				rs.add_child(lab)
 				var opts: Array = row[1]
@@ -559,7 +608,7 @@ func _open_orgs() -> void:
 					rs.add_child(b)
 				org_box.add_child(rs)
 			if float(e["treasury"]) > 0.5: org_box.add_child(UI.label("      곳간 식량 %d" % int(float(e["treasury"])), 12, UI.MUTED))
-	org_panel.visible = true
+	_show_panel(org_panel)
 
 
 func _open_showcase() -> void:
@@ -591,7 +640,7 @@ func _open_showcase() -> void:
 			_on_player_changed())
 		r.add_child(_center(take))
 		show_box.add_child(r)
-	show_panel.visible = true
+	_show_panel(show_panel)
 
 
 func _refresh_judge_button() -> void:
@@ -674,7 +723,7 @@ func _open_rise() -> void:
 			rise_box.add_child(HSeparator.new())
 	if demands.is_empty() and rows.is_empty():
 		rise_box.add_child(UI.label("지금은 다툼이 없다. 세를 늘리면 위의 지배자가 알아챌 수 있고, 내 아래에서 세를 늘리는 집이 생기면 여기에 나온다.", 13, UI.MUTED))
-	rise_panel.visible = true
+	_show_panel(rise_panel)
 
 
 func _open_judge() -> void:
@@ -694,11 +743,15 @@ func _open_judge() -> void:
 			_open_judge())
 		seg.add_child(b)
 	judge_box.add_child(seg)
-	var all := UI.ghost("모든 사건을 직접 판결" if host.JudgeAll else "혈족·신하·살인만 직접 판결")
+	var jr := HBoxContainer.new()
+	jr.add_theme_constant_override("separation", 8)
+	jr.add_child(_center(UI.label("직접 판결: " + ("모든 사건" if host.JudgeAll else "혈족·신하·살인만"), 13, UI.INK)))
+	var all := UI.ghost("혈족·신하·살인만으로 바꾸기" if host.JudgeAll else "모든 사건으로 바꾸기")
 	all.pressed.connect(func():
 		host.JudgeAll = not host.JudgeAll
 		_open_judge())
-	judge_box.add_child(all)
+	jr.add_child(all)
+	judge_box.add_child(jr)
 	judge_box.add_child(HSeparator.new())
 	var cases: Array = host.Cases()
 	if cases.is_empty():
@@ -747,7 +800,7 @@ func _open_judge() -> void:
 			r.add_child(t)
 			r.add_child(UI.label(e["verdict"], 12, UI.MUTED, true))
 			judge_box.add_child(r)
-	judge_panel.visible = true
+	_show_panel(judge_panel)
 
 
 func _open_org_name(id: int, name: String, named: bool) -> void:
@@ -802,7 +855,7 @@ func _open_org_lessons(id: int, name: String) -> void:
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	note.custom_minimum_size = Vector2(600, 0)
 	org_box.add_child(note)
-	var names := ["안 가르침", "무예", "글", "장사", "공예", "교리", "이음"]
+	var names := ["없음", "무예", "글", "장사", "공예", "교리", "이음"]
 	for k in names.size():
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 6)
@@ -846,13 +899,38 @@ func _open_org_tasks(id: int, name: String) -> void:
 		org_box.add_child(b)
 
 
+## 가운데 창은 한 번에 하나만 띄운다.
+func _show_panel(p: PanelContainer) -> void:
+	for q in [tree_panel, org_panel, show_panel, rise_panel, judge_panel]:
+		if q != p: q.visible = false
+	p.visible = true
+	_refresh_judge_button()
+
+
+## Esc: 띄운 가운데 창을 닫고, 없으면 카드를 닫는다.
+func _close_top() -> void:
+	for q in [tree_panel, org_panel, show_panel, rise_panel, judge_panel]:
+		if q.visible:
+			q.visible = false
+			return
+	if not pending.is_empty():
+		_cancel()
+		return
+	if card.visible:
+		card.visible = false
+		scene.ring.visible = false
+		shown = {}
+
+
 func _center(c: Control) -> Control:
 	c.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	return c
 
 
 func _pick_member(i: int) -> void:
-	if int(_age_of(i)) >= 12: actor = i
+	if int(_age_of(i)) >= 12 and actor != i:
+		actor = i
+		pending = {}
 	_refresh_family()
 	for pd in data.get("people", []):
 		if int(pd["i"]) == i:
@@ -865,6 +943,15 @@ func _pick_member(i: int) -> void:
 func _age_of(i: int) -> int:
 	for m in _members(): if int(m["i"]) == i: return int(m["age"])
 	return 0
+
+
+## 권위(돈, 따르는 집, 싸움 힘, 충성을 합친 값)를 말로.
+func _authority_word(a: float) -> String:
+	if a < 10: return "보잘것없음"
+	if a < 40: return "작은 세력"
+	if a < 120: return "알아주는 세력"
+	if a < 300: return "큰 세력"
+	return "누구나 아는 세력"
 
 
 func _food_word(s: float) -> String:
@@ -892,6 +979,7 @@ func _unhandled_input(ev: InputEvent) -> void:
 			KEY_1: _set_speed(1)
 			KEY_2: _set_speed(2)
 			KEY_3: _set_speed(3)
+			KEY_ESCAPE: _close_top()
 
 
 func _physics_process(dt: float) -> void:
@@ -1000,7 +1088,7 @@ func _build_ui() -> void:
 	marry_button.pressed.connect(_toggle_marry)
 	tr.add_child(_center(marry_button))
 	var ob := UI.ghost("조직")
-	ob.tooltip_text = "내 집의 군대와 모임, 그 갈래"
+	ob.tooltip_text = "내 집의 군대와 조직, 그 갈래"
 	ob.pressed.connect(_open_orgs)
 	tr.add_child(_center(ob))
 	judge_button = UI.ghost("재판")
@@ -1018,7 +1106,7 @@ func _build_ui() -> void:
 	tr.add_child(_center(rise_button))
 	tr.add_child(_vsep())
 	stat_family = UI.stat("가문", "맡은 집 없음")
-	stat_kin = UI.stat("같은 성", "-")
+	stat_kin = UI.stat("성이 같은 사람", "-")
 	stat_land = UI.stat("땅", "-")
 	stat_food = UI.stat("식량", "-")
 	for st in [stat_family, stat_kin, stat_land, stat_food]: tr.add_child(st)
@@ -1103,7 +1191,7 @@ func _build_ui() -> void:
 	oc.pressed.connect(func(): org_panel.visible = false)
 	oh.add_child(oc)
 	ov.add_child(oh)
-	ov.add_child(UI.label("갈래마다 우두머리가 바로 부리는 사람과 맡은 일. 일을 정한 갈래는 AI 가 바꾸지 않는다.", 12, UI.MUTED))
+	ov.add_child(UI.label("갈래마다 우두머리가 바로 부리는 사람과 맡은 일. 일을 정한 갈래는 우두머리가 바꾸지 않는다.", 12, UI.MUTED))
 	var osc := ScrollContainer.new()
 	osc.custom_minimum_size = Vector2(620, 520)
 	osc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -1276,9 +1364,12 @@ func _log(line: String) -> void:
 		c.queue_free()
 
 
-func _set_hint(t: String) -> void:
+## 알림 띠. 오래된 알림은 30초 뒤 저절로 지운다(sticky 는 남긴다).
+func _set_hint(t: String, sticky := false) -> void:
 	hint_label.text = t
 	notice.visible = t != ""
+	hint_age = 0.0
+	hint_sticky = sticky
 
 
 # ------------------------------------------------------------------ 자동 점검
@@ -1370,7 +1461,7 @@ func _run_autotest() -> void:
 			var pd: Dictionary = e["pd"]
 			if mine.has(int(pd["i"])) or int(pd["age"]) < 16: continue
 			for t in 3:
-				var r: String = host.Interact(_id_of("모임에 들이기", int(pd["i"])), actor, int(pd["i"]), -1, 0.0) if _id_of("모임에 들이기", int(pd["i"])) >= 0 else ""
+				var r: String = host.Interact(_id_of("조직에 들이기", int(pd["i"])), actor, int(pd["i"]), -1, 0.0) if _id_of("조직에 들이기", int(pd["i"])) >= 0 else ""
 				if r.ends_with("받아들였다"): recruited += 1; break
 			if recruited >= 3: break
 		_redraw()

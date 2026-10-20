@@ -196,9 +196,24 @@ public sealed partial class World
         }
         if (g.Parent >= 0 && GroupById(g.Parent) is { } up)
         {
-            int n = 1;
-            foreach (var c in _kids != null ? _kids.GetValueOrDefault(up.Id) ?? new List<Group>() : ChildrenOf(up)) if (c.Id < g.Id) n++;
-            g.Name = $"{up.Name} {n}갈래";
+            // 번호는 처음 받은 것을 지킨다. 위 조직이 바뀌면 새로 받는다
+            if (g.BranchNo == 0 || g.BranchParent != up.Id)
+            {
+                int n = 0;
+                foreach (var c in _kids != null ? _kids.GetValueOrDefault(up.Id) ?? new List<Group>() : ChildrenOf(up))
+                    if (c != g && c.BranchParent == up.Id) n = Math.Max(n, c.BranchNo);
+                g.BranchNo = n + 1;
+                g.BranchParent = up.Id;
+            }
+            // 이름은 이름 있는 조직(맨 위, 지배자 조직, 붙은 조직) + 갈래 번호 줄: '밀러 영지 2-1갈래'
+            var nums = new List<int> { g.BranchNo };
+            var x = up;
+            for (int d = 0; d < 16 && x.Parent >= 0 && x.Home < 0 && !IsAttached(x) && !x.NameFixed && GroupById(x.Parent) is { } xu; d++)
+            {
+                nums.Insert(0, x.BranchNo);
+                x = xu;
+            }
+            g.Name = $"{x.Name} {string.Join("-", nums)}갈래";
         }
         else if (g.Home >= 0 && Households.IsAlive(g.Home) && People.IsValid(Households.Head[g.Home]))
         {
@@ -568,7 +583,7 @@ public sealed partial class World
         Stats.RevokeRefused++;
         RecountClients(); RecountTree();
         var lh = hh.Head[lord]; var vh = hh.Head[vassal];
-        if (p.IsValid(lh) && p.IsValid(vh)) Chron(lh.Index, $"{Names.Full(Lineage, p.Uid[vh.Index])}이(가) 집을 내놓지 않고 떨어져 나갔다");
+        if (p.IsValid(lh) && p.IsValid(vh)) Chron(lh.Index, $"{Subj(Names.Full(Lineage, p.Uid[vh.Index]))} 집을 내놓지 않고 떨어져 나갔다");
         if (p.IsValid(vh)) Chron(vh.Index, $"{SubjName(vh.Index)} 주군의 회수를 거부하고 홀로 섰다");
     }
 

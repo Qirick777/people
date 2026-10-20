@@ -87,7 +87,7 @@ public sealed partial class World
                     }
                 w.Wed(man, woman);
                 p.Honor[man] -= 0.03f;   // 교회는 첩을 꾸짖는다
-                w.Chron(man, $"{w.SubjName(man)} {Names.Full(w.Lineage, p.Uid[woman])}을(를) 첩으로 들였다");
+                w.Chron(man, $"{w.SubjName(man)} {Obj(Names.Full(w.Lineage, p.Uid[woman]))} 첩으로 들였다");
             },
             Fail = (w, c) => w.RememberRejection(c.Actor, w.People.Uid[c.Target]),
         };
@@ -117,7 +117,7 @@ public sealed partial class World
                     if (w.AgeYears(c.Target) < 16 && !w.SameHouse(c.Actor, c.Target)) w.MoveTo(c.Target, p.Household[c.Actor]);
                 }
                 Social.AddFrom(p, c.Target, c.Actor, 30f);
-                w.Chron(c.Actor, $"{w.SubjName(c.Actor)} {Names.Full(w.Lineage, u)}을(를) 자식으로 인정했다");
+                w.Chron(c.Actor, $"{w.SubjName(c.Actor)} {Obj(Names.Full(w.Lineage, u))} 자식으로 인정했다");
                 w.Stats.Acknowledged++;
             },
         };
@@ -293,7 +293,7 @@ public sealed partial class World
         Social.Remember(p, k, MemoryType.Disowned, p.Uid[head], Day, -70);
         Social.Remember(p, head, MemoryType.Disowned, p.Uid[k], Day, -40);
         if (HeirOf(h) == k) _heir.Remove(h);
-        Chron(head, $"{SubjName(head)} {Names.Full(Lineage, p.Uid[k])}와(과) 의절했다");
+        Chron(head, $"{SubjName(head)} {With(Names.Full(Lineage, p.Uid[k]))} 의절했다");
         if (p.Male[k] && p.WifeCount[k] > 0 && SplitOff(k, h) >= 0) { RecountHouseholds(); }
         else
         {

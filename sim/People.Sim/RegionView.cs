@@ -105,12 +105,17 @@ public static class RegionView
             if (age >= 16 && p.Get(i, Trait.Strength) > 0.75f) hints.Add("힘이 세다");
             if (p.Get(i, Trait.Constitution) < 0.3f) hints.Add("몸이 약하다");
             if (p.Get(i, Trait.Looks) > 0.75f) hints.Add("얼굴이 곱다");
+            // 타고난 몸과 충성은 식구이거나 떠본 사람만 안다(플레이어 집이 없으면 다 보인다)
+            bool close = ph < 0 || p.Household[i] == ph || w.PlayerProbed(uid);
             var health = new List<string>();
-            if (Genetics.Expressed(g, Marker.Frailty, male)) health.Add("허약 체질");
-            if (Genetics.Expressed(g, Marker.ShortLife, male)) health.Add("단명 기질");
-            if (Genetics.Expressed(g, Marker.DiseaseA, male)) health.Add("유전병");
-            if (Genetics.Expressed(g, Marker.ColorBlind, male)) health.Add("색맹");
-            if (p.LoadHits[i] > 0) health.Add($"타고난 병약함 {p.LoadHits[i]}가지");
+            if (close)
+            {
+                if (Genetics.Expressed(g, Marker.Frailty, male)) health.Add("허약 체질");
+                if (Genetics.Expressed(g, Marker.ShortLife, male)) health.Add("단명 기질");
+                if (Genetics.Expressed(g, Marker.DiseaseA, male)) health.Add("유전병");
+                if (Genetics.Expressed(g, Marker.ColorBlind, male)) health.Add("색맹");
+                if (p.LoadHits[i] > 0) health.Add($"타고난 병약함 {p.LoadHits[i]}가지");
+            }
             if (p.Inbreeding[i] >= 0.1f) health.Add("가까운 친척 사이의 자식");
             string hair = age >= 58 ? "grey" : Genetics.Expressed(g, Marker.RedHair, male) ? "red" : Genetics.Expressed(g, Marker.Blond, male) ? "blond" : p.Get(i, Trait.HairDark) > 0.5f ? "dark" : "brown";
             string spouse = !male && p.IsValid(p.Husband[i]) ? Names.Full(lin, p.Uid[p.Husband[i].Index])
@@ -120,7 +125,7 @@ public static class RegionView
             string Parent(int u) => u < 0 ? "" : Names.Full(lin, u) + (lin.Death(u) >= 0 ? " (죽음)" : "") + (lin.JobOf(u) != Job.Farmer ? $" · {Skills.JobName(lin.JobOf(u))}" : "");
             if (!firstP) sb.Append(',');
             firstP = false;
-            sb.Append($"{{\"h\":{hi},\"i\":{i},\"uid\":{uid},\"pregnant\":{(p.PregnantUntil[i] >= 0 ? "true" : "false")},\"hungry\":{(p.HungryToday[i] ? "true" : "false")},\"loyalty\":{p.Loyalty[i].ToString("0.00", inv)},\"fanatic\":{(p.Fanatic[i] != 0 ? "true" : "false")},\"honor\":{p.Honor[i].ToString("0.00", inv)},\"name\":{J(Names.Full(lin, uid))},\"family\":{J(Names.Family(lin.FamilyOf(uid)))},\"male\":{(male ? "true" : "false")},\"age\":{age},");
+            sb.Append($"{{\"h\":{hi},\"i\":{i},\"uid\":{uid},\"pregnant\":{(p.PregnantUntil[i] >= 0 ? "true" : "false")},\"hungry\":{(p.HungryToday[i] ? "true" : "false")},{(close ? $"\"loyalty\":{p.Loyalty[i].ToString("0.00", inv)},\"fanatic\":{(p.Fanatic[i] != 0 ? "true" : "false")}," : "")}\"honor\":{p.Honor[i].ToString("0.00", inv)},\"name\":{J(Names.Full(lin, uid))},\"family\":{J(Names.Family(lin.FamilyOf(uid)))},\"male\":{(male ? "true" : "false")},\"age\":{age},");
             int ptier = w.TierOf(p.Household[i]);
             string cls = ptier >= 1 ? World.TierName(ptier) : World.ClassName(w.ClassOf(p.Household[i]));
             string jobName = age < 16 ? (master != "" ? "도제" : "아이") : job == Job.SexWorker && male ? "남창" : job != Job.Farmer ? Skills.JobName(job) : cls != "" ? cls : "농부";
@@ -132,7 +137,7 @@ public static class RegionView
             sb.Append($"\"right\":\"{(right == Birthright.Concubine ? "서자" : right == Birthright.Bastard && lin.Father(uid) < 0 && (f >= 0 || m >= 0) ? "사생아" : "")}\",");
             sb.Append($"\"heir\":{(w.HeirOf(p.Household[i]) == i ? "true" : "false")},\"concubine\":{(!male && p.Concubine[i] && p.IsValid(p.Husband[i]) ? "true" : "false")},\"disowned\":{(lin.Disowned(uid) ? "true" : "false")},");
             // 모임과 가문
-            var gs = w.GroupsOf(i).Select(g => $"[{J(g.Name)},{J(w.IsLeader(i, g) ? "우두머리" : "회원")},{J(World.GroupKindName(g.Kind))},{(g.Sanction >= 0 ? "true" : "false")}]");
+            var gs = w.GroupsOf(i).Where(g => w.PlayerSeesMembership(i, g)).Select(g => $"[{J(g.Name)},{J(w.IsLeader(i, g) ? "우두머리" : "회원")},{J(World.GroupKindName(g.Kind))},{(g.Sanction >= 0 ? "true" : "false")}]");
             sb.Append($"\"groups\":[{string.Join(",", gs)}],");
             if (clans.TryGetValue(lin.FamilyOf(uid), out var clan) && clan.head >= 0)
                 sb.Append($"\"clan\":[{J(Names.Family(lin.FamilyOf(uid)))},{J(Names.Full(lin, p.Uid[clan.head]))},{clan.count},{(clan.head == i ? "true" : "false")}],");

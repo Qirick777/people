@@ -266,7 +266,7 @@ public partial class SimHost : Node
         if (parts[0] == "found")
         {
             var g = w.FoundGroup(actor, (GroupKind)int.Parse(parts[1]));
-            return $"{g.Name}을(를) 세웠다. 이웃을 눌러 '모임에 들이기'로 사람을 모은다";
+            return $"{World.Obj(g.Name)} 세웠다. 이웃을 눌러 '조직에 들이기'로 사람을 모은다";
         }
         var gr = w.GroupById(int.Parse(parts[1]));
         if (gr == null) return "";
@@ -402,7 +402,7 @@ public partial class SimHost : Node
         var w = _w!; var p = w.People;
         var def = w.Def((InteractionId)id);
         string an = Names.Full(w.Lineage, p.Uid[actor]), tn = Names.Full(w.Lineage, p.Uid[target]);
-        string about = third >= 0 && p.IsAliveIndex(third) ? $"({Names.Full(w.Lineage, p.Uid[third])}" + (amount > 0 ? $", {amount:0})" : ")") : "";
+        string about = third >= 0 && p.IsAliveIndex(third) ? $"({Names.Full(w.Lineage, p.Uid[third])}" + (amount > 0 ? $", 식량 {amount:0})" : ")") : "";
         w.LastCrime = null;   // 이번 행동이 만든 사건만 본다
         var r = w.Interact((InteractionId)id, new InteractionContext { Actor = actor, Target = target, Third = third, Amount = amount });
         string outcome = r.Accepted ? "받아들였다" : "거절당했다";
@@ -421,6 +421,16 @@ public partial class SimHost : Node
                     Verdict.Pending => " · 잡혀서 판결을 기다린다",
                     _ => last.VictimKnows ? " · 상대가 나를 알아보았다" : "",
                 };
+        }
+        if (def.Id is InteractionId.Steal or InteractionId.Assault or InteractionId.Extort or InteractionId.Murder)
+        {
+            // 범죄는 무엇을 했는지 동사로 쓴다. 사건이 생겼으면 연대기에는 이미 적혔다
+            var last = w.LastCrime;
+            if (last != null && last.Culprit == p.Uid[actor])
+                return $"{World.Subj(an)} {World.DidText(last.Type, tn, last.Attempt)}" + (r.Accepted && r.Amount > 0.5f ? $"(식량 {r.Amount:0})" : "") + outcome[(outcome.IndexOf(" · ") is int k && k >= 0 ? k : outcome.Length)..];
+            string none = $"{World.Subj(an)} {tn}에게 {World.Obj(def.Name)} 해 보려 했지만 틈이 없었다";
+            w.Chronicle.Add((w.Day, none));
+            return none;
         }
         string text = $"{World.Subj(an)} {tn}에게 {def.Name}{about}: " + outcome + (r.Pregnant ? " (아이가 들어섰다)" : "");
         w.Chronicle.Add((w.Day, text));
@@ -451,6 +461,10 @@ public partial class SimHost : Node
         foreach (var root in roots)
         {
             bool command = mineUids.Contains(root.LeaderUid) || root.Home == h;
+            // 권위는 우리 집 사람이 아는 만큼. 완전 은폐 조직의 조직원은 자기 갈래만 안다
+            float known = mine.Count > 0 ? mine.Max(i => w.PerceivedAuthority(i, root)) : 0f;
+            bool onlyOwn = !command && root.Visibility == Visibility.Hidden;
+            var ownUnits = mine.SelectMany(i => w.GroupsOf(i)).Where(g => w.RootOf(g).Id == root.Id).Distinct().ToList();
             void Walk(Group g, int depth)
             {
                 int leader = FindAlive(g.LeaderUid);
@@ -470,7 +484,7 @@ public partial class SimHost : Node
                     ["named"] = g.NameFixed,
                     ["visibility"] = depth == 0 ? (int)g.Visibility : -1,
                     ["visibilityName"] = World.VisibilityName(g.Visibility),
-                    ["authority"] = depth == 0 ? g.Authority : 0f,
+                    ["authority"] = depth == 0 ? known : 0f,
                     ["leak"] = g.Leak,
                     ["inner"] = g.Inner.Count,
                     ["lesson"] = World.LessonName(g.Lesson),
@@ -486,7 +500,24 @@ public partial class SimHost : Node
                 });
                 foreach (var c in w.ChildrenOf(g).ToList()) Walk(c, depth + 1);
             }
-            Walk(root, 0);
+            if (onlyOwn) foreach (var u in ownUnits) WalkOne(u);
+            else Walk(root, 0);
+            // 완전 은폐: 내 갈래 한 줄만(위아래 갈래는 모른다)
+            void WalkOne(Group g)
+            {
+                int leader = FindAlive(g.LeaderUid);
+                a.Add(new Godot.Collections.Dictionary
+                {
+                    ["id"] = g.Id, ["depth"] = 0, ["label"] = w.UnitLabel(g), ["name"] = g.Name,
+                    ["leader"] = leader >= 0 ? Names.Full(w.Lineage, g.LeaderUid) : "우두머리 없음",
+                    ["members"] = g.Members, ["total"] = g.Members, ["strength"] = g.OwnStrength,
+                    ["tasks"] = string.Join(", ", g.Tasks.OrderByDescending(t => t.Weight).Select(t => $"{World.VerbName(t.Verb)}({VillageName(g.Village, t.Village)})")) is { Length: > 0 } ts ? ts : "맡은 일 없음",
+                    ["manual"] = g.Manual, ["named"] = g.NameFixed, ["visibility"] = -1, ["visibilityName"] = World.VisibilityName(root.Visibility),
+                    ["authority"] = known, ["leak"] = 0f, ["inner"] = 0, ["lesson"] = World.LessonName(g.Lesson), ["teachShare"] = g.TeachShare,
+                    ["heir"] = "", ["inherit"] = 0f, ["joinRule"] = (int)root.JoinRule, ["shareRule"] = (int)root.ShareRule, ["treasury"] = 0f,
+                    ["command"] = false, ["canSplit"] = false, ["mineIn"] = true,
+                });
+            }
         }
         return a;
     }
@@ -532,7 +563,7 @@ public partial class SimHost : Node
         var c = g != null ? _w!.SplitUnit(g) : null;
         if (c == null) return -1;
         _w!.RecountOrgs();
-        _w!.Chronicle.Add((_w.Day, $"{g!.Name}에서 {c.Name}을(를) 떼어 냈다"));
+        _w!.Chronicle.Add((_w.Day, $"{g!.Name}에서 {World.Obj(c.Name)} 떼어 냈다"));
         return c.Id;
     }
 
@@ -583,7 +614,7 @@ public partial class SimHost : Node
         var g = Commandable(id);
         if (g == null) return false;
         _w!.SetUnitTask(g, (Verb)verb, village);
-        _w.Chronicle.Add((_w.Day, $"{g.Name}에 {World.VerbName((Verb)verb)}({VillageName(g.Village, village)})을(를) 맡겼다"));
+        _w.Chronicle.Add((_w.Day, $"{g.Name}에 {World.VerbName((Verb)verb)}({VillageName(g.Village, village)}) 일을 맡겼다"));
         return true;
     }
 
@@ -605,7 +636,7 @@ public partial class SimHost : Node
         var g = Commandable(id);
         if (g == null || v < 0 || v > 4) return false;
         _w!.SetVisibility(g, (Visibility)v);
-        _w.Chronicle.Add((_w.Day, $"{_w.RootOf(g).Name}을(를) '{World.VisibilityName((Visibility)v)}'(으)로 두었다"));
+        _w.Chronicle.Add((_w.Day, $"{World.Obj(_w.RootOf(g).Name)} {World.Ro($"'{World.VisibilityName((Visibility)v)}'")} 두었다"));
         return true;
     }
 
@@ -616,7 +647,7 @@ public partial class SimHost : Node
         if (g == null) return false;
         string old = g.Name;
         _w!.RenameGroup(g, name);
-        if (g.Name != old) _w.Chronicle.Add((_w.Day, $"{old}의 이름을 {g.Name}(으)로 지었다"));
+        if (g.Name != old) _w.Chronicle.Add((_w.Day, $"{old}의 이름을 {World.Ro(g.Name)} 지었다"));
         return true;
     }
 
@@ -628,7 +659,7 @@ public partial class SimHost : Node
         g.Lesson = (Lesson)Math.Clamp(lesson, 0, 6);
         g.TeachShare = g.Lesson == Lesson.None ? 0f : Math.Clamp(pct, 0, 30) / 100f;
         g.TeachManual = true;
-        _w!.Chronicle.Add((_w.Day, $"{g.Name}: {World.LessonName(g.Lesson)}을(를) {(int)(g.TeachShare * 100)}% 가르친다"));
+        _w!.Chronicle.Add((_w.Day, $"{g.Name}: 조직원 시간의 {(int)(g.TeachShare * 100)}%를 {World.LessonName(g.Lesson)} 가르치기에 쓴다"));
         return true;
     }
 
@@ -682,9 +713,12 @@ public partial class SimHost : Node
         int me = w.PlayerHousehold;
         if (me < 0) return a;
         var mine = me >= 0 ? new HashSet<int>(w.MembersOf(me).Select(i => p.Uid[i])) : new HashSet<int>();
-        foreach (var c in w.Crimes.Reverse().Where(c => c.Verdict != Verdict.Pending && (c.Lord == me || mine.Contains(c.Culprit) || mine.Contains(c.Victim))).Take(12))
+        // 내 땅의 사건은 신고된 것만 안다. 내 식구가 얽힌 일은 식구가 겪었으니 안다
+        foreach (var c in w.Crimes.Reverse().Where(c => c.Verdict != Verdict.Pending && (mine.Contains(c.Culprit) || mine.Contains(c.Victim) || (c.Lord == me && c.Reported))).Take(12))
         {
-            bool known = c.VictimKnows || c.Witnesses.Count > 0 || mine.Contains(c.Culprit) || c.Verdict is Verdict.Fine or Verdict.Flog or Verdict.Execute or Verdict.Covered;
+            // 범인을 아는 경우: 잡았거나(벌, 덮음, 풀어 줌), 내 식구가 범인이거나, 내 식구가 당했고 범인을 봤다
+            bool known = mine.Contains(c.Culprit) || (mine.Contains(c.Victim) && c.VictimKnows)
+                         || (c.Lord == me && c.Verdict is Verdict.Fine or Verdict.Flog or Verdict.Execute or Verdict.Covered or Verdict.Released);
             a.Add(new Godot.Collections.Dictionary
             {
                 ["crime"] = World.CrimeName(c.Type) + (c.Attempt ? " 시도" : ""),
@@ -798,7 +832,8 @@ public partial class SimHost : Node
                 ["name"] = Names.Full(w.Lineage, p.Uid[oh]),
                 ["realm"] = w.RealmName(other),
                 ["size"] = Math.Max(w.BelowOf(other), w.ClientCount(other)),
-                ["suspicion"] = SuspicionWord(r.Suspicion),
+                // 나를 의심하는 정도는 모른다. 눈치 빠른 가장만 짐작한다
+                ["suspicion"] = asLord || p.Get(myHead, Trait.Perception) > 0.6f ? SuspicionWord(r.Suspicion) : "눈여겨봄",
                 ["stole"] = r.Stole,
                 ["moves"] = moves,
                 ["x"] = hh.X[other], ["y"] = hh.Y[other], ["house"] = other,

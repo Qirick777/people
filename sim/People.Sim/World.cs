@@ -1288,7 +1288,7 @@ public sealed partial class World
         Stats.Deaths++;
         if (hungry) Stats.HungerDeaths++;
         if (age < 1) Stats.InfantDeaths++;
-        Chron(i, $"{Subj(Names.Full(Lineage, p.Uid[i]))} {age}세로 죽었다{(hungry ? " (굶주림)" : "")}");
+        Chron(i, $"{Subj(Names.Full(Lineage, p.Uid[i]))} {(age == 0 ? "돌을 넘기지 못하고" : $"{age}세에")} 죽었다{(hungry ? " (굶주림)" : "")}");
         Lineage.MarkDeath(p.Uid[i], Day);
         if (p.Fanatic[i] != 0) Stats.FanaticsDied++;
 

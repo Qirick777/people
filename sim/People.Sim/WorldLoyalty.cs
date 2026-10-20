@@ -102,6 +102,10 @@ public sealed partial class World
                 float x = Math.Clamp(Social.Opinion(p, i, hu) / Config.LoyaltyScale, -1f, 1f);
                 float f = (Config.LoyaltyLinear * x + Config.LoyaltyCubic * x * x * x) * (1.3f - 0.6f * p.Get(i, Trait.Stubbornness));
                 p.Loyalty[i] = Math.Clamp(p.Loyalty[i] + (f > 0f ? f * (1f - p.Loyalty[i]) : f * p.Loyalty[i]), 0f, 1f);
+                // 광신은 섬기는 사람을 직접 겪어야 생긴다: 같은 집, 고용된 사람, 지배자 조직의 측근.
+                // 멀리서 섬기는 따르는 집 가장은 교리와 좋은 관계로 광신 바로 아래까지만 간다
+                if (p.Loyalty[i] >= Config.FanaticAt && kind == LoyalKind.Lord && !(LordOrg(t, false)?.Inner.Contains(p.Uid[i]) ?? false))
+                    p.Loyalty[i] = Config.FanaticAt - 0.01f;
                 if (p.Loyalty[i] >= Config.FanaticAt) { p.Fanatic[i] = 1; p.Doubt[i] = 0f; Stats.NewFanatics++; Stats.FanaticYearsSum += (Day - p.LoyalSince[i]) / Config.DaysPerYear; }
             }
             if (p.Fanatic[i] != 0) fanatics++;

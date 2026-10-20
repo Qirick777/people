@@ -25,6 +25,7 @@ public sealed class Group
     public bool Paid;                                 // 품삯 받는 군인 갈래(지배자가 고용한 사람들)
     public bool Manual;                               // 플레이어가 맡은 일을 정했다(AI 가 바꾸지 않는다)
     public bool NameFixed;                            // 지은 이름(단계가 바뀌어도 그대로 간다)
+    public int BranchNo, BranchParent = -1;           // 갈래 번호(형 갈래가 사라져도 바뀌지 않는다)와 번호를 받을 때의 위 조직
     // O1 권위와 알려진 정도(맨 위 조직만 쓴다)
     public Visibility Visibility = Visibility.Public;
     public float Leak;                                // 새어 나간 정도(0~1, 넘치면 공개 쪽으로 한 칸)
@@ -112,7 +113,7 @@ public sealed partial class World
         DefaultTask(g);
         JoinGroup(leader, g);
         Stats.GroupsFounded++;
-        Chron(leader, $"{SubjName(leader)} {g.Name}을(를) 세웠다");
+        Chron(leader, $"{SubjName(leader)} {Obj(g.Name)} 세웠다");
         return g;
     }
 
@@ -129,7 +130,7 @@ public sealed partial class World
     {
         d[(int)InteractionId.Recruit] = new InteractionDef
         {
-            Id = InteractionId.Recruit, Name = "모임에 들이기", Category = InteractionCategory.Rule,
+            Id = InteractionId.Recruit, Name = "조직에 들이기", Category = InteractionCategory.Rule,
             Can = (w, c) => w.Adult(c.Target) && w.LedGroupFor(c.Actor, c.Target) != null && w.GroupsOf(c.Target).Count() < GroupSlots,
             // 그 모임을 바라는 마음 + 우두머리를 보는 눈
             Accept = (w, c) =>
@@ -310,7 +311,9 @@ public sealed partial class World
                     float want = GroupWant(i, kind);
                     bool inIt = InGroup(i, here);
                     // 숨긴 조직은 스스로 찾아오지 않는다(포섭으로만), 공개할수록 잘 모인다
-                    if (!inIt && here.Members < cap && GroupOfKind(i, kind) == null && RuleAllows(RootOf(here), i) && _rng.Chance(MathF.Max(0f, want - 0.35f) * 0.5f * JoinFactor(RootOf(here), i))) JoinGroup(i, here);
+                    // 스스로 드는 사람은 그 조직이 센 줄 알수록 잘 든다(아는 권위)
+                    if (!inIt && here.Members < cap && GroupOfKind(i, kind) == null && want > 0.35f && RuleAllows(RootOf(here), i)
+                        && _rng.Chance((want - 0.35f) * 0.5f * JoinFactor(RootOf(here), i) * (0.75f + 0.5f * AuthorityPull(i, here)))) JoinGroup(i, here);
                     else if (inIt && !IsLeader(i, here) && want < 0.15f && _rng.Chance(0.3f)) LeaveGroup(i, here);
                 }
                 if (kind == GroupKind.Watch && danger < 0.1f && here.Sanction < 0 && _rng.Chance(0.1f)) CloseGroup(here);

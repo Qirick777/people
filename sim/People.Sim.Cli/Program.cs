@@ -221,6 +221,19 @@ switch (cmd)
         Console.WriteLine($"settle: {years}년, 인구 {w.People.AliveCount}, 가구 {w.Households.AliveCount}, 마을 {w.Villages().count}, 청크 {map.GeneratedChunks}, {sw.Elapsed.TotalSeconds:F1}초");
         Console.WriteLine($"  물에서 80 m 안: 가구 {w.NearWaterFraction():P0}, 경작 가능 땅 {map.FarmableNearWaterFraction(10):P0}");
         Summary(w);
+        {
+            // 문해율: 어른 가운데 글 0.3, 0.6 넘는 사람
+            var pp = w.People; int ad = 0, l3 = 0, l6 = 0;
+            for (int i = 0; i < pp.HighWater; i++)
+            {
+                if (!pp.IsAliveIndex(i) || (w.Day - pp.BirthDay[i]) / w.Config.DaysPerYear < 16) continue;
+                ad++;
+                float lv = pp.GetSkill(i, Skill.Letters);
+                if (lv >= 0.3f) l3++;
+                if (lv >= 0.6f) l6++;
+            }
+            Console.WriteLine($"  문해율(어른): 글 0.3 넘음 {l3 / (double)Math.Max(1, ad):P0}, 0.6 넘음 {l6 / (double)Math.Max(1, ad):P0}");
+        }
         if (profFrom > 0)
             foreach (var kv in w.Profile.OrderByDescending(k => k.Value).Take(15))
                 Console.WriteLine($"  {kv.Key}: 한 해 평균 {kv.Value / profFrom:F1} ms");

@@ -65,7 +65,7 @@ public sealed partial class World
         {
             if (RootOf(g).Id != root.Id) continue;
             if (g.Id != root.Id) return OrgRole.Worker;
-            if (!ChildrenOf(root).Any()) return OrgRole.Worker;
+            if (!HasChildren(root)) return OrgRole.Worker;
             return root.Inner.Contains(p.Uid[i]) ? OrgRole.Inner : OrgRole.Member;
         }
         // 지배자 조직: 그 세력의 땅에 사는 사람은 소속원(국민)
@@ -191,6 +191,48 @@ public sealed partial class World
         _ => 1.3f / (1f + dist / 400f),
     };
 
+    private readonly HashSet<int> _hasKids = new();
+    private int _hasKidsDay = -1, _hasKidsCount = -1;
+
+    /// <summary>갈래가 있는 조직인가(하루에 한 번, 또는 조직 수가 바뀌면 다시 센다).</summary>
+    private bool HasChildren(Group g)
+    {
+        if (_hasKidsDay != Day || _hasKidsCount != _groups.Count)
+        {
+            _hasKids.Clear();
+            foreach (var c in _groups) if (c.Alive && c.Parent >= 0) _hasKids.Add(c.Parent);
+            _hasKidsDay = Day; _hasKidsCount = _groups.Count;
+        }
+        return _hasKids.Contains(g.Id);
+    }
+
+    /// <summary>
+    /// 플레이어 집이 i 의 조직 g 소속을 아는가. 공개 이상은 누구나, 중립은 새어 나간 만큼(0.3),
+    /// 숨긴 조직은 정체가 드러났거나 플레이어 식구가 같은 조직(완전 은폐는 같은 갈래)일 때만.
+    /// 플레이어 집이 없으면(지켜보기) 다 보인다.
+    /// </summary>
+    public bool PlayerSeesMembership(int i, Group g)
+    {
+        int ph = PlayerHousehold;
+        if (ph < 0 || !Households.IsAlive(ph) || People.Household[i] == ph) return true;
+        var root = RootOf(g);
+        if (root.Visibility >= Visibility.Public || root.Exposed) return true;
+        if (root.Visibility == Visibility.Neutral && root.Leak >= 0.3f) return true;
+        foreach (int m in MembersOf(ph))
+        {
+            if (InGroup(m, g)) return true;
+            if (root.Visibility != Visibility.Hidden && RoleIn(m, root) != OrgRole.None) return true;
+        }
+        return false;
+    }
+
+    /// <summary>i 가 아는 권위가 끄는 힘(0~1). 30쯤이면 0.5. 들기, 포섭, 신고가 이것을 본다.</summary>
+    public float AuthorityPull(int i, Group g)
+    {
+        float a = PerceivedAuthority(i, g);
+        return a / (a + 30f);
+    }
+
     /// <summary>사람 i 가 아는 조직 g(맨 위)의 권위. 저장하지 않고 자리와 공개 수준으로 계산한다. 사람마다 ±20%는 해시로 흔든다.</summary>
     public float PerceivedAuthority(int i, Group g)
     {
@@ -251,7 +293,7 @@ public sealed partial class World
                     g.Visibility++;
                     g.Leak = 0.3f;
                     Stats.OrgLeaks++;
-                    if (FindAlive(g.LeaderUid) is int ld && ld >= 0) Chron(ld, $"{g.Name}의 비밀이 새어 나가 이제 '{VisibilityName(g.Visibility)}'이 되었다");
+                    if (FindAlive(g.LeaderUid) is int ld && ld >= 0) Chron(ld, $"{g.Name}의 비밀이 새어 나가 이제 {Subj($"'{VisibilityName(g.Visibility)}'")} 되었다");
                 }
             }
             if (g.Visibility <= Visibility.Covert && g.Home < 0) SecretRecruit(g);
@@ -289,7 +331,8 @@ public sealed partial class World
             if (_rng.NextBool() && p.RelUid[sl] >= 0 && p.RelAff[sl] >= 10f) t = FindAlive(p.RelUid[sl]);
             else if (Households.IsAlive(p.Household[r]) && Households.Village[p.Household[r]] >= 0) t = RandomVillager(Households.Village[p.Household[r]]);
             if (t < 0 || !Adult(t) || IsPlayer(t) || InGroup(t, g) || GroupsOf(t).Count() >= GroupSlots || GroupOfKind(t, g.Kind) != null || !RuleAllows(g, t)) continue;
-            float a = GroupWant(t, g.Kind) + Social.Opinion(p, t, p.Uid[r]) / 100f - 0.1f + (IsIdleScholar(t) ? 0.2f : 0f);
+            float a = GroupWant(t, g.Kind) + Social.Opinion(p, t, p.Uid[r]) / 100f - 0.1f + (IsIdleScholar(t) ? 0.2f : 0f)
+                    + 0.2f * (AuthorityPull(t, g) - 0.5f);   // 센 줄 아는 조직에는 잘 넘어온다
             if (_rng.Chance(Math.Clamp(a, 0.02f, 0.9f)) && JoinGroup(t, g)) Stats.SecretRecruits++;
         }
     }

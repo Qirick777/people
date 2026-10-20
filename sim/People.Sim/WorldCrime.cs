@@ -87,7 +87,7 @@ public sealed partial class World
         // 지배자의 성품은 소문으로 알려지고, 실제 판결이 그 소문을 고친다
         float sev = Severity(lord);
         float rep = 0.5f * sev + 0.5f * _harshness.GetValueOrDefault(lord, sev);
-        return _catchRate.GetValueOrDefault(lord, 0.3f) * (0.2f + rep);
+        return _catchRate.GetValueOrDefault(lord, 0.3f) * (0.1f + 1.4f * rep);   // 엄한 땅일수록 훨씬 두렵다
     }
 
     /// <summary>맡은 지배자: 피해자 집의 주군. 없으면 마을 자경단 우두머리의 집(-1이면 아무도 없다).</summary>
@@ -190,13 +190,13 @@ public sealed partial class World
             var (enemy, grudge) = WorstEnemy(i, hh.Village[h]);
             if (enemy >= 0)
             {
-                float murderT = 1.0f + 0.3f * piety + 0.2f * caution - 0.45f * aggr + 0.8f * fear;
-                if (grudge > 0.7f && _rng.Chance(0.04f * bodyChance * Sigmoid((grudge - murderT) / 0.08f)))
+                float murderT = 0.8f + 0.3f * piety + 0.2f * caution - 0.45f * aggr + 0.8f * fear;
+                if (grudge > 0.6f && _rng.Chance(0.06f * bodyChance * Sigmoid((grudge - murderT) / 0.08f)))
                 {
                     Interact(InteractionId.Murder, new InteractionContext { Actor = i, Target = enemy, Third = -1 });
                     continue;
                 }
-                float assaultT = 0.65f + 0.3f * piety + 0.15f * caution - 0.35f * aggr - 0.1f * stub + 0.6f * fear;
+                float assaultT = 0.55f + 0.3f * piety + 0.15f * caution - 0.35f * aggr - 0.1f * stub + 0.6f * fear;
                 if (_rng.Chance(0.15f * bodyChance * Sigmoid((grudge - assaultT) / 0.08f)))
                 {
                     Interact(InteractionId.Assault, new InteractionContext { Actor = i, Target = enemy, Third = -1 });
@@ -209,8 +209,8 @@ public sealed partial class World
             if (mark >= 0)
             {
                 float extP = 0.5f + 0.5f * amb;
-                float extT = 0.85f + 0.25f * p.Honor[i] + 0.2f * piety - 0.25f * aggr + 0.6f * fear;
-                if (_rng.Chance(0.1f * Sigmoid((extP - extT) / 0.08f)))
+                float extT = 0.55f + 0.25f * p.Honor[i] + 0.2f * piety - 0.25f * aggr + 0.6f * fear;
+                if (_rng.Chance(0.15f * Sigmoid((extP - extT) / 0.08f)))
                     Interact(InteractionId.Extort, new InteractionContext { Actor = i, Target = mark, Third = -1 });
             }
         }
@@ -320,7 +320,7 @@ public sealed partial class World
                 Social.Remember(p, c.Target, MemoryType.Assaulted, p.Uid[c.Actor], w.Day, -40);
                 p.Honor[c.Target] -= 0.03f;
                 w.Stats.Assaults++;
-                bool dead = w._rng.Chance(0.02f);
+                bool dead = w._rng.Chance(0.05f);   // 의사도 약도 없어 매질 끝에 죽는 일이 잦다
                 w.CommitCrime(dead ? CrimeType.Murder : CrimeType.Assault, c.Actor, c.Target, 0f, false, faceToFace: true);
                 if (dead) w.Die(c.Target, false);
             },
@@ -450,7 +450,7 @@ public sealed partial class World
     public Crime? LastCrime;
 
     /// <summary>범인 쪽 연대기 문장.</summary>
-    private static string DidText(CrimeType t, string v, bool attempt) => (t, attempt) switch
+    public static string DidText(CrimeType t, string v, bool attempt) => (t, attempt) switch
     {
         (CrimeType.Theft, false) => $"{v}의 식량을 훔쳤다",
         (CrimeType.Theft, true) => $"{v}의 식량을 훔치려다 들켰다",
@@ -588,12 +588,15 @@ public sealed partial class World
         if (hh.IsAlive(c.VictimHouse) && p.IsValid(hh.Head[c.VictimHouse])) reporters.Add(hh.Head[c.VictimHouse].Index);
         foreach (int u in c.Witnesses) { int k = FindAlive(u); if (k >= 0) reporters.Add(k); }
         int lordHead = p.IsValid(hh.Head[c.Lord]) ? hh.Head[c.Lord].Index : -1;
+        var lawOrg = LordOrg(c.Lord, false);
         foreach (int r in reporters)
         {
             if (r == lordHead) { c.Reported = true; break; }   // 지배자 집이 당했으면 스스로 안다
             float trust = p.LoyalUid[r] >= 0 && lordHead >= 0 && p.LoyalUid[r] == p.Uid[lordHead] ? p.Loyalty[r] : 0.35f;
             float fear = Social.Fear(p, r, c.Culprit) / 100f;
-            float pr = 0.25f + 0.6f * trust - 0.5f * fear + (c.Type == CrimeType.Murder ? 0.4f : 0f);
+            // 맡은 지배자가 센 줄 알수록 신고한다(잡아 줄 거라 믿는다)
+            float pull = lawOrg != null ? AuthorityPull(r, lawOrg) : 0.5f;
+            float pr = 0.25f + 0.6f * trust - 0.5f * fear + (c.Type == CrimeType.Murder ? 0.4f : 0f) + 0.2f * (pull - 0.5f);
             if (_rng.Chance(Math.Clamp(pr, 0.05f, 0.95f))) { c.Reported = true; break; }
         }
         if (!c.Reported) { c.Verdict = Verdict.Unreported; return; }
@@ -882,7 +885,7 @@ public sealed partial class World
         float catchUnknown = CatchChance(c, actor);
         float caught = report * (know * catchKnown + (1f - know) * catchUnknown);
         float x = Severity(lord) * CrimeWeight(type);
-        string punish = CloseToLord(actor, lord) ? "내 사람이라 덮어 줄 수도 있다" : x > 1.2f ? "처형" : x > 0.45f ? "매질" : "벌금";
+        string punish = CloseToLord(actor, lord) ? "아마 덮어 줌(지배자와 가까움)" : x > 1.2f ? "처형" : x > 0.45f ? "매질" : "벌금";
         return (caught, punish);
     }
 }
