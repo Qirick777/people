@@ -146,7 +146,7 @@ public sealed partial class World
     private void AuthorityYear()
     {
         var hh = Households;
-        foreach (var g in _groups) if (g.Alive && g.Parent < 0) { ComputeAuthority(g); g.Shaken *= 0.7f; }
+        foreach (var g in _groups) if (g.Alive && IsTop(g)) { ComputeAuthority(g); g.Shaken *= 0.7f; }
         // 자리 잡은 정도: 지배자 조직의 밖에서 보이는 권위가 마을마다 미치는 크기(멀수록 줄어든다)
         _established.Clear();
         var vl = VillageList;
@@ -170,11 +170,11 @@ public sealed partial class World
 
     private void AuthorityStats()
     {
-        Stats.SecretOrgs = _groups.Count(g => g.Alive && g.Parent < 0 && g.Visibility <= Visibility.Covert);
-        Stats.PublicOrgs = _groups.Count(g => g.Alive && g.Parent < 0 && g.Visibility >= Visibility.Public);
-        Stats.Companies = _groups.Count(g => g.Alive && g.Parent < 0 && g.Kind == GroupKind.Company);
-        Stats.SellswordBands = _groups.Count(g => g.Alive && g.Parent < 0 && g.Kind == GroupKind.Sellswords);
-        Stats.Brothels = _groups.Count(g => g.Alive && g.Parent < 0 && g.Kind == GroupKind.Brothel);
+        Stats.SecretOrgs = _groups.Count(g => g.Alive && IsTop(g) && g.Visibility <= Visibility.Covert);
+        Stats.PublicOrgs = _groups.Count(g => g.Alive && IsTop(g) && g.Visibility >= Visibility.Public);
+        Stats.Companies = _groups.Count(g => g.Alive && IsTop(g) && g.Kind == GroupKind.Company);
+        Stats.SellswordBands = _groups.Count(g => g.Alive && IsTop(g) && g.Kind == GroupKind.Sellswords);
+        Stats.Brothels = _groups.Count(g => g.Alive && IsTop(g) && g.Kind == GroupKind.Brothel);
         var vl = VillageList;
         float s = 0f; int n = 0;
         for (int v = 0; v < vl.Count; v++) if (vl.Alive[v]) { s += Established(v); n++; }
@@ -274,7 +274,7 @@ public sealed partial class World
         var p = People; var hh = Households;
         foreach (var g in _groups.ToList())
         {
-            if (!g.Alive || g.Parent >= 0) continue;
+            if (!g.Alive || !IsTop(g)) continue;
             if (g.Visibility <= Visibility.Neutral)
             {
                 var ms = MembersFast(g);
@@ -364,6 +364,7 @@ public sealed partial class World
     public void SetVisibility(Group g, Visibility v)
     {
         var root = RootOf(g);
+        if (IsAttached(root) && v < Visibility.Public) v = Visibility.Public;   // 붙은 조직은 숨지 못한다
         if (v < root.Visibility) root.Leak = MathF.Max(root.Leak, 0.5f);
         root.Visibility = v;
     }

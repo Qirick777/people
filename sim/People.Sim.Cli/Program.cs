@@ -499,6 +499,29 @@ switch (cmd)
         Console.WriteLine($"독립: 선언 {declared}, 진압 {supp}, 협상 {nego}, 체념 {letgo}, 홀로 섬 {indep}");
         break;
     }
+    case "orgdiag":
+    {
+        // 조직 편입 진단: 지배자의 제안, 받음, 바침, 떨어져 나감, 누름. 공개 조직 가운데 붙은 몫
+        int seed = Arg("--seed", 3), years = Arg("--years", 40);
+        var map = WorldMap.Generate((uint)seed, 48);
+        var w = new World((ulong)seed, map, Config());
+        w.GenerateSettled(new GenOptions { Rulers = Arg("--rulers", 4), VillagesPerRuler = Arg("--vpr", 7) });
+        long off = 0, taken = 0, pl = 0, br = 0, sup = 0, supw = 0;
+        for (int y = 0; y < years; y++)
+        {
+            for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
+            var st = w.Stats;
+            off += st.OrgOffers; taken += st.OrgOffersTaken; pl += st.OrgPledges; br += st.OrgBreaks; sup += st.OrgSuppressions; supw += st.OrgSuppressWins;
+            if (y % 5 == 4)
+            {
+                var big = w.Groups.Where(g => g.Alive && World.IsTop(g) && g.Home < 0 && g.Kind != GroupKind.Bandits && g.Visibility >= Visibility.Public).ToList();
+                int att = big.Count(World.IsAttached), big8 = big.Count(g => g.Total >= 8), att8 = big.Count(g => g.Total >= 8 && World.IsAttached(g));
+                Console.WriteLine($"{y + 1}년: 제안 {off} 받음 {taken} 바침 {pl} 떨어짐 {br} 누름 {sup}(이김 {supw}) | 공개 조직 {big.Count} 중 붙음 {att}, 8명 넘는 것 {big8} 중 붙음 {att8} | " +
+                                  string.Join(" ", big.GroupBy(g => g.Kind).Select(k => $"{World.GroupKindName(k.Key)} {k.Count(World.IsAttached)}/{k.Count()}")));
+            }
+        }
+        break;
+    }
     case "strategy":
     {
         // 플레이어 전략 실험: 장원 세계의 소작농 가족을 맡아 같은 수만 써서 40년. 전략마다 같은 시드로 새로 만든다

@@ -98,7 +98,7 @@ public sealed partial class World
         if (l >= 0) return l;
         int v = Households.Village[victimHouse];
         foreach (var g in _groups)
-            if (g.Alive && g.Kind == GroupKind.Watch && g.Village == v && g.Parent < 0)
+            if (g.Alive && g.Kind == GroupKind.Watch && g.Village == v && IsTop(g))
             {
                 int leader = FindAlive(g.LeaderUid);
                 if (leader >= 0 && Households.IsAlive(People.Household[leader])) return People.Household[leader];

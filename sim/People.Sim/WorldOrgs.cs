@@ -47,7 +47,21 @@ public sealed partial class World
         return 4 + (int)(8f * p.Get(leader, Trait.Charisma) + 6f * p.GetSkill(leader, Skill.Arms) + 4f * p.GetSkill(leader, Skill.Letters));
     }
 
+    /// <summary>g 가 속한 맨 위 조직. 지배자의 인정을 받아 붙은 조직은 제가 맨 위다(지배자 군대의 갈래가 아니다).</summary>
     public Group RootOf(Group g)
+    {
+        var x = g;
+        for (int k = 0; k < 16 && x.Parent >= 0 && !IsAttached(x); k++)
+        {
+            var up = GroupById(x.Parent);
+            if (up == null) break;
+            x = up;
+        }
+        return x;
+    }
+
+    /// <summary>나무 끝까지 올라간 맨 위(붙은 조직이면 지배자 군대까지). 고리를 막을 때만 쓴다.</summary>
+    private Group TopOf(Group g)
     {
         var x = g;
         for (int k = 0; k < 16 && x.Parent >= 0; k++)
@@ -59,13 +73,16 @@ public sealed partial class World
         return x;
     }
 
+    /// <summary>제 회칙과 곳간을 가진 맨 위 조직인가(홀로 섰거나 붙은 조직).</summary>
+    public static bool IsTop(Group g) => g.Parent < 0 || IsAttached(g);
+
     public IEnumerable<Group> ChildrenOf(Group g)
     {
         foreach (var c in _groups) if (c.Alive && c.Parent == g.Id) yield return c;
     }
 
     /// <summary>스스로 선 조직이 지배자의 인정을 받아 그 아래 붙은 것(지배자 군대의 갈래와 다르다).</summary>
-    private static bool IsAttached(Group g) => g.Sanction >= 0 && g.Home < 0 && g.Kind != GroupKind.Army;
+    public static bool IsAttached(Group g) => g.Sanction >= 0 && g.Home < 0 && g.Kind != GroupKind.Army;
 
     private static void DefaultTask(Group g)
     {
@@ -165,7 +182,7 @@ public sealed partial class World
             }
         }
         SumSubtrees();
-        foreach (var g in _groups) if (g.Alive && g.Parent < 0) ComputeAuthority(g);
+        foreach (var g in _groups) if (g.Alive && IsTop(g)) ComputeAuthority(g);
         RefreshNames();
     }
 
@@ -330,7 +347,7 @@ public sealed partial class World
             if (p.IsValid(head)) o.LeaderUid = p.Uid[head.Index];
             int liege = PatronOf(h);
             var up = liege >= 0 ? LordOrg(liege, false) : null;
-            o.Parent = up != null && RootOf(up).Id != o.Id ? up.Id : -1;
+            o.Parent = up != null && TopOf(up).Id != o.Id ? up.Id : -1;
         }
     }
 
@@ -460,7 +477,7 @@ public sealed partial class World
                 MergeInto(c, g, ms);
                 continue;
             }
-            PlanUnit(c, c.Tasks.ToList(), depth + 1);
+            PlanUnit(c, c.Tasks.ToList(), IsAttached(c) ? 0 : depth + 1);   // 붙은 조직은 제 갈래를 맨 위처럼 짠다
         }
     }
 
@@ -724,7 +741,7 @@ public sealed partial class World
         _domainVillages = null;
         DelegationYear();
         BuildMemberIndex();
-        foreach (var g in _groups) if (g.Alive && g.Parent < 0) PickInner(g);
+        foreach (var g in _groups) if (g.Alive && IsTop(g)) PickInner(g);
         AuthorityYear();
         VisibilityYear();
         WorkYear();

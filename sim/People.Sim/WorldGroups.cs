@@ -239,7 +239,7 @@ public sealed partial class World
                 continue;
             }
             // 바로 딸린 사람이 없는 맨 위 조직은 가장 센 갈래를 끌어올려 몸통으로 삼는다
-            if (g.Parent < 0 && (members == null || members.Count == 0) && ChildrenOf(g).OrderByDescending(c => c.Members).FirstOrDefault() is { } big)
+            if (IsTop(g) && (members == null || members.Count == 0) && ChildrenOf(g).OrderByDescending(c => c.Members).FirstOrDefault() is { } big)
             {
                 var bm = byGroup.GetValueOrDefault(big.Id) ?? new List<int>();
                 MergeInto(big, g, bm);
@@ -256,14 +256,14 @@ public sealed partial class World
                 if (next >= 0) g.LeaderUid = p.Uid[next];
             }
             // 맨 위 조직은 갈래까지 모두 세어 둘이 안 되면 흩어진다
-            bool tooSmall = g.Parent >= 0 ? g.Members == 0 || (g.Members < 2 && Day - g.Founded >= 2 * Config.DaysPerYear) : g.Total < 2;
+            bool tooSmall = !IsTop(g) ? g.Members == 0 || (g.Members < 2 && Day - g.Founded >= 2 * Config.DaysPerYear) : g.Total < 2;
             if (tooSmall || members == null || !members.Any(m => p.Uid[m] == g.LeaderUid))
             {
-                if (g.Parent >= 0 && GroupById(g.Parent) is { } up && members != null) MergeInto(g, up, members);
+                if (!IsTop(g) && GroupById(g.Parent) is { } up && members != null) MergeInto(g, up, members);
                 else CloseGroup(g);
                 continue;
             }
-            if (g.Sanction >= 0 && (!hh.IsAlive(g.Sanction) || hh.FoundedDay[g.Sanction] != g.SanctionFounded)) g.Sanction = -1;
+            if (g.Sanction >= 0 && (!hh.IsAlive(g.Sanction) || hh.FoundedDay[g.Sanction] != g.SanctionFounded)) { if (IsAttached(g)) g.Parent = -1; g.Sanction = -1; }   // 인정한 집이 사라지면 홀로 선다
         }
         SumSubtrees();
         // 2) 마을마다: 생기고, 들고, 나간다
@@ -342,11 +342,11 @@ public sealed partial class World
             if (g.Tasks.Any(t => t.Verb == Verb.Charity)) Charity(members);
         }
         // 4) 지배자의 태도, 지배자의 군대, 일 나누기와 갈래 짜기
-        foreach (var g in _groups.ToList()) if (g.Alive && g.Parent < 0 && g.Home < 0) LordStance(g);
+        OfferYear();
         OrgYear();
-        Stats.Watches = _groups.Count(g => g.Alive && g.Parent < 0 && g.Kind == GroupKind.Watch);
-        Stats.Bandits = _groups.Count(g => g.Alive && g.Parent < 0 && g.Kind == GroupKind.Bandits);
-        Stats.Brotherhoods = _groups.Count(g => g.Alive && g.Parent < 0 && g.Kind == GroupKind.Brotherhood);
+        Stats.Watches = _groups.Count(g => g.Alive && IsTop(g) && g.Kind == GroupKind.Watch);
+        Stats.Bandits = _groups.Count(g => g.Alive && IsTop(g) && g.Kind == GroupKind.Bandits);
+        Stats.Brotherhoods = _groups.Count(g => g.Alive && IsTop(g) && g.Kind == GroupKind.Brotherhood);
         Stats.GroupMembers = _groups.Where(g => g.Alive).Sum(g => g.Members);
     }
 
@@ -387,59 +387,6 @@ public sealed partial class World
         if (_uidIndexReady) return -1;
         RebuildUidIndex();
         return _uidIndex.TryGetValue(uid, out k) && People.IsAliveIndex(k) && People.Uid[k] == uid ? k : -1;
-    }
-
-    /// <summary>
-    /// 지배자는 성격대로 모임을 대한다. 자경단은 인정하거나(경비대 아래로) 우두머리가 커지면 누른다.
-    /// 정체가 드러난 도적 떼는 힘이 되면 친다. 신도회는 신앙심 깊은 지배자가 인정한다.
-    /// </summary>
-    private void LordStance(Group g)
-    {
-        if (g.Sanction >= 0 && g.Kind != GroupKind.Bandits) return;
-        int lord = ConcernedLord(g);
-        if (lord < 0 || !Households.IsAlive(lord) || IsPlayer(Households.Head[lord].Index)) return;
-        float cha = HeadTrait(lord, Trait.Charisma), agg = HeadTrait(lord, Trait.Aggression);
-        var head = Households.Head[lord];
-        float piety = People.IsValid(head) ? People.Piety[head.Index] : 0.5f;
-        switch (g.Kind)
-        {
-            case GroupKind.Watch:
-                if (_rng.Chance(0.2f + 0.4f * cha)) Sanction(g, lord);
-                break;
-            case GroupKind.Brotherhood:
-                if (_rng.Chance(MathF.Max(0f, piety - 0.4f))) Sanction(g, lord);
-                break;
-            case GroupKind.Bandits:
-                if (!g.Exposed) return;
-                if (_rng.Chance(0.3f + 0.4f * agg)) Suppress(g, lord);
-                break;
-        }
-    }
-
-    private void Sanction(Group g, int lord)
-    {
-        g.Sanction = lord;
-        g.SanctionFounded = Households.FoundedDay[lord];
-        var up = LordOrg(lord);
-        if (up != null && RootOf(up).Id != g.Id) g.Parent = up.Id;   // 지배자 조직의 갈래가 된다
-        int leader = FindAlive(g.LeaderUid);
-        if (leader >= 0) HeadsRelate(People.Household[leader], lord, 10f, 0f, 10f, MemoryType.Protected, 10);
-        Stats.Sanctioned++;
-    }
-
-    /// <summary>도적 떼 진압: 지배자 힘 대 떼의 힘. 이기면 우두머리가 죽고 떼가 흩어진다.</summary>
-    private void Suppress(Group g, int lord)
-    {
-        float atk = LordPower(lord) * (0.7f + 0.6f * _rng.NextFloat());
-        float def = g.Strength * (0.7f + 0.6f * _rng.NextFloat());
-        Stats.Suppressions++;
-        if (atk > def)
-        {
-            int leader = FindAlive(g.LeaderUid);
-            if (leader >= 0) { Stats.RaidDeaths++; Die(leader, false); }
-            CloseGroup(g);
-            Stats.SuppressWins++;
-        }
     }
 
     private readonly Dictionary<int, float> _watchPow = new();

@@ -513,6 +513,8 @@ public partial class SimHost : Node
             void Walk(Group g, int depth)
             {
                 int leader = FindAlive(g.LeaderUid);
+                bool cmd = command && w.RootOf(g).Id == root.Id;   // 내 군대 아래 붙은 남의 조직은 부리지 못한다
+                var act = LordActOf(g, cmd, leader, h);
                 var tasks = string.Join(", ", g.Tasks.OrderByDescending(t => t.Weight).Select(t => $"{World.VerbName(t.Verb)}({VillageName(g.Village, t.Village)})"));
                 a.Add(new Godot.Collections.Dictionary
                 {
@@ -539,8 +541,11 @@ public partial class SimHost : Node
                     ["joinRule"] = (int)g.JoinRule,
                     ["shareRule"] = (int)g.ShareRule,
                     ["treasury"] = g.Treasury,
-                    ["command"] = command,
-                    ["canSplit"] = command && g.Members >= 9,
+                    ["command"] = cmd,
+                    ["canSplit"] = cmd && g.Members >= 9,
+                    ["attached"] = World.IsAttached(g),
+                    ["lordAct"] = act?.name ?? "",
+                    ["lordChance"] = act?.chance ?? 0f,
                     ["mineIn"] = mine.Any(i => w.InGroup(i, g)),
                 });
                 foreach (var c in w.ChildrenOf(g).ToList()) Walk(c, depth + 1);
@@ -560,11 +565,49 @@ public partial class SimHost : Node
                     ["manual"] = g.Manual, ["named"] = g.NameFixed, ["visibility"] = -1, ["visibilityName"] = World.VisibilityName(root.Visibility),
                     ["authority"] = known, ["leak"] = 0f, ["inner"] = 0, ["lesson"] = World.LessonName(g.Lesson), ["teachShare"] = g.TeachShare,
                     ["heir"] = "", ["inherit"] = 0f, ["joinRule"] = (int)root.JoinRule, ["shareRule"] = (int)root.ShareRule, ["treasury"] = 0f,
-                    ["command"] = false, ["canSplit"] = false, ["mineIn"] = true,
+                    ["command"] = false, ["canSplit"] = false, ["mineIn"] = true, ["attached"] = false, ["lordAct"] = "", ["lordChance"] = 0f,
                 });
             }
         }
         return a;
+    }
+
+    /// <summary>
+    /// 조직 줄에서 지배자와 얽힌 수 하나: 내가 이끄는 홀로 선 조직은 바치기, 붙은 조직은 떨어져 나가기,
+    /// 내 군대 아래 붙은 남의 조직은 누르기. (상호작용, 하는 사람, 받는 사람, 이름, 확률)
+    /// </summary>
+    private (InteractionId id, int actor, int target, string name, float chance)? LordActOf(Group g, bool cmd, int leader, int h)
+    {
+        var w = _w!; var hh = w.Households;
+        if (leader < 0 || !World.IsTop(g) || g.Home >= 0) return null;
+        (InteractionId, int, int)? pick = null;
+        if (cmd)
+        {
+            int lord = World.IsAttached(g) ? g.Sanction : w.PatronOf(w.People.Household[leader]);
+            if (lord >= 0 && hh.IsAlive(lord) && w.People.IsValid(hh.Head[lord]))
+                pick = (World.IsAttached(g) ? InteractionId.OrgBreak : InteractionId.OrgPledge, leader, hh.Head[lord].Index);
+        }
+        else if (World.IsAttached(g) && g.Sanction == h && w.People.IsValid(hh.Head[h])) pick = (InteractionId.OrgSuppress, hh.Head[h].Index, leader);
+        if (pick is not { } x) return null;
+        var c = new InteractionContext { Actor = x.Item2, Target = x.Item3, Third = -1 };
+        var def = w.Def(x.Item1);
+        if (x.Item2 == x.Item3 || !def.Can(w, c)) return null;
+        return (x.Item1, x.Item2, x.Item3, def.Name, def.Accept(w, c));
+    }
+
+    /// <summary>조직 줄의 지배자 수를 한다. 결과 글(없으면 빈 글).</summary>
+    public string OrgLordAct(int id)
+    {
+        if (!Ready) return "";
+        var w = _w!;
+        var g = w.GroupById(id);
+        int h = w.PlayerHousehold;
+        if (g == null || !w.Households.IsAlive(h)) return "";
+        int leader = FindAlive(g.LeaderUid);
+        bool mine = leader >= 0 && w.People.Household[leader] == h;
+        if (LordActOf(g, mine, leader, h) is not { } a) return "";
+        var r = w.Interact(a.id, new InteractionContext { Actor = a.actor, Target = a.target, Third = -1 });
+        return r.Accepted ? "뜻대로 되었다" : "뜻대로 되지 않았다";
     }
 
     private int FindAlive(int uid)
@@ -829,8 +872,8 @@ public partial class SimHost : Node
                 ["realm"] = w.RealmName(d.From),
                 ["text"] = w.DemandTextOf(d),
                 ["date"] = $"{d.Day / w.Config.DaysPerYear + 1}년",
-                ["yes"] = d.Kind switch { InteractionId.PlotPurge => "숙청한다", InteractionId.Declare => "놓아준다", _ => "받는다" },
-                ["no"] = d.Kind switch { InteractionId.PlotPurge => "눈감아 준다", InteractionId.Declare => "진압한다", _ => "거절한다" },
+                ["yes"] = d.Kind switch { InteractionId.PlotPurge => "숙청한다", InteractionId.Declare or InteractionId.OrgBreak => "놓아준다", InteractionId.OrgOffer => "들어간다", _ => "받는다" },
+                ["no"] = d.Kind switch { InteractionId.PlotPurge => "눈감아 준다", InteractionId.Declare => "진압한다", InteractionId.OrgBreak => "누른다", _ => "거절한다" },
             });
         }
         return a;

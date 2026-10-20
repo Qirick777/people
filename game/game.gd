@@ -524,7 +524,7 @@ func _open_orgs() -> void:
 		var tv := VBoxContainer.new()
 		tv.add_theme_constant_override("separation", -2)
 		tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		tv.add_child(UI.label(e["name"], 14, UI.INK, depth == 0))
+		tv.add_child(UI.label(e["name"] + ("  · 지배자에게 붙음" if e["attached"] else ""), 14, UI.INK, depth == 0))
 		var info := "%s · 바로 %d명" % [e["leader"], int(e["members"])]
 		if int(e["inner"]) > 0: info += "(측근 %d, 소속원 %d)" % [int(e["inner"]), max(0, int(e["members"]) - int(e["inner"]) - 1)]
 		if int(e["total"]) != int(e["members"]): info += " · 모두 %d명" % int(e["total"])
@@ -536,6 +536,15 @@ func _open_orgs() -> void:
 		if e["heir"] != "": teach += " · 후계자 %s(이음 %d%%)" % [e["heir"], int(float(e["inherit"]) * 100.0)]
 		tv.add_child(UI.label(teach, 12, UI.MUTED))
 		r.add_child(tv)
+		if e["lordAct"] != "":
+			var lid := int(e["id"])
+			var la := UI.ghost("%s (%d%%)" % [e["lordAct"], int(float(e["lordChance"]) * 100.0)])
+			la.tooltip_text = "지배자와의 사이를 바꾼다. 붙은 조직은 지배자의 보호와 보탬을 받고 번 것의 30%를 바친다"
+			la.pressed.connect(func():
+				_set_hint(host.OrgLordAct(lid))
+				for line in host.DrainChronicle(): _log(line)
+				_open_orgs())
+			r.add_child(_center(la))
 		if e["command"]:
 			var id := int(e["id"])
 			if e["canSplit"]:

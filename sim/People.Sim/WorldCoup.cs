@@ -71,7 +71,7 @@ public sealed partial class World
     {
         var own = LordOrg(People.Household[i], false);
         if (own != null) return own;
-        foreach (var g in GroupsOf(i)) if (g.Parent < 0 && g.Home < 0 && g.LeaderUid == People.Uid[i]) return g;
+        foreach (var g in GroupsOf(i)) if (IsTop(g) && g.Home < 0 && g.LeaderUid == People.Uid[i]) return g;
         return null;
     }
 

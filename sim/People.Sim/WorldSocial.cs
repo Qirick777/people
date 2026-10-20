@@ -200,6 +200,7 @@ public sealed partial class World
         AddCrimeDefs(d);
         AddRiseDefs(d);
         AddCoupDefs(d);
+        AddOfferDefs(d);
         return d;
     }
 

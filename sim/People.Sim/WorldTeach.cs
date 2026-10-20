@@ -106,7 +106,7 @@ public sealed partial class World
         // 기록: 공개된 조직은 글 아는 조직원이 충분하면 이음이 저절로 찬다
         foreach (var root in _groups)
         {
-            if (!root.Alive || root.Parent >= 0 || root.Home >= 0 || root.Visibility < Visibility.Public) continue;
+            if (!root.Alive || !IsTop(root) || root.Home >= 0 || root.Visibility < Visibility.Public) continue;
             int literate = Subtree(root).SelectMany(MembersFast).Count(m => p.GetSkill(m, Skill.Letters) >= 0.4f);
             if (literate < Math.Max(2, root.Total / 20)) continue;
             foreach (var g in Subtree(root)) g.Inherit = MathF.Max(g.Inherit, 0.8f);
@@ -119,7 +119,7 @@ public sealed partial class World
     private void AutoLesson(Group g, Group root)
     {
         (Lesson l, float s) pick = (Lesson.None, 0f);
-        bool top = g.Parent < 0;
+        bool top = IsTop(g);
         if (root.Home >= 0) pick = g.Paid ? (Lesson.Arms, 0.1f) : (Lesson.None, 0f);
         else if (top && root.Visibility <= Visibility.Covert && ChildrenOf(root).Any()) pick = (Lesson.Succession, 0.1f);
         else pick = root.Kind switch
@@ -173,7 +173,7 @@ public sealed partial class World
             Social.Add(p, m, p.Uid[next], -10f);
             if (g.Home < 0 && _rng.Chance(0.15f)) LeaveGroup(m, g);
         }
-        if (g.Parent < 0 && g.Visibility == Visibility.Hidden)
+        if (IsTop(g) && g.Visibility == Visibility.Hidden)
             foreach (var c in ChildrenOf(g).ToList())
                 if (_rng.Chance(0.5f)) { c.Parent = -1; Stats.CellsLost++; }
         g.HeirUid = -1;

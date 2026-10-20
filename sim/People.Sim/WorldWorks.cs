@@ -41,6 +41,7 @@ public sealed partial class World
                 if (size >= 3) return true;
                 why = "조직원 3명부터"; return false;
             case Verb.Collect:
+                if (IsAttached(root)) { why = "지배자에게 붙은 조직은 걷지 못한다"; return false; }
                 if (size >= 5) return true;
                 why = "조직원 5명부터"; return false;
             case Verb.Trade:
@@ -103,13 +104,26 @@ public sealed partial class World
 
     // ------------------------------------------------------------------ 번 것 나누기
 
-    /// <summary>조직이 번 것: 회칙대로 우두머리 집, 조직원 집들, 곳간으로.</summary>
+    /// <summary>조직이 번 것. 붙은 조직은 30%를 지배자에게 바치고 나머지를 나눈다.</summary>
     private void Earn(Group root, float amount)
     {
         if (amount <= 0f) return;
-        var hh = Households; var p = People;
         root.Income += amount;
         Stats.OrgIncome += amount;
+        if (IsAttached(root) && Households.IsAlive(root.Sanction))
+        {
+            float cut = amount * OfferCut;
+            Households.Food[root.Sanction] += cut;
+            amount -= cut;
+        }
+        Pay(root, amount);
+    }
+
+    /// <summary>조직 몫을 회칙대로 우두머리 집, 조직원 집들, 곳간으로.</summary>
+    private void Pay(Group root, float amount)
+    {
+        if (amount <= 0f) return;
+        var hh = Households; var p = People;
         int leader = FindAlive(root.LeaderUid);
         int home = root.Home >= 0 ? root.Home : leader >= 0 ? p.Household[leader] : -1;
         switch (root.ShareRule)
@@ -164,7 +178,7 @@ public sealed partial class World
         var p = People; var hh = Households;
         foreach (var root in _groups.ToList())
         {
-            if (!root.Alive || root.Parent >= 0) continue;
+            if (!root.Alive || !IsTop(root)) continue;
             if (root.Income > 0f && root.Home < 0)
             {
                 float d = root.ShareRule switch { ShareRule.Even => 2f, ShareRule.Leader => -1f, _ => 0f };
