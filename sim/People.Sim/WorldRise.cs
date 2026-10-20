@@ -625,6 +625,8 @@ public sealed partial class World
         InteractionId.RiseOath => "서약하라고 요구한다",
         InteractionId.RiseInvest => "영주로 서임하겠다고 한다",
         InteractionId.RiseSwear => "봉신으로 서약하겠다고 한다",
+        InteractionId.PlotPurge => "몰래 거사를 꾸미다 들켰다. 숙청할지 정한다",
+        InteractionId.Declare => "독립을 선언했다. 놓아줄지 진압할지 정한다",
         _ => "자기 주군을 건너뛰고 직접 서약하겠다고 한다",
     };
 

@@ -666,7 +666,7 @@ func _open_rise() -> void:
 			var row := HBoxContainer.new()
 			row.add_theme_constant_override("separation", 6)
 			var id := int(e["id"])
-			for o in [["받는다", true, false], ["거절한다", false, true]]:
+			for o in [[e.get("yes", "받는다"), true, false], [e.get("no", "거절한다"), false, true]]:
 				var b := UI.action(o[0], "", -1.0, o[2])
 				b.custom_minimum_size = Vector2(140, 40)
 				var yes: bool = o[1]
@@ -679,6 +679,59 @@ func _open_rise() -> void:
 				row.add_child(b)
 			box.add_child(row)
 			rise_box.add_child(box)
+		rise_box.add_child(HSeparator.new())
+	# 내가 꾸미는 거사
+	var plot: Dictionary = host.PlotInfo()
+	if not plot.is_empty():
+		rise_box.add_child(UI.label("내가 꾸미는 거사", 13, UI.MUTED, true))
+		var yrs := "올해 시작" if int(plot["years"]) == 0 else "%d년째" % int(plot["years"])
+		rise_box.add_child(UI.label("%s%s · %s" % [plot["lord"], (" (%s)" % plot["realm"]) if plot["realm"] != "" else "", yrs], 15, UI.INK, true))
+		var pinfo := "편든 사람: %s · 아는 사람 %d명(많을수록 새어 나가기 쉽다)" % [plot["backers"] if plot["backers"] != "" else "아직 없음", int(plot["known"])]
+		var pl := UI.label(pinfo, 12, UI.MUTED)
+		pl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		pl.custom_minimum_size = Vector2(600, 0)
+		rise_box.add_child(pl)
+		var ratio := float(plot["ratio"])
+		var odds := "크게 이길 만하다" if ratio >= 0.6 else ("비등하다(내전이 될 수 있다)" if ratio >= 0.4 else "질 것 같다")
+		rise_box.add_child(UI.label("지금 일으키면: 우리 쪽 힘 %d%% · %s · 편들 이 %d, 맞설 이 %d" % [int(ratio * 100.0), odds, int(plot["mine"]), int(plot["theirs"])], 13, UI.INK))
+		if plot["exposed"]:
+			rise_box.add_child(UI.label("들켰다. 지배자의 처분을 기다린다.", 13, UI.RISK, true))
+		else:
+			var prow := HBoxContainer.new()
+			prow.add_theme_constant_override("separation", 6)
+			var sb := UI.action("거사를 일으킨다", "", ratio, true)
+			sb.custom_minimum_size = Vector2(200, 44)
+			sb.pressed.connect(func():
+				host.PlotAct(true)
+				for line in host.DrainChronicle(): _log(line)
+				_redraw()
+				_open_rise())
+			prow.add_child(sb)
+			var ab := UI.ghost("거사를 접는다")
+			ab.pressed.connect(func():
+				host.PlotAct(false)
+				for line in host.DrainChronicle(): _log(line)
+				_open_rise())
+			prow.add_child(_center(ab))
+			rise_box.add_child(prow)
+			var cands: Array = plot["candidates"]
+			if not cands.is_empty():
+				rise_box.add_child(UI.label("끌어들일 만한 사람(거절하면 지배자에게 알릴 수 있다)", 12, UI.MUTED))
+				var grid := GridContainer.new()
+				grid.columns = 3
+				grid.add_theme_constant_override("h_separation", 6)
+				grid.add_theme_constant_override("v_separation", 6)
+				var pa := int(plot["actor"])
+				for c in cands:
+					var b := UI.action(c["name"], "", float(c["chance"]), true)
+					b.custom_minimum_size = Vector2(200, 44)
+					var ci := int(c["i"])
+					b.pressed.connect(func():
+						_set_hint(host.Interact(_plot_recruit_id(), pa, ci, -1, 0.0))
+						for line in host.DrainChronicle(): _log(line)
+						_open_rise())
+					grid.add_child(b)
+				rise_box.add_child(grid)
 		rise_box.add_child(HSeparator.new())
 	var rows: Array = host.RiseRows()
 	var titles := {"lord": "내가 눈여겨보는 세력", "riser": "나를 눈여겨보는 지배자"}
@@ -721,7 +774,7 @@ func _open_rise() -> void:
 				grid.add_child(b)
 			rise_box.add_child(grid)
 			rise_box.add_child(HSeparator.new())
-	if demands.is_empty() and rows.is_empty():
+	if demands.is_empty() and rows.is_empty() and plot.is_empty():
 		rise_box.add_child(UI.label("지금은 다툼이 없다. 세를 늘리면 위의 지배자가 알아챌 수 있고, 내 아래에서 세를 늘리는 집이 생기면 여기에 나온다.", 13, UI.MUTED))
 	_show_panel(rise_panel)
 
@@ -897,6 +950,11 @@ func _open_org_tasks(id: int, name: String) -> void:
 			for line in host.DrainChronicle(): _log(line)
 			_open_orgs())
 		org_box.add_child(b)
+
+
+## '거사에 끌어들이기' 상호작용 번호(SimHost 가 이름으로 알려 준다).
+func _plot_recruit_id() -> int:
+	return int(host.PlotRecruitId)
 
 
 ## 가운데 창은 한 번에 하나만 띄운다.
@@ -1607,6 +1665,27 @@ func _run_autotest() -> void:
 		host.AnswerDemand(int(ds[0]["id"]), false)
 		print("autotest: 요구 거절 → 남은 요구 %d, 줄 %d" % [int(host.DemandCount), host.RiseRows().size()])
 	rise_panel.visible = false
+	# 거사: 봉신 영주를 맡아 주군의 자리를 노린다
+	for e in sc:
+		if e["what"] != "봉신 영주": continue
+		_take_house(int(e["id"]))
+		_on_player_changed()
+		for m in _members(): if m["head"]: actor = int(m["i"])
+		var liege: int = host.LiegeHeadOf(int(e["id"]))
+		var names := []
+		for it in host.Interactions(actor, liege): names.append(it["name"])
+		print("autotest: 주군에게 할 수 있는 일 ", ", ".join(names))
+		var pid := _id_of("거사 꾸미기", liege)
+		if pid >= 0:
+			print("autotest: ", host.Interact(pid, actor, liege, -1, 0.0))
+			var pl: Dictionary = host.PlotInfo()
+			print("autotest: 거사 힘 %.2f, 끌어들일 사람 %d" % [float(pl.get("ratio", 0.0)), pl.get("candidates", []).size()])
+		_set_speed(0)
+		card.visible = false
+		_open_rise()
+		await _snap("live_plot.png")
+		rise_panel.visible = false
+		break
 	get_tree().quit()
 
 

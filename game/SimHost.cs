@@ -784,9 +784,58 @@ public partial class SimHost : Node
                 ["realm"] = w.RealmName(d.From),
                 ["text"] = w.DemandTextOf(d),
                 ["date"] = $"{d.Day / w.Config.DaysPerYear + 1}년",
+                ["yes"] = d.Kind switch { InteractionId.PlotPurge => "숙청한다", InteractionId.Declare => "놓아준다", _ => "받는다" },
+                ["no"] = d.Kind switch { InteractionId.PlotPurge => "눈감아 준다", InteractionId.Declare => "진압한다", _ => "거절한다" },
             });
         }
         return a;
+    }
+
+    /// <summary>
+    /// 내 집이 꾸미는 거사: 노리는 지배자, 해, 편든 사람, 아는 사람 수, 지금 일으키면 힘의 몫(어림),
+    /// 끌어들일 만한 사람(받아들일 확률). 없으면 빈 사전.
+    /// </summary>
+    public Godot.Collections.Dictionary PlotInfo()
+    {
+        var e = new Godot.Collections.Dictionary();
+        if (!Ready) return e;
+        var w = _w!; var p = w.People;
+        var x = w.PlayerPlot;
+        if (x == null) return e;
+        var (ratio, mine, theirs) = w.StrikeEstimate(x);
+        int lh = w.Households.IsAlive(x.Lord) && p.IsValid(w.Households.Head[x.Lord]) ? w.Households.Head[x.Lord].Index : -1;
+        e["lord"] = lh >= 0 ? Names.Full(w.Lineage, p.Uid[lh]) : "";
+        e["realm"] = w.RealmName(x.Lord);
+        e["years"] = (w.Day - x.Since) / w.Config.DaysPerYear;
+        e["backers"] = string.Join(", ", x.Backers.Select(u => Names.Full(w.Lineage, u)));
+        e["known"] = x.Known.Count;
+        e["ratio"] = ratio;
+        e["mine"] = mine;
+        e["theirs"] = theirs;
+        e["exposed"] = x.Exposed;
+        e["actor"] = FindAlive(x.Plotter);
+        var cands = new Godot.Collections.Array();
+        foreach (var (c, ch) in w.PlotCandidates(x).Take(8))
+            cands.Add(new Godot.Collections.Dictionary { ["i"] = c, ["name"] = Names.Full(w.Lineage, p.Uid[c]), ["chance"] = ch });
+        e["candidates"] = cands;
+        return e;
+    }
+
+    public int PlotRecruitId => (int)InteractionId.PlotRecruit;
+
+    /// <summary>집 h 가 섬기는 주군 집의 가장(사람 번호). 없으면 -1.</summary>
+    public int LiegeHeadOf(int h)
+    {
+        if (!Ready) return -1;
+        int l = _w!.PatronOf(h);
+        return l >= 0 && _w.Households.IsAlive(l) && _w.People.IsValid(_w.Households.Head[l]) ? _w.Households.Head[l].Index : -1;
+    }
+
+    /// <summary>거사를 일으킨다(true) 또는 접는다(false).</summary>
+    public void PlotAct(bool strike)
+    {
+        if (!Ready || _w!.PlayerPlot is not { } x) return;
+        if (strike) _w.Strike(x); else _w.AbandonPlot(x);
     }
 
     public bool AnswerDemand(int id, bool accept) => _w != null && _w.AnswerDemand(id, accept);

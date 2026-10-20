@@ -386,6 +386,60 @@ switch (cmd)
             Console.WriteLine($"{name[g]}: 관계 {Q(op[g])}\n    충성 {Q(ly[g])}  광신 {fan[g]}");
         break;
     }
+    case "realmdiag":
+    {
+        // 세력 균형 진단(plan_orgs 11장, 14.3): 큰 세력 셋의 몫, 새로 영주가 된 가문, 꺾이거나 쪼개진 독립 세력, 쿠데타와 독립
+        var map = WorldMap.Generate((uint)Arg("--seed", 1), Arg("--size", 48));
+        var w = new World((ulong)Arg("--seed", 1), map, Config());
+        w.SeedCouples(Arg("--couples", 10));
+        int years = Arg("--years", 300);
+        var hh = w.Households; var p = w.People;
+        var lordFams = new HashSet<int>();
+        int newLordFams = 0; double houseYears = 0;
+        long plots = 0, exposed = 0, purges = 0, strikes = 0, wins = 0, wars = 0, fails = 0, declared = 0, supp = 0, nego = 0, letgo = 0, indep = 0;
+        // 독립 세력 표본: (해, 집, 세운 날, 아래 집 수)
+        var samples = new List<(int year, int h, int founded, int below)>();
+        int broken = 0, judged = 0;
+        int Fam(int h) => p.IsValid(hh.Head[h]) ? w.Lineage.FamilyOf(p.Uid[hh.Head[h].Index]) : -1;
+        for (int y = 1; y <= years; y++)
+        {
+            for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
+            var st = w.Stats;
+            plots += st.Plots; exposed += st.PlotsExposed; purges += st.Purges; strikes += st.CoupStrikes; wins += st.CoupWins; wars += st.CivilWars; fails += st.CoupFails;
+            declared += st.Declared; supp += st.IndepSuppressed; nego += st.IndepNegotiated; letgo += st.IndepLetGo; indep += st.Independences;
+            houseYears += hh.AliveCount;
+            for (int h = 0; h < hh.HighWater; h++)
+            {
+                if (!hh.IsAlive(h) || w.TierOf(h) < 2) continue;
+                int f = Fam(h);
+                if (f >= 0 && lordFams.Add(f) && y > 50) newLordFams++;
+            }
+            if (y % 25 == 0)
+            {
+                // 100년 전 표본을 판정: 사라졌거나 영주 아래로 떨어졌거나, 위에 섬기게 됐거나, 아래 집이 30% 넘게 줄었으면 꺾임
+                foreach (var sm in samples.Where(s => s.year == y - 100))
+                {
+                    judged++;
+                    bool gone = !hh.IsAlive(sm.h) || hh.FoundedDay[sm.h] != sm.founded || w.TierOf(sm.h) < 2 || w.PatronOf(sm.h) >= 0 || w.BelowOf(sm.h) < 0.7 * sm.below;
+                    if (gone) broken++;
+                }
+                for (int h = 0; h < hh.HighWater; h++)
+                    if (hh.IsAlive(h) && w.TierOf(h) >= 2 && w.PatronOf(h) < 0) samples.Add((y, h, hh.FoundedDay[h], w.BelowOf(h)));
+                // 큰 세력 셋의 몫
+                var tops = new List<int>();
+                for (int h = 0; h < hh.HighWater; h++) if (hh.IsAlive(h) && w.PatronOf(h) < 0 && w.BelowOf(h) > 0) tops.Add(w.BelowOf(h) + 1);
+                tops.Sort((a, b) => b.CompareTo(a));
+                double share = tops.Take(3).Sum() / (double)Math.Max(1, hh.AliveCount);
+                Console.WriteLine($"{y}년: 집 {hh.AliveCount}, 독립 세력(영주 이상) {samples.Count(s => s.year == y)}, 큰 셋 몫 {share:P0}, 단계 {st.Tier1}/{st.Tier2}/{st.Tier3}/{st.Tier4}");
+            }
+        }
+        double perK = houseYears > 0 ? newLordFams / (houseYears / 1000.0) * 100.0 : 0;
+        Console.WriteLine($"새로 영주가 된 가문(50년 뒤): {newLordFams} → 1,000집·100년당 {perK:F2} (목표 1~3)");
+        Console.WriteLine($"100년 동안 꺾이거나 쪼개진 독립 세력: {broken}/{judged} = {(judged > 0 ? broken / (double)judged : 0):P0} (목표 15~40%)");
+        Console.WriteLine($"쿠데타: 꾸밈 {plots}, 들킴 {exposed}, 숙청 {purges}, 거사 {strikes} (자리 빼앗음 {wins}, 내전 {wars}, 실패 {fails})");
+        Console.WriteLine($"독립: 선언 {declared}, 진압 {supp}, 협상 {nego}, 체념 {letgo}, 홀로 섬 {indep}");
+        break;
+    }
     case "crimediag":
     {
         // 범죄 진단: 지배자의 벌 세기에 따라 맡은 땅의 범죄가 줄어드는가, 세력 크기에 따라 사건이 충성에 주는 영향
