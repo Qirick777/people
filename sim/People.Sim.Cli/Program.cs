@@ -506,17 +506,21 @@ switch (cmd)
         var map = WorldMap.Generate((uint)seed, 48);
         var w = new World((ulong)seed, map, Config());
         w.GenerateSettled(new GenOptions { Rulers = Arg("--rulers", 4), VillagesPerRuler = Arg("--vpr", 7) });
-        long off = 0, taken = 0, pl = 0, br = 0, sup = 0, supw = 0;
+        long off = 0, taken = 0, pl = 0, br = 0, sup = 0, supw = 0, raids = 0, won = 0, rd = 0, gang = 0, gt = 0, gn = 0; double loot = 0;
         for (int y = 0; y < years; y++)
         {
             for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
             var st = w.Stats;
+            raids += st.Raids; won += st.RaidsWon; rd += st.RaidDeaths; gang += st.BanditRaids; gt += st.GangTries; gn += st.GangNoTarget; loot += st.GangLoot;
             off += st.OrgOffers; taken += st.OrgOffersTaken; pl += st.OrgPledges; br += st.OrgBreaks; sup += st.OrgSuppressions; supw += st.OrgSuppressWins;
             if (y % 5 == 4)
             {
                 var big = w.Groups.Where(g => g.Alive && World.IsTop(g) && g.Home < 0 && g.Kind != GroupKind.Bandits && g.Visibility >= Visibility.Public).ToList();
                 int att = big.Count(World.IsAttached), big8 = big.Count(g => g.Total >= 8), att8 = big.Count(g => g.Total >= 8 && World.IsAttached(g));
-                Console.WriteLine($"{y + 1}년: 제안 {off} 받음 {taken} 바침 {pl} 떨어짐 {br} 누름 {sup}(이김 {supw}) | 공개 조직 {big.Count} 중 붙음 {att}, 8명 넘는 것 {big8} 중 붙음 {att8} | " +
+                var ten = Enumerable.Range(0, w.Households.HighWater).Where(h => w.Households.IsAlive(h) && w.ClassOf(h) == LandClass.Tenant).Select(h => w.IncomeOf(h)).ToList();
+                var gangs = w.Groups.Where(g => g.Alive && g.Kind == GroupKind.Bandits && World.IsTop(g)).ToList();
+                Console.WriteLine($"   소작 집 한 해 소출 {(ten.Count > 0 ? ten.Average(x => x.own + x.tenant - x.rent) : 0):0}(식구 {(ten.Count > 0 ? Enumerable.Range(0, w.Households.HighWater).Where(h => w.Households.IsAlive(h) && w.ClassOf(h) == LandClass.Tenant).Average(h => w.Households.Members[h]) : 0):0.0}), 도적 떼 {gangs.Count}: " + string.Join(" ", gangs.Select(g => $"{g.Total}명/{g.LastIncome:0}")));
+                Console.WriteLine($"{y + 1}년: 사람 {w.People.AliveCount} 약탈 {raids}(성공 {won}, 떼 {gang}/{gt}번, 목표 없음 {gn}, 떼 약탈량 {loot:0}, 죽음 {rd}) 제안 {off} 받음 {taken} 바침 {pl} 떨어짐 {br} 누름 {sup}(이김 {supw}) | 공개 조직 {big.Count} 중 붙음 {att}, 8명 넘는 것 {big8} 중 붙음 {att8} | " +
                                   string.Join(" ", big.GroupBy(g => g.Kind).Select(k => $"{World.GroupKindName(k.Key)} {k.Count(World.IsAttached)}/{k.Count()}")));
             }
         }
@@ -527,8 +531,10 @@ switch (cmd)
         // 플레이어 전략 실험: 장원 세계의 소작농 가족을 맡아 같은 수만 써서 40년. 전략마다 같은 시드로 새로 만든다
         int seed = Arg("--seed", 3), years = Arg("--years", 40), tries = Arg("--tries", 8);
         string[] names = { "가만히", "도적 떼", "자경단 보호세", "신도회", "용병" };
+        int only = Arg("--only", -1);
         foreach (int strat in Enumerable.Range(0, names.Length))
         {
+            if (only >= 0 && strat != only) continue;
             var map = WorldMap.Generate((uint)seed, 48);
             var w = new World((ulong)seed, map, Config());
             w.GenerateSettled(new GenOptions { Rulers = 3, VillagesPerRuler = 8 });
@@ -553,6 +559,7 @@ switch (cmd)
                         org = w.GroupsOf(head).FirstOrDefault(g => g.Kind == kind && w.IsLeader(head, g)) ?? w.FoundGroup(head, kind);
                         if (strat == 2) w.SetVisibility(org, Visibility.Public);
                         if (strat == 3) { w.SetVisibility(org, Visibility.Proclaimed); org.Lesson = Lesson.Doctrine; org.TeachShare = 0.2f; org.TeachManual = true; }
+                        if (strat == 1) org.ShareRule = ShareRule.Even;
                         if (strat == 4) { org.Lesson = Lesson.Arms; org.TeachShare = 0.2f; org.TeachManual = true; }
                     }
                     // 받아들일 확률이 높은 마을 어른부터 tries 번 권한다
@@ -575,7 +582,7 @@ switch (cmd)
                     var root = w.RootOf(org);
                     var verbs = strat switch
                     {
-                        1 => new[] { Verb.Raid, Verb.Kidnap, Verb.Collect },
+                        1 => new[] { Verb.Raid },
                         2 => new[] { Verb.Guard, Verb.Collect },
                         3 => new[] { Verb.Preach, Verb.Charity },
                         _ => new[] { Verb.Mercenary, Verb.Guard },
@@ -591,7 +598,7 @@ switch (cmd)
                 {
                     int ph = w.PlayerHousehold;
                     var r0 = org.Alive ? w.RootOf(org) : null;
-                    Console.WriteLine($"   {y + 1}년: 조직 {(org.Alive ? $"{org.Members}명(맨 위 {r0!.Name} {r0.Total}명, 내 것 {(r0 == org)})" : "흩어짐")}, 일 {string.Join("/", org.Tasks.Select(t => World.VerbName(t.Verb)))}, 식량 {hh.Food[ph]:0}, 따르는 집 {w.ClientCount(ph)}, 약탈 {w.Stats.BanditRaids}, 보호세 {w.Stats.ProtectionTaken}, 납치 {w.Stats.Kidnaps}");
+                    Console.WriteLine($"   {y + 1}년: 조직 {(org.Alive ? $"{org.Members}명(맨 위 {r0!.Name} {r0.Total}명, 내 것 {(r0 == org)})" : "흩어짐")}, 일 {string.Join("/", org.Tasks.Select(t => World.VerbName(t.Verb)))}, 식량 {hh.Food[ph]:0}, 따르는 집 {w.ClientCount(ph)}, 약탈 {w.Stats.BanditRaids}, 보호세 {w.Stats.ProtectionTaken}, 납치 {w.Stats.Kidnaps}, 조직 번 것 {(r0 != null ? r0.LastIncome : 0):0}, 회칙 {(r0 != null ? World.ShareRuleName(r0.ShareRule) : "")}");
                 }
             }
             int hf = w.PlayerHousehold;

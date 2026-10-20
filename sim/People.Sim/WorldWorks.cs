@@ -193,6 +193,7 @@ public sealed partial class World
                     root.Treasury -= give; hh.Food[h] += give;
                     Social.Add(p, m, root.LeaderUid, 3f);
                 }
+            root.LastIncome = root.Income;
             root.Income = 0f;
             Face(root);
         }

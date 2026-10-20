@@ -35,6 +35,7 @@ public sealed class Group
     public JoinRule JoinRule;
     public ShareRule ShareRule;
     public float Treasury, Income;                    // 조직 곳간, 올해 번 것
+    public float LastIncome;                          // 지난해 번 것(조직원이 받는 몫을 가늠한다)
     // O3 교육과 이음
     public Lesson Lesson;
     public float TeachShare;                          // 조직원 시간 가운데 가르치는 몫(0~0.3)
@@ -114,6 +115,7 @@ public sealed partial class World
         if (!IsPlayer(leader))
         {
             if (kind == GroupKind.Bandits && People.Get(leader, Trait.Caution) > 0.7f) g.Visibility = Visibility.Hidden;
+            if (kind == GroupKind.Bandits) g.ShareRule = ShareRule.Even;   // 떼는 턴 것을 나눠 갖는다
             else if (kind == GroupKind.Brotherhood && People.Get(leader, Trait.Stubbornness) > 0.75f) g.Visibility = Visibility.Covert;
         }
         _groups.Add(g);
@@ -143,7 +145,8 @@ public sealed partial class World
             Accept = (w, c) =>
             {
                 var g = w.LedGroupFor(c.Actor, c.Target)!;
-                float a = w.GroupWant(c.Target, g.Kind) + Social.Opinion(w.People, c.Target, w.People.Uid[c.Actor]) / 100f - 0.1f;
+                float gw = w.GroupWant(c.Target, g.Kind);
+                float a = gw + (gw > 0f ? w.PayPull(w.RootOf(g)) : 0f) + Social.Opinion(w.People, c.Target, w.People.Uid[c.Actor]) / 100f - 0.1f;
                 return Math.Clamp(a, 0.02f, 0.95f);
             },
             Success = (w, c, _) =>
@@ -205,6 +208,15 @@ public sealed partial class World
             GroupKind.Brothel => age >= 16 ? (p.JobOf[i] == (byte)Job.SexWorker ? 0.6f : 0f) + MathF.Max(0f, p.Get(i, Trait.Ambition) - 0.5f) * (1f - p.Piety[i]) * 2f : 0f,
             _ => age >= 16 ? MathF.Max(0f, p.Piety[i] - 0.6f) * 2.5f : 0f,
         };
+    }
+
+    /// <summary>조직원 한 명이 지난해 받은 몫으로 끄는 힘(0~0.4). 한 사람 한 해 먹을 것(24)을 받으면 0.4. 우두머리가 다 가지면 없다.</summary>
+    private float PayPull(Group root)
+    {
+        if (root.Home >= 0 || root.LastIncome <= 0f) return 0f;
+        float share = root.ShareRule switch { ShareRule.Even => 1f, ShareRule.Treasury => 0.5f, _ => 0f };
+        float per = share * root.LastIncome / MathF.Max(1, root.Total);
+        return MathF.Min(0.4f, 0.4f * per / Config.DaysPerYear);
     }
 
     private void GroupYear()
@@ -317,12 +329,13 @@ public sealed partial class World
                 {
                     if (IsPlayer(i)) continue;
                     float want = GroupWant(i, kind);
+                    if (want > 0f) want += PayPull(RootOf(here));   // 몫이 넉넉하면 들고 남는다(들 만한 사람만)
                     bool inIt = InGroup(i, here);
                     // 숨긴 조직은 스스로 찾아오지 않는다(포섭으로만), 공개할수록 잘 모인다
                     // 스스로 드는 사람은 그 조직이 센 줄 알수록 잘 든다(아는 권위)
                     if (!inIt && here.Members < cap && GroupOfKind(i, kind) == null && want > 0.35f && RuleAllows(RootOf(here), i)
                         && _rng.Chance((want - 0.35f) * 0.5f * JoinFactor(RootOf(here), i) * (0.75f + 0.5f * AuthorityPull(i, here)))) JoinGroup(i, here);
-                    else if (inIt && !IsLeader(i, here) && want < 0.15f && _rng.Chance(0.3f)) LeaveGroup(i, here);
+                    else if (inIt && !IsLeader(i, here) && want + Social.Opinion(p, i, here.LeaderUid) / 200f < 0.15f && _rng.Chance(0.3f)) LeaveGroup(i, here);   // 우두머리를 좋게 보면 남는다
                 }
                 if (kind == GroupKind.Watch && danger < 0.1f && here.Sanction < 0 && _rng.Chance(0.1f)) CloseGroup(here);
             }
@@ -419,10 +432,20 @@ public sealed partial class World
             if (!g.Alive) continue;
             float w = 0f;
             foreach (var t in g.Tasks) if (t.Verb == Verb.Raid) w += t.Weight;
-            if (w <= 0f || !_rng.Chance(0.3f * w * WorkFactor(g))) continue;
+            if (w <= 0f) continue;
             int leader = FindAlive(g.LeaderUid);
             if (leader < 0 || (IsPlayer(leader) && !g.Manual)) continue;
-            TryRaid(People.Household[leader], 10f + 8f * g.Members, g);
+            // 큰 떼는 한 계절에 여러 번 나간다(네 명마다 한 번 더)
+            for (int k = 0, tries = 1 + g.Members / 4; k < tries; k++)
+            {
+                if (!g.Alive || !_rng.Chance(0.5f * w * WorkFactor(g))) continue;
+                leader = FindAlive(g.LeaderUid);   // 앞선 털기에서 두목이 죽었을 수 있다
+                if (leader < 0 || !Households.IsAlive(People.Household[leader])) break;
+                // 맡은 털기 마을 가운데 무게대로 하나
+                float roll = _rng.NextFloat() * w; int village = -1;
+                foreach (var t in g.Tasks) { if (t.Verb != Verb.Raid) continue; village = t.Village; roll -= t.Weight; if (roll <= 0f) break; }
+                TryRaid(People.Household[leader], 10f + 8f * g.Members, g, village);
+            }
         }
     }
 }

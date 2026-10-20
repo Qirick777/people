@@ -109,6 +109,8 @@ public sealed partial class World
         int h = _player;
         if (heir < 0 && Households.IsAlive(h) && People.IsValid(Households.Head[h]))
             heir = ClosestKinHousehold(Households.Head[h].Index, h);
+        // 마지막 식구까지 죽었다: 죽은 가장의 혈족(분가한 아들 집 등) 가운데 가장 가까운 집
+        if (heir < 0 && _deadHead.TryGetValue(h, out int dead)) heir = ClosestKinOf(dead, h);
         _fork = true;
         Chronicle.Add((Day, heir >= 0 ? "집이 끊겨 가까운 혈족의 집을 이어 맡는다" : "집이 끊겼다. 이을 혈족이 없다"));
         PlayerHousehold = heir;

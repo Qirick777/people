@@ -111,7 +111,7 @@ public sealed partial class World
     /// 약탈: 굶을 처지인데 빌리지도 팔지도 못한 집 중 거친 가장이 있는 집이 이웃 마을의 여유 있는 집을 턴다.
     /// 지키는 쪽은 그 집 남자들과, 보호받는 집이면 지배자의 군인이 함께 막는다. 진 쪽에서 사람이 죽을 수 있다.
     /// </summary>
-    private void TryRaid(int h, float deficit, Group? gang = null)
+    private void TryRaid(int h, float deficit, Group? gang = null, int village = -1)
     {
         var hh = Households;
         var p = People;
@@ -122,25 +122,27 @@ public sealed partial class World
             if (!_rng.Chance((aggr - Config.RaidAggression) / (1f - Config.RaidAggression) * 0.8f)) return;
         }
         float power = HouseholdPower(h) + (gang != null ? 0.8f * gang.OwnStrength : 0f);   // 떼는 함께 턴다(이 갈래의 힘)
+        if (gang != null) Stats.GangTries++;
         if (power < 0.3f) return;
         int days = DaysToHarvest();
         int best = -1;
         float bestScore = 0f;
         int hx = hh.X[h], hy = hh.Y[h];
-        // 근처(약 1 km) 집 중 털 만한 것: 여유 식량이 많고 지킴이 약한 곳
-        for (int k = 0; k < 24; k++)
+        // 근처(약 1 km) 집 중 털 만한 것: 여유 식량이 많고 지킴이 약한 곳. 떼는 맡은 마을(제 마을이면 이웃 마을)을 본다
+        var pool = gang != null ? RaidPool(h, village) : null;
+        for (int k = 0; k < 24 && (pool == null || pool.Count > 0); k++)
         {
-            int t = _rng.NextInt(hh.HighWater);
+            int t = pool != null ? pool[_rng.NextInt(pool.Count)] : _rng.NextInt(hh.HighWater);
             if (!hh.IsAlive(t) || t == h || hh.Village[t] < 0) continue;
             float dx = hh.X[t] - hx, dy = hh.Y[t] - hy;
-            if (dx * dx + dy * dy > Config.RaidRange * Config.RaidRange) continue;
+            if (dx * dx + dy * dy > (gang != null ? 4f : 1f) * Config.RaidRange * Config.RaidRange) continue;
             float spare = hh.Food[t] - hh.Need[t] * days;
             if (spare <= 10f) continue;
             float guard = DefensePower(t);
             float sc = spare / (1f + guard);
             if (sc > bestScore) { bestScore = sc; best = t; }
         }
-        if (best < 0) return;
+        if (best < 0) { if (gang != null) Stats.GangNoTarget++; return; }
         float defense = DefensePower(best);
         float atk = power * (0.7f + 0.6f * _rng.NextFloat());
         float def = defense * (0.7f + 0.6f * _rng.NextFloat()) + 0.2f;
@@ -153,7 +155,8 @@ public sealed partial class World
             float spare = MathF.Max(0f, hh.Food[best] - hh.Need[best] * days);
             float take = MathF.Min(deficit * 1.5f, spare * 0.6f);
             hh.Food[best] -= take;
-            hh.Food[h] += take;
+            if (gang != null) { Earn(RootOf(gang), take); Stats.GangWins++; Stats.GangLoot += take; }   // 떼의 몫은 회칙대로 나눈다
+            else hh.Food[h] += take;
             Stats.RaidsWon++;
             if (gang != null) { Stats.BanditRaids++; RootOf(gang).Leak += 0.1f; if (_rng.Chance(0.5f)) gang.Exposed = true; }   // 털린 집이 누구 짓인지 알아본다
             HeadsRelate(best, h, -40f, 20f, 0f, MemoryType.Raided, -60);
@@ -169,10 +172,46 @@ public sealed partial class World
                 if (_rng.Chance(0.5f * LeaveFactor(best))) _patron[best] = -1;
             }
         }
-        else
+        else if (gang != null) GangCasualty(gang);
+        else Casualty(h, power);
+    }
+
+    /// <summary>진 떼에서 한 명이 죽을 수 있다. 앞장선 사람(힘센 조직원)일수록 잘 맞는다. 두목은 뒤에 있어 덜 맞는다.</summary>
+    private void GangCasualty(Group gang)
+    {
+        if (!_rng.Chance(Config.RaidDeath)) return;
+        int victim = -1;
+        float best = 0f;
+        foreach (int m in Members(gang))
         {
-            Casualty(h, power);
+            float f = FightPower(m) * (0.5f + _rng.NextFloat()) * (IsLeader(m, gang) ? 0.4f : 1f);
+            if (f > best) { best = f; victim = m; }
         }
+        if (victim < 0) return;
+        Stats.RaidDeaths++;
+        Die(victim, false);
+    }
+
+    private readonly List<int> _raidPool = new();
+
+    /// <summary>떼가 털 집 후보: 맡은 마을. 제 마을이거나 정하지 않았으면 털기 거리 두 배 안의 이웃 마을 셋(제 둥지는 건드리지 않는다).</summary>
+    private List<int> RaidPool(int h, int village)
+    {
+        _raidPool.Clear();
+        var hh = Households; var vl = VillageList;
+        int home = hh.Village[h];
+        if (village >= 0 && village != home) { _raidPool.AddRange(VillageHouses(village)); return _raidPool; }
+        if (home < 0 || home >= vl.Count) return _raidPool;
+        float r2 = 4f * Config.RaidRange * Config.RaidRange;   // 떼는 두 배 멀리 나간다
+        var near = new List<(int v, float d)>();
+        for (int v = 0; v < vl.Count; v++)
+        {
+            if (v == home || !vl.Alive[v]) continue;
+            float dx = vl.CenterX[v] - hh.X[h], dy = vl.CenterY[v] - hh.Y[h], d = dx * dx + dy * dy;
+            if (d <= r2) near.Add((v, d));
+        }
+        foreach (var (v, _) in near.OrderBy(x => x.d).Take(3)) _raidPool.AddRange(VillageHouses(v));
+        return _raidPool;
     }
 
     private float DefensePower(int h)

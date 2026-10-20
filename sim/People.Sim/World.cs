@@ -1406,6 +1406,21 @@ public sealed partial class World
         Stats.Dissolved++;
     }
 
+    /// <summary>uid 의 혈족(1/16 넘게 가까운) 가장이 있는 집 가운데 가장 가까운 집. 없으면 -1.</summary>
+    private int ClosestKinOf(int uid, int exclude)
+    {
+        var p = People; var hh = Households;
+        int best = -1;
+        float bestR = 0.0625f;
+        for (int h = 0; h < hh.HighWater; h++)
+        {
+            if (!hh.IsAlive(h) || h == exclude || !p.IsValid(hh.Head[h])) continue;
+            float r = Lineage.Relatedness(uid, p.Uid[hh.Head[h].Index]);
+            if (r >= bestR) { bestR = r; best = h; }
+        }
+        return best;
+    }
+
     private int ClosestKinHousehold(int person, int exclude)
     {
         var p = People;
