@@ -381,7 +381,7 @@ public partial class SimHost : Node
         var w = _w!; var p = w.People; var hh = w.Households;
         var def = w.Def((InteractionId)id);
         var cands = new List<int>();
-        if (def.Id is InteractionId.ArrangeMatch or InteractionId.ForcedMatch)
+        if (def.Id is InteractionId.ArrangeMatch or InteractionId.ForcedMatch or InteractionId.Apprentice)
         {
             int h = p.Household[actor];
             if (hh.IsAlive(h)) cands.AddRange(w.MembersOf(h));
@@ -883,6 +883,63 @@ public partial class SimHost : Node
     /// 내 집이 꾸미는 거사: 노리는 지배자, 해, 편든 사람, 아는 사람 수, 지금 일으키면 힘의 몫(어림),
     /// 끌어들일 만한 사람(받아들일 확률). 없으면 빈 사전.
     /// </summary>
+    /// <summary>
+    /// 지배자 도구(플레이어 집이 따르는 집을 가질 때만): 세율과 내 땅의 조직 목록. 조직마다 쓸 수 있는 수(거두기 제안, 누르기).
+    /// </summary>
+    public Godot.Collections.Dictionary LordTools()
+    {
+        var e = new Godot.Collections.Dictionary();
+        if (!Ready) return e;
+        var w = _w!; var p = w.People; var hh = w.Households;
+        int h = w.PlayerHousehold;
+        if (!hh.IsAlive(h) || w.ClientCount(h) == 0 || !p.IsValid(hh.Head[h])) return e;
+        int me = hh.Head[h].Index;
+        e["tax"] = (int)MathF.Round(w.TaxRate(h) * 100f);
+        var orgs = new Godot.Collections.Array();
+        foreach (var g in w.Groups)
+        {
+            if (!g.Alive || !World.IsTop(g) || g.Home >= 0) continue;
+            int leader = FindAlive(g.LeaderUid);
+            if (leader < 0 || p.Household[leader] == h) continue;
+            bool mine = g.Sanction == h || (g.Sanction < 0 && w.PatronOf(p.Household[leader]) == h);
+            if (!mine || !w.PlayerSeesMembership(leader, g)) continue;
+            var moves = new Godot.Collections.Array();
+            foreach (var id in new[] { InteractionId.OrgOffer, InteractionId.OrgSuppress })
+            {
+                var def = w.Def(id);
+                var c = new InteractionContext { Actor = me, Target = leader, Third = -1 };
+                if (!def.Can(w, c)) continue;
+                moves.Add(new Godot.Collections.Dictionary { ["id"] = (int)id, ["name"] = def.Name, ["chance"] = def.Accept(w, c), ["harsh"] = def.Harsh, ["actor"] = me, ["target"] = leader });
+            }
+            orgs.Add(new Godot.Collections.Dictionary
+            {
+                ["name"] = g.Name, ["kind"] = World.GroupKindName(g.Kind), ["total"] = g.Total, ["attached"] = World.IsAttached(g),
+                ["leader"] = Names.Full(w.Lineage, g.LeaderUid), ["moves"] = moves,
+            });
+        }
+        e["orgs"] = orgs;
+        // 싸움을 걸 수 있는 홀로 선 지배자
+        var wars = new Godot.Collections.Array();
+        var wdef = w.Def(InteractionId.War);
+        for (int t = 0; t < hh.HighWater; t++)
+        {
+            if (!hh.IsAlive(t) || t == h || !p.IsValid(hh.Head[t])) continue;
+            var c = new InteractionContext { Actor = me, Target = hh.Head[t].Index, Third = -1 };
+            if (!wdef.Can(w, c)) continue;
+            wars.Add(new Godot.Collections.Dictionary { ["id"] = (int)InteractionId.War, ["name"] = $"{Names.Full(w.Lineage, p.Uid[hh.Head[t].Index])}({w.RealmName(t)}, 아래 {w.BelowOf(t)})", ["chance"] = wdef.Accept(w, c), ["actor"] = me, ["target"] = hh.Head[t].Index });
+        }
+        e["wars"] = wars;
+        return e;
+    }
+
+    /// <summary>세율을 정한다(8~20%). 12%보다 무거우면 아래 집들이 해마다 나를 나쁘게 본다.</summary>
+    public void SetTax(int pct)
+    {
+        if (!Ready || _w!.PlayerHousehold < 0) return;
+        _w.SetTaxRate(_w.PlayerHousehold, pct / 100f);
+        _w.Chronicle.Add((_w.Day, $"세율을 {pct}%로 정했다"));
+    }
+
     public Godot.Collections.Dictionary PlotInfo()
     {
         var e = new Godot.Collections.Dictionary();

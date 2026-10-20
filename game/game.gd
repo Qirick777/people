@@ -762,6 +762,65 @@ func _open_rise() -> void:
 					grid.add_child(b)
 				rise_box.add_child(grid)
 		rise_box.add_child(HSeparator.new())
+	# 지배자 도구: 세율, 내 땅의 조직
+	var lt: Dictionary = host.LordTools()
+	if not lt.is_empty():
+		var trow := HBoxContainer.new()
+		trow.add_theme_constant_override("separation", 0)
+		var tl := UI.label("세율 ", 13, UI.MUTED, true)
+		tl.tooltip_text = "아래 집 수확에서 걷는 몫. 12%보다 무거우면 아래 집들이 해마다 나를 나쁘게 보고, 가벼우면 좋게 본다"
+		trow.add_child(_center(tl))
+		var taxes := [8, 10, 12, 15, 20]
+		for k in taxes.size():
+			var b := Button.new()
+			b.text = "%d%%" % taxes[k]
+			b.add_theme_font_size_override("font_size", 12)
+			UI.segment(b, int(lt["tax"]) == taxes[k], k == 0, k == taxes.size() - 1)
+			var pct: int = taxes[k]
+			b.pressed.connect(func():
+				host.SetTax(pct)
+				for line in host.DrainChronicle(): _log(line)
+				_open_rise())
+			trow.add_child(b)
+		rise_box.add_child(trow)
+		var lorgs: Array = lt["orgs"]
+		if not lorgs.is_empty():
+			rise_box.add_child(UI.label("내 땅의 조직", 13, UI.MUTED, true))
+			for o in lorgs:
+				var orow := HBoxContainer.new()
+				orow.add_theme_constant_override("separation", 6)
+				var on := UI.label("%s · %s %d명 · %s%s" % [o["name"], o["kind"], int(o["total"]), o["leader"], " · 내게 붙음" if o["attached"] else ""], 13)
+				on.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+				orow.add_child(on)
+				for m in o["moves"]:
+					var b := UI.action(m["name"], "", float(m["chance"]), m["harsh"])
+					b.custom_minimum_size = Vector2(170, 38)
+					var mid := int(m["id"]); var tgt := int(m["target"]); var act := int(m["actor"])
+					b.pressed.connect(func():
+						_set_hint(host.Interact(mid, act, tgt, -1, 0.0))
+						for line in host.DrainChronicle(): _log(line)
+						_open_rise())
+					orow.add_child(b)
+				rise_box.add_child(orow)
+		var wars: Array = lt["wars"]
+		if not wars.is_empty():
+			rise_box.add_child(UI.label("싸움을 걸 수 있는 지배자(이기면 내 봉신이 된다. 두 쪽 다 군인을 잃는다)", 13, UI.MUTED, true))
+			var wg := GridContainer.new()
+			wg.columns = 2
+			wg.add_theme_constant_override("h_separation", 6)
+			wg.add_theme_constant_override("v_separation", 6)
+			for m in wars:
+				var b := UI.action(m["name"], "", float(m["chance"]), true)
+				b.custom_minimum_size = Vector2(300, 40)
+				var mid := int(m["id"]); var tgt := int(m["target"]); var act := int(m["actor"])
+				b.pressed.connect(func():
+					_set_hint(host.Interact(mid, act, tgt, -1, 0.0))
+					for line in host.DrainChronicle(): _log(line)
+					_redraw()
+					_open_rise())
+				wg.add_child(b)
+			rise_box.add_child(wg)
+		rise_box.add_child(HSeparator.new())
 	var rows: Array = host.RiseRows()
 	var titles := {"lord": "내가 눈여겨보는 세력", "riser": "나를 눈여겨보는 지배자"}
 	for side in ["lord", "riser"]:

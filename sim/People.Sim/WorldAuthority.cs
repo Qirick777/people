@@ -85,8 +85,16 @@ public sealed partial class World
         if (leader < 0) return;
         int span = CommandSpan(leader);
         var p = People;
-        foreach (int m in MembersFast(root).Where(m => Adult(m) && m != leader).OrderByDescending(m => Social.Opinion(p, m, root.LeaderUid)).Take(span))
+        var ms = MembersFast(root).Where(m => Adult(m) && m != leader).ToList();
+        // 청해서 받은 측근이 먼저(아직 바로 딸린 사람이면), 남은 자리는 우두머리를 가장 좋게 보는 사람
+        var here = new HashSet<int>((root.Home >= 0 ? Subtree(root).SelectMany(MembersFast) : ms).Select(m => p.Uid[m]));   // 지배자 군대는 갈래의 군인도 측근이 될 수 있다
+        root.Pinned.RemoveWhere(u => !here.Contains(u));
+        foreach (int u in root.Pinned.Take(span)) root.Inner.Add(u);
+        foreach (int m in ms.OrderByDescending(m => Social.Opinion(p, m, root.LeaderUid)))
+        {
+            if (root.Inner.Count >= span) break;
             root.Inner.Add(p.Uid[m]);
+        }
     }
 
     // ------------------------------------------------------------------ 권위

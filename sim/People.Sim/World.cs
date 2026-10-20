@@ -486,6 +486,8 @@ public sealed partial class World
         Timed("해/RiseYear", RiseYear);
         Timed("해/CoupYear", CoupYear);
         Timed("해/CrimeYear", CrimeYear);
+        Timed("해/CareerYear", CareerYear);
+        Timed("해/WarYear", WarYear);
         if (Layout) UpdateTraffic();
         Timed("해/UpgradeHouses", UpgradeHouses);
     }

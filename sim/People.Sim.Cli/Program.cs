@@ -528,85 +528,172 @@ switch (cmd)
     }
     case "strategy":
     {
-        // 플레이어 전략 실험: 장원 세계의 소작농 가족을 맡아 같은 수만 써서 40년. 전략마다 같은 시드로 새로 만든다
-        int seed = Arg("--seed", 3), years = Arg("--years", 40), tries = Arg("--tries", 8);
-        string[] names = { "가만히", "도적 떼", "자경단 보호세", "신도회", "용병" };
-        int only = Arg("--only", -1);
+        // 플레이어 전략 실험(여덟 길): 장원 세계의 소작농 가족을 맡아 같은 수만 쓰며 years 년. 길과 시드마다 세계를 새로 만든다
+        var seeds = SArg("--seeds", "3,5,7,9,11,13").Split(',').Select(int.Parse).ToArray();
+        int years = Arg("--years", 40), tries = Arg("--tries", 8), only = Arg("--only", -1);
+        bool trace = Arg("--trace", 0) > 0;
+        string[] names = { "가만히", "도적 떼", "보호세", "신도회", "용병", "자리 청하기", "땅 모으기", "편입 뒤 쿠데타" };
+        var rows = new List<(int strat, int seed, bool alive, float wealth, int below, int tier, int org, int kin, string note)>();
         foreach (int strat in Enumerable.Range(0, names.Length))
         {
             if (only >= 0 && strat != only) continue;
-            var map = WorldMap.Generate((uint)seed, 48);
-            var w = new World((ulong)seed, map, Config());
-            w.GenerateSettled(new GenOptions { Rulers = 3, VillagesPerRuler = 8 });
-            for (int y = 0; y < 15; y++) for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
-            var hh = w.Households; var p = w.People;
-            int Men(int h) { int n = 0; for (int k = hh.FirstMember[h]; k >= 0; k = p.HhNext[k]) if (p.Male[k] && (w.Day - p.BirthDay[k]) / w.Config.DaysPerYear is >= 16 and <= 40) n++; return n; }
-            int me = Enumerable.Range(0, hh.HighWater).Where(h => hh.IsAlive(h) && w.ClassOf(h) == LandClass.Tenant && w.PatronOf(h) >= 0).OrderByDescending(h => Men(h) * 10 + hh.Members[h]).First();
-            w.PlayerHousehold = me;
-            int head0 = hh.Head[me].Index;
-            Group? org = null;
-            int attempts = 0, joined = 0;
-            for (int y = 0; y < years; y++)
+            foreach (int seed in seeds)
             {
-                int h = w.PlayerHousehold;
-                if (h < 0) break;
-                int head = hh.Head[h].Index;
-                if (strat > 0)
+                var map = WorldMap.Generate((uint)seed, 48);
+                var w = new World((ulong)seed, map, Config());
+                w.GenerateSettled(new GenOptions { Rulers = 3, VillagesPerRuler = 8 });
+                for (int y = 0; y < 15; y++) for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
+                var hh = w.Households; var p = w.People;
+                int Age(int i) => (w.Day - p.BirthDay[i]) / w.Config.DaysPerYear;
+                int Men(int h) { int n = 0; for (int k = hh.FirstMember[h]; k >= 0; k = p.HhNext[k]) if (p.Male[k] && Age(k) is >= 16 and <= 40) n++; return n; }
+                int me = Enumerable.Range(0, hh.HighWater).Where(h => hh.IsAlive(h) && w.ClassOf(h) == LandClass.Tenant && w.PatronOf(h) >= 0).OrderByDescending(h => Men(h) * 10 + hh.Members[h]).First();
+                w.PlayerHousehold = me;
+                Group? org = null;
+                int kin = 0, acts = 0, ok = 0;
+                bool Try(InteractionId id, int actor, int target, int third = -1)
                 {
-                    if (org == null || !org.Alive)
-                    {
-                        var kind = strat switch { 1 => GroupKind.Bandits, 3 => GroupKind.Brotherhood, _ => GroupKind.Watch };
-                        org = w.GroupsOf(head).FirstOrDefault(g => g.Kind == kind && w.IsLeader(head, g)) ?? w.FoundGroup(head, kind);
-                        if (strat == 2) w.SetVisibility(org, Visibility.Public);
-                        if (strat == 3) { w.SetVisibility(org, Visibility.Proclaimed); org.Lesson = Lesson.Doctrine; org.TeachShare = 0.2f; org.TeachManual = true; }
-                        if (strat == 1) org.ShareRule = ShareRule.Even;
-                        if (strat == 4) { org.Lesson = Lesson.Arms; org.TeachShare = 0.2f; org.TeachManual = true; }
-                    }
-                    // 받아들일 확률이 높은 마을 어른부터 tries 번 권한다
-                    int v = hh.Village[h];
-                    var cands = new List<(int i, float a)>();
-                    for (int i = 0; i < p.HighWater; i++)
-                    {
-                        if (!p.IsAliveIndex(i) || !hh.IsAlive(p.Household[i]) || hh.Village[p.Household[i]] != v || i == head) continue;
-                        var c = new InteractionContext { Actor = head, Target = i, Third = -1 };
-                        var def = w.Def(InteractionId.Recruit);
-                        if (!def.Can(w, c)) continue;
-                        cands.Add((i, def.Accept(w, c)));
-                    }
-                    foreach (var (i, acc) in cands.OrderByDescending(x => x.a).Take(tries))
-                    {
-                        attempts++;
-                        if (w.Interact(InteractionId.Recruit, new InteractionContext { Actor = head, Target = i, Third = -1 }).Accepted) joined++;
-                    }
-                    // 일: 털기와 납치, 보호세, 설교와 돌봄, 용병
-                    var root = w.RootOf(org);
-                    var verbs = strat switch
-                    {
-                        1 => new[] { Verb.Raid },
-                        2 => new[] { Verb.Guard, Verb.Collect },
-                        3 => new[] { Verb.Preach, Verb.Charity },
-                        _ => new[] { Verb.Mercenary, Verb.Guard },
-                    };
-                    org.Tasks.Clear();
-                    foreach (var vb in verbs) if (w.CanUseVerb(root, vb, out _)) org.Tasks.Add(new OrgTask { Verb = vb, Village = v, Weight = 1f });
-                    if (org.Tasks.Count == 0) org.Tasks.Add(new OrgTask { Verb = verbs[^1] == Verb.Guard ? Verb.Guard : verbs[0], Village = v, Weight = 1f });
-                    float tw = org.Tasks.Count; for (int k = 0; k < org.Tasks.Count; k++) { var t = org.Tasks[k]; t.Weight = 1f / tw; org.Tasks[k] = t; }
-                    org.Manual = true;
+                    if (actor < 0 || target < 0 || actor == target) return false;
+                    var c = new InteractionContext { Actor = actor, Target = target, Third = third };
+                    if (!w.Def(id).Can(w, c)) return false;
+                    acts++;
+                    bool r = w.Interact(id, c).Accepted;
+                    if (r) ok++;
+                    return r;
                 }
-                for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
-                if (Arg("--trace", 0) > 0 && y % 4 == 3 && w.PlayerHousehold >= 0 && org != null)
+                int HeadOf(int h) => h >= 0 && hh.IsAlive(h) && p.IsValid(hh.Head[h]) ? hh.Head[h].Index : -1;
+                for (int y = 0; y < years; y++)
                 {
-                    int ph = w.PlayerHousehold;
-                    var r0 = org.Alive ? w.RootOf(org) : null;
-                    Console.WriteLine($"   {y + 1}년: 조직 {(org.Alive ? $"{org.Members}명(맨 위 {r0!.Name} {r0.Total}명, 내 것 {(r0 == org)})" : "흩어짐")}, 일 {string.Join("/", org.Tasks.Select(t => World.VerbName(t.Verb)))}, 식량 {hh.Food[ph]:0}, 따르는 집 {w.ClientCount(ph)}, 약탈 {w.Stats.BanditRaids}, 보호세 {w.Stats.ProtectionTaken}, 납치 {w.Stats.Kidnaps}, 조직 번 것 {(r0 != null ? r0.LastIncome : 0):0}, 회칙 {(r0 != null ? World.ShareRuleName(r0.ShareRule) : "")}");
+                    int h = w.PlayerHousehold;
+                    if (h < 0) break;
+                    int head = HeadOf(h);
+                    if (head < 0) break;
+                    // 온 요구: 편입 제안은 '편입 뒤 쿠데타'만 받는다. 나머지는 NPC처럼
+                    foreach (var dm in w.Demands.ToList()) w.AnswerDemand(dm.Id, dm.Kind == InteractionId.OrgOffer ? strat == 7 : null);
+                    int lordH = w.PatronOf(h), lordHead = HeadOf(lordH);
+                    var mine = w.MembersOf(h).ToList();
+                    if (strat is >= 1 and <= 4 or 7)
+                    {
+                        // 남의 손에 넘어간 조직은 버리고 새로 세운다
+                        if (org != null && org.Alive && (w.GroupById(org.Id) == null || !mine.Any(m => w.IsLeader(m, org)))) org = null;
+                        if (org == null || !org.Alive)
+                        {
+                            var kind = strat switch { 1 => GroupKind.Bandits, 3 => GroupKind.Brotherhood, _ => GroupKind.Watch };
+                            org = w.GroupsOf(head).FirstOrDefault(g => g.Kind == kind && w.IsLeader(head, g)) ?? w.FoundGroup(head, kind);
+                            if (strat is 2 or 7) w.SetVisibility(org, Visibility.Public);
+                            if (strat == 1) org.ShareRule = ShareRule.Even;
+                            if (strat == 3) { w.SetVisibility(org, Visibility.Proclaimed); org.Lesson = Lesson.Doctrine; org.TeachShare = 0.2f; org.TeachManual = true; }
+                            if (strat == 4) { org.Lesson = Lesson.Arms; org.TeachShare = 0.2f; org.TeachManual = true; }
+                        }
+                        int ld = mine.FirstOrDefault(m => w.IsLeader(m, org), head);
+                        int v = hh.Village[h];
+                        var cands = new List<(int i, float a)>();
+                        for (int i = 0; i < p.HighWater; i++)
+                        {
+                            if (!p.IsAliveIndex(i) || !hh.IsAlive(p.Household[i]) || hh.Village[p.Household[i]] != v || i == ld) continue;
+                            var c = new InteractionContext { Actor = ld, Target = i, Third = -1 };
+                            var def = w.Def(InteractionId.Recruit);
+                            if (def.Can(w, c)) cands.Add((i, def.Accept(w, c)));
+                        }
+                        foreach (var (i, _) in cands.OrderByDescending(x => x.a).Take(tries)) Try(InteractionId.Recruit, ld, i);
+                        var root = w.RootOf(org);
+                        var verbs = strat switch
+                        {
+                            1 => new[] { Verb.Raid },
+                            2 => new[] { Verb.Guard, Verb.Collect },
+                            3 => new[] { Verb.Preach, Verb.Charity },
+                            4 => new[] { Verb.Mercenary, Verb.Guard },
+                            _ => new[] { Verb.Guard },
+                        };
+                        org.Tasks.Clear();
+                        foreach (var vb in verbs) if (w.CanUseVerb(root, vb, out _)) org.Tasks.Add(new OrgTask { Verb = vb, Village = v, Weight = 1f });
+                        if (org.Tasks.Count == 0) org.Tasks.Add(new OrgTask { Verb = verbs[^1], Village = v, Weight = 1f });
+                        float tw = org.Tasks.Count; for (int k = 0; k < org.Tasks.Count; k++) { var t = org.Tasks[k]; t.Weight = 1f / tw; org.Tasks[k] = t; }
+                        org.Manual = true;
+                        if (strat == 7)
+                        {
+                            // 붙지 않았으면 여섯 명이 넘을 때 스스로 바친다. 붙었으면 거사를 꾸미고, 힘이 넉넉하면 친다
+                            if (!World.IsAttached(org) && org.Total >= 6) Try(InteractionId.OrgPledge, ld, lordHead);
+                            if (World.IsAttached(org) && HeadOf(org.Sanction) is int sh && sh >= 0)
+                            {
+                                if (w.PlayerPlot == null) Try(InteractionId.PlotCoup, ld, sh);
+                                if (w.PlayerPlot is { } plot)
+                                {
+                                    foreach (var (c, _) in w.PlotCandidates(plot).OrderByDescending(x => x.chance).Take(3)) Try(InteractionId.PlotRecruit, ld, c);
+                                    if (w.StrikeEstimate(plot).ratio > 0.6f) w.Strike(plot);   // 우리 쪽 몫이 60%를 넘으면
+                                }
+                            }
+                        }
+                    }
+                    if (strat == 5 && lordHead >= 0)
+                    {
+                        foreach (int m in mine) if (p.Male[m]) Try(InteractionId.ServeSoldier, m, lordHead);
+                        foreach (int m in mine) Try(InteractionId.ServeCollector, m, lordHead);
+                        foreach (int m in w.MembersOf(h).ToList()) Try(InteractionId.AskInner, m, lordHead);
+                        Try(InteractionId.PetitionFief, head, lordHead);
+                    }
+                    if (strat is 5 or 6)
+                    {
+                        // 아이는 마을에서 일 가진 사람 가운데 가장 잘 받아 줄 사람에게 맡긴다
+                        int v = hh.Village[h];
+                        foreach (int kid in w.MembersOf(h).Where(k => Age(k) is >= 10 and <= 15 && p.Master[k].IsNone).ToList())
+                        {
+                            var masters = new List<(int m, float a)>();
+                            for (int i = 0; i < p.HighWater; i++)
+                            {
+                                if (!p.IsAliveIndex(i) || p.JobOf[i] == 0 || !hh.IsAlive(p.Household[i]) || hh.Village[p.Household[i]] != v) continue;
+                                var c = new InteractionContext { Actor = head, Target = i, Third = kid };
+                                var def = w.Def(InteractionId.Apprentice);
+                                if (def.Can(w, c)) masters.Add((i, def.Accept(w, c)));
+                            }
+                            foreach (var (m, _) in masters.OrderByDescending(x => x.a).Take(2)) if (Try(InteractionId.Apprentice, head, m, kid)) break;
+                        }
+                    }
+                    if (strat == 6)
+                    {
+                        // 한 해 먹을 것을 남기고 살 수 있으면 산다(마을에서 팔 만한 집 셋에게 묻는다)
+                        int v = hh.Village[h];
+                        var sellers = new List<(int s, float a)>();
+                        for (int o = 0; o < hh.HighWater; o++)
+                        {
+                            int oh = HeadOf(o);
+                            if (oh < 0 || o == h || (hh.Village[o] != v && o != lordH)) continue;
+                            var c = new InteractionContext { Actor = head, Target = oh, Third = -1 };
+                            var def = w.Def(InteractionId.BuyLand);
+                            if (def.Can(w, c)) sellers.Add((oh, def.Accept(w, c)));
+                        }
+                        foreach (var (s0, _) in sellers.OrderByDescending(x => x.a).Take(3))
+                        {
+                            float price = w.LandPrice(p.Household[s0], h);
+                            if (hh.Food[h] - price < 0.5f * hh.Need[h] * w.Config.DaysPerYear) break;   // 반년 먹을 것은 남긴다
+                            Try(InteractionId.BuyLand, head, s0);
+                        }
+                    }
+                    for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
+                    if (w.PlayerHousehold != h && w.PlayerHousehold >= 0) kin++;
+                    if (trace && y % 5 == 4 && w.PlayerHousehold >= 0)
+                    {
+                        int ph = w.PlayerHousehold;
+                        Console.WriteLine($"   [{names[strat]} {seed}] {y + 1}년: 식량 {hh.Food[ph]:0}, 땅 {hh.PlotCount[ph]}, 아래 {w.BelowOf(ph)}, 조직 {(org != null && org.Alive ? $"{w.RootOf(org).Name} {w.RootOf(org).Total}명{(World.IsAttached(org) ? "(붙음)" : "")}" : "-")}, 일자리 {string.Join("/", w.MembersOf(ph).Where(m => p.JobOf[m] != 0).Select(m => ((Job)p.JobOf[m]).ToString()))}, 수 {ok}/{acts}");
+                    }
                 }
+                int hf = w.PlayerHousehold;
+                w.RecountOrgs();
+                var o2 = org != null && org.Alive ? w.RootOf(org) : null;
+                bool alive = hf >= 0 && hh.IsAlive(hf);
+                rows.Add((strat, seed, alive, alive ? hh.Food[hf] + 30f * hh.PlotCount[hf] : 0f, alive ? w.BelowOf(hf) : 0, alive ? w.TierOf(hf) : -1, o2?.Total ?? 0, kin,
+                          alive ? $"{World.ClassName(w.ClassOf(hf))}{(w.MembersOf(hf).Any(m => p.JobOf[m] is (byte)Job.Soldier or (byte)Job.Collector) ? "+자리" : "")}{(w.PlayerPlot != null ? "+거사" : "")}" : "끊김"));
+                var r = rows[^1];
+                Console.WriteLine($"[{names[strat]} {seed}] {(r.alive ? $"재산 {r.wealth:0}, 아래 {r.below}, 단계 {r.tier}, 조직 {r.org}, {r.note}" : "대가 끊김")}{(kin > 0 ? $", 혈족 집으로 {kin}번 옮김" : "")}, 수 {ok}/{acts}");
             }
-            int hf = w.PlayerHousehold;
-            w.RecountOrgs();
-            var o = org != null && org.Alive ? w.RootOf(org) : null;
-            string res = hf < 0 ? "대가 끊김" : $"식구 {hh.Members[hf]}, 식량 {hh.Food[hf]:0}, 땅 {hh.PlotCount[hf]}, 따르는 집 {w.ClientCount(hf)}, 아래 {w.BelowOf(hf)}, 단계 {World.TierName(w.TierOf(hf))}{(w.TierOf(hf) == 0 ? "평민" : "")}, 계층 {World.ClassName(w.ClassOf(hf))}, 명예 {p.Honor[hh.Head[hf].Index]:0.00}, 악명 {p.Notoriety[hh.Head[hf].Index]:0.00}";
-            string os = o == null ? "조직 없음" : $"{o.Name} {o.Total}명, 권위 {o.Authority:0}, 곳간 {o.Treasury:0}, {World.VisibilityName(o.Visibility)}";
-            Console.WriteLine($"[{names[strat]}] {res} | {os} | 권유 {attempts}번 중 {joined}명");
+        }
+        Console.WriteLine();
+        Console.WriteLine("길 | 살아남음 | 재산 중앙값(최소~최대) | 아래 집 평균(최대) | 단계 오른 판 | 조직 평균");
+        foreach (var g in rows.GroupBy(r => r.strat))
+        {
+            var l = g.ToList(); var al = l.Where(x => x.alive).ToList();
+            var ws = al.Select(x => x.wealth).OrderBy(x => x).ToList();
+            string W = al.Count > 0 ? $"{ws[ws.Count / 2]:0}({ws[0]:0}~{ws[^1]:0}), 300 넘은 판 {ws.Count(x => x > 300)}" : "-";
+            Console.WriteLine($"{names[g.Key]} | {al.Count}/{l.Count} | {W} | {(al.Count > 0 ? al.Average(x => x.below) : 0):0.0}({(al.Count > 0 ? al.Max(x => x.below) : 0)}) | {al.Count(x => x.tier >= 1)} | {(l.Average(x => x.org)):0.0}");
         }
         break;
     }

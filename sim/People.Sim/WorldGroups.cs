@@ -31,6 +31,7 @@ public sealed class Group
     public float Leak;                                // 새어 나간 정도(0~1, 넘치면 공개 쪽으로 한 칸)
     public float Authority, Loyalty;                  // 해마다 센다
     public readonly HashSet<int> Inner = new();       // 측근 uid(하위 조직이 있을 때만)
+    public readonly HashSet<int> Pinned = new();      // 청해서 받은 측근 uid(해마다 다시 골라도 남는다)
     // O2 회칙과 곳간
     public JoinRule JoinRule;
     public ShareRule ShareRule;

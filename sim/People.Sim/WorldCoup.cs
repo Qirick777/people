@@ -92,7 +92,8 @@ public sealed partial class World
                   + 0.15f * (pullP - pullL) + 0.2f * (p.Get(c, Trait.Ambition) - 0.5f);
         if (p.LoyalUid[c] == p.Uid[lh]) s -= 0.1f + 0.5f * (p.Loyalty[c] - 0.5f);   // 섬기는 사람은 불만이 없으면 의무로 지킨다
         // 꾸미는 사람이 이끄는 조직의 조직원은 그를 따른다(양다리)
-        if (po != null && po.Home < 0 && GroupsOf(c).Any(g => RootOf(g).Id == po.Id)) s += 0.3f;
+        // 그 지배자에게 붙은 조직이면 조직원의 마음이 갈린다(둘 다 섬긴다)
+        if (po != null && po.Home < 0 && GroupsOf(c).Any(g => RootOf(g).Id == po.Id)) s += IsAttached(po) && po.Sanction == lord ? 0.1f : 0.3f;
         return Math.Clamp(s, 0f, 1f);
     }
 
@@ -154,6 +155,7 @@ public sealed partial class World
     /// <summary>지금 일으키면 꾸미는 쪽 힘의 몫(운을 뺀 어림)과 편들 사람·맞설 사람 수.</summary>
     public (float ratio, int mine, int theirs) StrikeEstimate(Plot x)
     {
+        if (!PlotLive(x)) return (0f, 0, 0);   // 그 사이 꾸미던 사람이 죽었거나 집이 바뀌었다
         var (r, m, t) = StrikeOdds(x, false);
         return (r, m.Count, t.Count);
     }
@@ -226,7 +228,8 @@ public sealed partial class World
                 if (!PlotLive(x) || x.Exposed) continue;
             }
             // 새어 나감: 아는 사람 한 명당 4%, 신중한 꾸미는 사람은 덜
-            float leak = MathF.Min(0.5f, 0.025f * x.Known.Count * (1.2f - 0.5f * p.Get(pi, Trait.Caution)));
+            float susp = RivalOf(x.Lord, x.PlotterHouse)?.Suspicion ?? 0f;   // 의심하는 지배자는 더 잘 알아챈다
+            float leak = MathF.Min(0.5f, 0.025f * x.Known.Count * (1.2f - 0.5f * p.Get(pi, Trait.Caution)) + susp / 1000f);
             if (_rng.Chance(leak)) { Expose(x); continue; }
             if (IsPlayer(pi)) continue;   // 플레이어는 거사할 때를 스스로 고른다
             int years = (Day - x.Since) / Config.DaysPerYear;

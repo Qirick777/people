@@ -669,12 +669,27 @@ public sealed partial class World
         return dx * dx + dy * dy;
     }
 
-    /// <summary>한 집의 공납. toLord = 1 이면 바로 지배자에게, 0 이면 걷은 양만 돌려준다(징수관이 나눈다).</summary>
+    private readonly Dictionary<int, float> _taxRate = new();   // 플레이어 지배자가 정한 세율
+
+    /// <summary>지배자 집의 세율(8~20%). 플레이어가 정했으면 그것, 아니면 성격대로(야심이 크면 무겁게, 말솜씨가 좋으면 가볍게) 기본 12% 둘레.</summary>
+    public float TaxRate(int lord)
+    {
+        if (_taxRate.TryGetValue(lord, out float r)) return r;
+        return Math.Clamp(Config.TributeRate + 0.06f * (HeadTrait(lord, Trait.Ambition) - 0.5f) - 0.04f * (HeadTrait(lord, Trait.Charisma) - 0.5f), 0.08f, 0.2f);
+    }
+
+    public void SetTaxRate(int lord, float rate) => _taxRate[lord] = Math.Clamp(rate, 0.08f, 0.2f);
+
+    /// <summary>한 집의 공납. toLord = 1 이면 바로 지배자에게, 0 이면 걷은 양만 돌려준다(징수관이 나눈다).
+    /// 세율이 12%보다 무거우면 가장이 지배자를 나쁘게 보고, 가벼우면 좋게 본다.</summary>
     private float TakeTribute(int h, int lord, float toLord)
     {
         var hh = Households;
         float income = MathF.Max(0f, _incOwn[h] + 0.5f * _incTenant[h]);   // 빌린 땅의 수확은 소작료를 이미 냈으니 반만 센다
-        float t = MathF.Min(income * Config.TributeRate, MathF.Max(0f, hh.Food[h]));
+        float rate = TaxRate(lord);
+        float t = MathF.Min(income * rate, MathF.Max(0f, hh.Food[h]));
+        if (MathF.Abs(rate - Config.TributeRate) > 0.005f && HeadIdx(h) is int ch && ch >= 0 && HeadIdx(lord) is int lh && lh >= 0)
+            Social.Add(People, ch, People.Uid[lh], -(rate - Config.TributeRate) * 50f);
         hh.Food[h] -= t;
         if (toLord > 0) hh.Food[lord] += t;
         return t;

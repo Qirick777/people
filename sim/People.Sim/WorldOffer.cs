@@ -53,6 +53,7 @@ public sealed partial class World
     /// <summary>지배자 lord 의 땅에서 쓸모 있는 조직인가(제안할 만한가).</summary>
     private bool OrgUseful(Group g, int lord)
     {
+        if (g.Strength > 0.5f * LordPower(lord)) return false;   // 제 힘의 절반을 넘는 조직은 품에 들이지 않는다
         var head = Households.Head[lord];
         float piety = People.IsValid(head) ? People.Piety[head.Index] : 0.5f;
         return g.Kind switch
@@ -83,7 +84,8 @@ public sealed partial class World
     private float PledgeOdds(Group g, int lord)
     {
         float lp = LordPower(lord), gp = MathF.Max(0.5f, g.Strength);
-        float s = (OrgUseful(g, lord) ? 0.6f : 0.25f) + 0.3f * HeadTrait(lord, Trait.Charisma) - (gp > lp ? 0.3f : 0f);
+        if (gp > 0.5f * lp) return 0.05f;   // 너무 센 조직은 받지 않는다
+        float s = (OrgUseful(g, lord) ? 0.6f : 0.25f) + 0.3f * HeadTrait(lord, Trait.Charisma);
         if (g.Kind == GroupKind.Brothel) s -= 0.4f;   // 유곽을 거두면 체면이 깎인다
         return Math.Clamp(s, 0.05f, 0.9f);
     }
@@ -166,6 +168,8 @@ public sealed partial class World
                 if (up == null) { Detach(g); continue; }
                 if (TopOf(up).Id != g.Id) g.Parent = up.Id;
                 // 지배자의 보탬
+                // 품 안에서 너무 커지면 의심한다
+                if (g.Strength > 0.6f * LordPower(lord)) Suspect(lord, lh, 10f * g.Strength / MathF.Max(1f, LordPower(lord)));
                 float sub = MathF.Min(OfferSubsidy * g.Total, hh.Food[lord] * 0.02f);
                 if (sub > 0f && Surplus(lord) > 1.2f) { hh.Food[lord] -= sub; Pay(g, sub); }
                 // 떨어져 나가기: 지배자가 미운데 야심이 크거나, 조직이 지배자만큼 세다
