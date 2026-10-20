@@ -435,6 +435,23 @@ switch (cmd)
         }
         break;
     }
+    case "orgprobe":
+    {
+        // 조직 진단: 해마다 맨 위 조직의 종류, 크기, 맡은 일
+        var map = WorldMap.Generate((uint)Arg("--seed", 2), Arg("--size", 48));
+        var w = new World((ulong)Arg("--seed", 2), map, Config());
+        w.SeedCouples(Arg("--couples", 10));
+        int years = Arg("--years", 300);
+        for (int y = 0; y < years; y++) for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
+        foreach (var g in w.Groups.Where(g => g.Alive && g.Parent < 0 && g.Home < 0).OrderBy(g => g.Kind).Take(Arg("--top", 40)))
+        {
+            w.CanUseVerb(g, Verb.Kidnap, out var why);
+            Console.WriteLine($"{World.GroupKindName(g.Kind)} {g.Name} 사람 {g.Total} 갈래 {w.ChildrenOf(g).Count()} {World.VisibilityName(g.Visibility)} 권위 {g.Authority:0} 일: "
+                + string.Join(", ", g.Tasks.Select(t => $"{World.VerbName(t.Verb)} {t.Weight:0.00}")) + " / 갈래 일: "
+                + string.Join(", ", w.ChildrenOf(g).SelectMany(c => c.Tasks).Select(t => World.VerbName(t.Verb))) + (why != "" ? $" (납치 막힘: {why})" : ""));
+        }
+        break;
+    }
     case "familydiag":
     {
         // C 묶음 진단: 첩을 들일 만한 남자, 미혼·과부 여자, 받아들일 확률, 약초꾼, 신앙심 분포

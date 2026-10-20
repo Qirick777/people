@@ -1,6 +1,6 @@
 namespace People.Sim;
 
-public enum GroupKind : byte { Watch, Bandits, Brotherhood, Army }
+public enum GroupKind : byte { Watch, Bandits, Brotherhood, Army, Company, Sellswords, Brothel }
 
 /// <summary>
 /// 모임 하나. 섬김 나무와 따로, 사람들이 가로로 묶인다. 우두머리는 uid 로 적는다.
@@ -30,6 +30,10 @@ public sealed class Group
     public float Leak;                                // 새어 나간 정도(0~1, 넘치면 공개 쪽으로 한 칸)
     public float Authority, Loyalty;                  // 해마다 센다
     public readonly HashSet<int> Inner = new();       // 측근 uid(하위 조직이 있을 때만)
+    // O2 회칙과 곳간
+    public JoinRule JoinRule;
+    public ShareRule ShareRule;
+    public float Treasury, Income;                    // 조직 곳간, 올해 번 것
     public readonly List<OrgTask> Tasks = new();
 }
 
@@ -43,7 +47,11 @@ public sealed partial class World
     private readonly List<Group> _groups = new();
     public IReadOnlyList<Group> Groups => _groups;
 
-    public static string GroupKindName(GroupKind k) => k switch { GroupKind.Watch => "자경단", GroupKind.Bandits => "도적 떼", GroupKind.Army => "군대", _ => "신도회" };
+    public static string GroupKindName(GroupKind k) => k switch
+    {
+        GroupKind.Watch => "자경단", GroupKind.Bandits => "도적 떼", GroupKind.Army => "군대", GroupKind.Company => "상단",
+        GroupKind.Sellswords => "용병단", GroupKind.Brothel => "유곽", _ => "신도회",
+    };
 
     public Group? GroupById(int id) => id >= 0 && id < _groups.Count && _groups[id].Alive ? _groups[id] : null;
 
@@ -175,6 +183,11 @@ public sealed partial class World
             GroupKind.Bandits => p.Male[i] && age >= 16 && age <= 45
                 ? MathF.Max(need, ClassOf(h) is LandClass.Laborer or LandClass.Tenant or LandClass.None ? 0.7f : 0f)
                   * Math.Clamp((p.Get(i, Trait.Aggression) - 0.35f) * 2.5f, 0f, 1f) * (1f - 0.8f * p.Piety[i]) : 0f,
+            GroupKind.Company => age >= 16 ? (p.JobOf[i] == (byte)Job.Trader ? 0.5f : 0f) + 0.6f * p.GetSkill(i, Skill.Trade) + 0.1f * p.Get(i, Trait.Ambition) : 0f,
+            GroupKind.Sellswords => p.Male[i] && age >= 16 && age <= 40
+                // 싸움 솜씨가 있어야 칼을 팔 마음이 든다
+                ? (0.8f * p.GetSkill(i, Skill.Arms) + 0.3f * p.Get(i, Trait.Aggression) + 0.2f * p.Get(i, Trait.Ambition) - 0.15f) * (ClassOf(h) is LandClass.Laborer or LandClass.Tenant or LandClass.None ? 1.2f : 0.8f) : 0f,
+            GroupKind.Brothel => age >= 16 ? (p.JobOf[i] == (byte)Job.SexWorker ? 0.6f : 0f) + MathF.Max(0f, p.Get(i, Trait.Ambition) - 0.6f) * (1f - p.Piety[i]) * 1.5f : 0f,
             _ => age >= 16 ? MathF.Max(0f, p.Piety[i] - 0.6f) * 2.5f : 0f,
         };
     }
@@ -237,7 +250,10 @@ public sealed partial class World
         foreach (var (v, folk) in byVillage)
         {
             float danger = DangerAt(v);
-            foreach (GroupKind kind in new[] { GroupKind.Watch, GroupKind.Bandits, GroupKind.Brotherhood })
+            int traders = 0, workers = 0;
+            foreach (int i in folk) { if (p.JobOf[i] == (byte)Job.Trader) traders++; else if (p.JobOf[i] == (byte)Job.SexWorker) workers++; }
+            int houses = VillageList.Households[v];
+            foreach (GroupKind kind in new[] { GroupKind.Watch, GroupKind.Bandits, GroupKind.Brotherhood, GroupKind.Company, GroupKind.Sellswords, GroupKind.Brothel })
             {
                 // 이 마을의 그 종류 모임(가장 큰 것)
                 Group? here = null;
@@ -251,6 +267,10 @@ public sealed partial class World
                     {
                         GroupKind.Watch => MathF.Max(0f, danger - 0.6f) * 0.5f,
                         GroupKind.Bandits => 0.25f * (1.3f - est),
+                        // 상단은 장사꾼이 여럿인 큰 마을, 용병단은 위험한 땅 근처, 유곽은 몸 파는 이가 여럿인 큰 마을
+                        GroupKind.Company => traders >= 2 && houses >= 20 ? 0.15f : 0f,
+                        GroupKind.Sellswords => danger > 0.4f ? 0.1f * (1f - 0.5f * est) : 0f,
+                        GroupKind.Brothel => workers >= 2 && houses >= Config.TradeVillage ? 0.1f : 0f,
                         _ => 0.25f,
                     };
                     if (!_rng.Chance(pressure)) continue;
@@ -260,6 +280,9 @@ public sealed partial class World
                     int leader = cand.OrderByDescending(i => GroupWant(i, kind) + p.Get(i, Trait.Charisma) + (kind == GroupKind.Watch ? FightPower(i) : 0f)
                                                          + p.Get(i, Trait.Ambition) * (1f - est)).First();
                     here = FoundGroup(leader, kind);
+                    // 뜻이 맞는 후보 몇이 창립 일원으로 함께 든다(숨긴 조직도 처음 모인 사람은 있다)
+                    foreach (int c in cand.Where(c => c != leader).OrderByDescending(c => GroupWant(c, kind)).Take(3))
+                        if (GroupsOf(c).Count() < GroupSlots && RuleAllows(here, c)) JoinGroup(c, here);
                     if (kind == GroupKind.Bandits) Stats.BanditGroups++;
                 }
                 // 들기와 나가기(하나의 사람이 한 해에 한 번)
@@ -270,7 +293,7 @@ public sealed partial class World
                     float want = GroupWant(i, kind);
                     bool inIt = InGroup(i, here);
                     // 숨긴 조직은 스스로 찾아오지 않는다(포섭으로만), 공개할수록 잘 모인다
-                    if (!inIt && here.Members < cap && GroupOfKind(i, kind) == null && _rng.Chance(MathF.Max(0f, want - 0.35f) * 0.5f * JoinFactor(RootOf(here), i))) JoinGroup(i, here);
+                    if (!inIt && here.Members < cap && GroupOfKind(i, kind) == null && RuleAllows(RootOf(here), i) && _rng.Chance(MathF.Max(0f, want - 0.35f) * 0.5f * JoinFactor(RootOf(here), i))) JoinGroup(i, here);
                     else if (inIt && !IsLeader(i, here) && want < 0.15f && _rng.Chance(0.3f)) LeaveGroup(i, here);
                 }
                 if (kind == GroupKind.Watch && danger < 0.1f && here.Sanction < 0 && _rng.Chance(0.1f)) { here.Alive = false; Stats.GroupsDissolved++; }
@@ -400,6 +423,7 @@ public sealed partial class World
             foreach (var t in g.Tasks)
                 if (t.Verb == Verb.Guard && t.Village == v) s += g.OwnStrength * t.Weight * (g.Paid || g.Parent >= 0 || g.Sanction >= 0 ? 0.6f : 0.4f);
         }
+        foreach (var (mv, ms) in _mercGuard) if (mv == v) s += 0.6f * ms;   // 용병 계약
         return s;
     }
 

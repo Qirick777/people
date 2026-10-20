@@ -1,7 +1,7 @@
 namespace People.Sim;
 
 /// <summary>조직이 맡는 일(동사). 조직의 종류는 이름일 뿐이고, 하는 일은 이것으로 정한다.</summary>
-public enum Verb : byte { Guard, Chase, Raid, Attack, Collect, Charity, Teach }
+public enum Verb : byte { Guard, Chase, Raid, Attack, Collect, Charity, Teach, Preach, Trade, Escort, Mercenary, Brothel, Agitate, Kidnap, Recruit }
 
 /// <summary>맡은 일 하나: 무엇을, 어느 마을에서, 얼마의 무게로.</summary>
 public struct OrgTask
@@ -21,7 +21,9 @@ public sealed partial class World
 {
     public static string VerbName(Verb v) => v switch
     {
-        Verb.Guard => "지킴", Verb.Chase => "쫓기", Verb.Raid => "털기", Verb.Attack => "치기", Verb.Collect => "걷기", Verb.Charity => "돌봄", _ => "가르침",
+        Verb.Guard => "지킴", Verb.Chase => "쫓기", Verb.Raid => "털기", Verb.Attack => "치기", Verb.Collect => "보호세", Verb.Charity => "돌봄",
+        Verb.Preach => "설교", Verb.Trade => "교역", Verb.Escort => "호송", Verb.Mercenary => "용병", Verb.Brothel => "유곽", Verb.Agitate => "선동",
+        Verb.Kidnap => "납치", Verb.Recruit => "포섭", _ => "가르침",
     };
 
     /// <summary>지금 하는 일로 붙는 이름.</summary>
@@ -32,7 +34,9 @@ public sealed partial class World
         return top switch
         {
             Verb.Guard => g.Paid || g.Parent >= 0 || g.Sanction >= 0 ? "경비대" : "자경단",
-            Verb.Raid => "도적 떼", Verb.Chase => "치안대", Verb.Attack => "군대", Verb.Collect => "징수대", Verb.Charity => "신도회", _ => "학당",
+            Verb.Raid => "도적 떼", Verb.Chase => "치안대", Verb.Attack => "군대", Verb.Collect => g.Home >= 0 || RootOf(g).Home >= 0 ? "징수대" : "보호세 패",
+            Verb.Charity => "신도회", Verb.Preach => "교단", Verb.Trade => "상단", Verb.Escort => "호송대", Verb.Mercenary => "용병단",
+            Verb.Brothel => "유곽", Verb.Agitate => "선동대", Verb.Kidnap => "납치단", Verb.Recruit => "포섭조", _ => "학당",
         };
     }
 
@@ -63,7 +67,11 @@ public sealed partial class World
     private static void DefaultTask(Group g)
     {
         g.Tasks.Clear();
-        var v = g.Kind switch { GroupKind.Bandits => Verb.Raid, GroupKind.Brotherhood => Verb.Charity, _ => Verb.Guard };
+        var v = g.Kind switch
+        {
+            GroupKind.Bandits => Verb.Raid, GroupKind.Brotherhood => Verb.Charity, GroupKind.Company => Verb.Trade,
+            GroupKind.Sellswords => Verb.Mercenary, GroupKind.Brothel => Verb.Brothel, _ => Verb.Guard,
+        };
         g.Tasks.Add(new OrgTask { Verb = v, Village = g.Village, Weight = 1f });
     }
 
@@ -287,20 +295,7 @@ public sealed partial class World
         }
         else
         {
-            float sum = 0f;
-            foreach (var t in root.Tasks) sum += t.Weight;
-            switch (root.Kind)
-            {
-                case GroupKind.Watch:
-                    list.Add(new OrgTask { Verb = Verb.Guard, Village = root.Village, Weight = (1f + DangerAt(root.Village)) * (0.5f + caution) });
-                    if (CrimeHeat(root.Village) > 0.5f) list.Add(new OrgTask { Verb = Verb.Chase, Village = root.Village, Weight = 0.4f * CrimeHeat(root.Village) * (0.5f + aggr) });
-                    break;
-                case GroupKind.Bandits: list.Add(new OrgTask { Verb = Verb.Raid, Village = root.Village, Weight = 1f * (0.5f + aggr) }); break;
-                case GroupKind.Brotherhood: list.Add(new OrgTask { Verb = Verb.Charity, Village = root.Village, Weight = 1f * (0.5f + piety) }); break;
-            }
-            // 거친 우두머리의 자경단은 가난할 때 이웃을 털기도 한다
-            if (root.Kind == GroupKind.Watch && leader >= 0 && aggr > 0.7f && Surplus(p.Household[leader]) < 0.5f)
-                list.Add(new OrgTask { Verb = Verb.Raid, Village = root.Village, Weight = 0.5f * aggr });
+            KindNeeds(root, leader, list);
         }
         list.Sort((a, b) => b.Weight.CompareTo(a.Weight));
         if (list.Count > 4) list.RemoveRange(4, list.Count - 4);
@@ -641,6 +636,7 @@ public sealed partial class World
         foreach (var g in _groups) if (g.Alive && g.Parent < 0) PickInner(g);
         AuthorityYear();
         VisibilityYear();
+        WorkYear();
         AuthorityStats();
         _memberIdx = null;
         RefreshNames();

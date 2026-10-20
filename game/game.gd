@@ -502,6 +502,30 @@ func _open_orgs() -> void:
 					_open_orgs())
 				seg.add_child(b)
 			org_box.add_child(seg)
+			# 회칙: 누가 들어오나, 번 것을 어떻게 나누나
+			for row in [["들기", ["아무나", "혈족만", "신앙 깊은 자만"], "joinRule"], ["나눔", ["우두머리가 다", "고르게", "곳간에 쌓음"], "shareRule"]]:
+				var rs := HBoxContainer.new()
+				rs.add_theme_constant_override("separation", 0)
+				var lab := UI.label("   " + row[0] + " ", 12, UI.MUTED)
+				lab.custom_minimum_size = Vector2(60, 0)
+				rs.add_child(lab)
+				var opts: Array = row[1]
+				for k in opts.size():
+					var b := Button.new()
+					b.text = opts[k]
+					b.add_theme_font_size_override("font_size", 12)
+					UI.segment(b, int(e[row[2]]) == k, k == 0, k == opts.size() - 1)
+					var kk := k
+					var key: String = row[2]
+					var cur_join := int(e["joinRule"]); var cur_share := int(e["shareRule"])
+					b.pressed.connect(func():
+						if key == "joinRule": host.SetOrgRules(gid, kk, cur_share)
+						else: host.SetOrgRules(gid, cur_join, kk)
+						for line in host.DrainChronicle(): _log(line)
+						_open_orgs())
+					rs.add_child(b)
+				org_box.add_child(rs)
+			if float(e["treasury"]) > 0.5: org_box.add_child(UI.label("      곳간 식량 %d" % int(float(e["treasury"])), 12, UI.MUTED))
 	org_panel.visible = true
 
 
@@ -715,6 +739,10 @@ func _open_org_tasks(id: int, name: String) -> void:
 		if verb != verb_now:
 			verb_now = verb
 			org_box.add_child(UI.label(t["verbName"], 13, UI.MUTED, true))
+		if t["locked"] != "":
+			var lk := UI.label("   잠김: " + t["locked"], 12, UI.MUTED)
+			org_box.add_child(lk)
+			continue
 		var b := UI.action(t["verbName"] + " · " + t["place"], "%d집" % int(t["houses"]), -1.0, t["harsh"])
 		var vv := int(t["village"])
 		b.pressed.connect(func():
@@ -1209,8 +1237,8 @@ func _run_autotest() -> void:
 		card.visible = false
 		_open_orgs()
 		await _snap("live_orgs.png")
-		var orgs: Array = host.OrgPanel()
-		print("autotest: 조직 줄 %d개" % orgs.size())
+		var orgs: Array = host.OrgPanel().filter(func(o): return o["command"] and int(o["depth"]) == 0)
+		print("autotest: 내가 부리는 조직 %d개" % orgs.size())
 		if orgs.size() > 0 and orgs[0]["command"]:
 			_open_org_tasks(int(orgs[0]["id"]), orgs[0]["name"])
 			await _snap("live_org_tasks.png")
@@ -1218,18 +1246,22 @@ func _run_autotest() -> void:
 			if tt.size() > 1:
 				host.SetOrgTask(int(orgs[0]["id"]), int(tt[1]["verb"]), int(tt[1]["village"]))
 				_open_orgs()
-				print("autotest: 일 정함 ", host.OrgPanel()[0]["tasks"])
+				print("autotest: 일 정함 ", host.OrgPanel().filter(func(o): return int(o["id"]) == int(orgs[0]["id"]))[0]["tasks"])
 		if orgs.size() > 0 and orgs[0]["command"]:
 			_open_org_name(int(orgs[0]["id"]), orgs[0]["name"], false)
 			await _snap("live_org_name.png")
 			host.RenameOrg(int(orgs[0]["id"]), "북쪽 개울 형제단")
 			_open_orgs()
 			await _snap("live_orgs_named.png")
-			print("autotest: 이름 지음 ", host.OrgPanel()[0]["name"])
+			print("autotest: 이름 지음 ", host.OrgPanel().filter(func(o): return int(o["id"]) == int(orgs[0]["id"]))[0]["name"])
 			host.SetOrgVisibility(int(orgs[0]["id"]), 1)
 			_open_orgs()
 			await _snap("live_orgs_vis.png")
-			print("autotest: 알려진 정도 ", host.OrgPanel()[0]["visibilityName"], " · 권위 ", host.OrgPanel()[0]["authority"])
+			var me_org: Dictionary = host.OrgPanel().filter(func(o): return int(o["id"]) == int(orgs[0]["id"]))[0]
+			print("autotest: 알려진 정도 ", me_org["visibilityName"], " · 권위 ", me_org["authority"])
+			host.SetOrgRules(int(orgs[0]["id"]), 0, 2)
+			_open_orgs()
+			await _snap("live_orgs_rules.png")
 		org_panel.visible = false
 	# 재판: 주군이 없는 집이 당한 사건은 마을 자경단 우두머리가 맡는다. 방금 세운 자경단의 집으로 모든 사건을 직접 판결한다
 	host.JudgeAll = true

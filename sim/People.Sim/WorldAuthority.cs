@@ -43,7 +43,7 @@ public sealed partial class World
     /// <summary>모임 종류마다 처음 알려진 정도. 도적 떼는 숨고, 자경단은 드러내고, 신도회는 중립.</summary>
     private static Visibility DefaultVisibility(GroupKind k) => k switch
     {
-        GroupKind.Bandits => Visibility.Covert, GroupKind.Brotherhood => Visibility.Neutral, _ => Visibility.Public,
+        GroupKind.Bandits => Visibility.Covert, GroupKind.Brotherhood or GroupKind.Brothel => Visibility.Neutral, _ => Visibility.Public,
     };
 
     /// <summary>자리 잡은 정도(0~1). 0이면 빈 땅, 1에 가까울수록 기존 세력이 꽉 잡은 땅.</summary>
@@ -97,7 +97,7 @@ public sealed partial class World
         var p = People; var hh = Households;
         int leader = FindAlive(g.LeaderUid);
         int home = g.Home >= 0 ? g.Home : leader >= 0 ? p.Household[leader] : -1;
-        float money = hh.IsAlive(home) ? MathF.Max(0f, hh.Food[home]) / 50f + (home < _incTribute.Length ? _incTribute[home] / 20f : 0f) : 0f;
+        float money = (hh.IsAlive(home) ? MathF.Max(0f, hh.Food[home]) / 50f + (home < _incTribute.Length ? _incTribute[home] / 20f : 0f) : 0f) + g.Treasury / 50f;
         float power = g.Home >= 0 ? BelowOf(g.Home) + 1 : g.Total * 0.5f;
         float force = 2f * g.Strength;
         // 충성: 지배자 조직은 따르는 가장의 충성, 모임은 조직원이 우두머리를 보는 눈
@@ -152,6 +152,9 @@ public sealed partial class World
     {
         Stats.SecretOrgs = _groups.Count(g => g.Alive && g.Parent < 0 && g.Visibility <= Visibility.Covert);
         Stats.PublicOrgs = _groups.Count(g => g.Alive && g.Parent < 0 && g.Visibility >= Visibility.Public);
+        Stats.Companies = _groups.Count(g => g.Alive && g.Parent < 0 && g.Kind == GroupKind.Company);
+        Stats.SellswordBands = _groups.Count(g => g.Alive && g.Parent < 0 && g.Kind == GroupKind.Sellswords);
+        Stats.Brothels = _groups.Count(g => g.Alive && g.Parent < 0 && g.Kind == GroupKind.Brothel);
         var vl = VillageList;
         float s = 0f; int n = 0;
         for (int v = 0; v < vl.Count; v++) if (vl.Alive[v]) { s += Established(v); n++; }
@@ -260,11 +263,12 @@ public sealed partial class World
         foreach (int r in recruiters.Take(4))
         {
             if (!Adult(r)) continue;
+            // 아는 사람이나, 같은 마을 사람을 직접 찾아가 설득한다
+            int t = -1;
             int sl = r * PersonStore.RelSlots + _rng.NextInt(PersonStore.RelSlots);
-            int uid = p.RelUid[sl];
-            if (uid < 0 || p.RelAff[sl] < 10f) continue;
-            int t = FindAlive(uid);
-            if (t < 0 || !Adult(t) || IsPlayer(t) || InGroup(t, g) || GroupsOf(t).Count() >= GroupSlots || GroupOfKind(t, g.Kind) != null) continue;
+            if (_rng.NextBool() && p.RelUid[sl] >= 0 && p.RelAff[sl] >= 10f) t = FindAlive(p.RelUid[sl]);
+            else if (Households.IsAlive(p.Household[r]) && Households.Village[p.Household[r]] >= 0) t = RandomVillager(Households.Village[p.Household[r]]);
+            if (t < 0 || !Adult(t) || IsPlayer(t) || InGroup(t, g) || GroupsOf(t).Count() >= GroupSlots || GroupOfKind(t, g.Kind) != null || !RuleAllows(g, t)) continue;
             float a = GroupWant(t, g.Kind) + Social.Opinion(p, t, p.Uid[r]) / 100f - 0.1f;
             if (_rng.Chance(Math.Clamp(a, 0.02f, 0.9f)) && JoinGroup(t, g)) Stats.SecretRecruits++;
         }

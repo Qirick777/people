@@ -1,6 +1,6 @@
 namespace People.Sim;
 
-public enum CrimeType : byte { Theft, Assault, Extortion, Murder, Embezzle, Raid }
+public enum CrimeType : byte { Theft, Assault, Extortion, Murder, Embezzle, Raid, Kidnap }
 
 /// <summary>사건의 끝. 아직 안 끝났으면 Open, 플레이어 판결을 기다리면 Pending.</summary>
 public enum Verdict : byte { Open, Unreported, Escaped, Fine, Flog, Execute, Covered, Released, Pending, NoLord }
@@ -46,7 +46,7 @@ public sealed partial class World
     public static string CrimeName(CrimeType t) => t switch
     {
         CrimeType.Theft => "도둑질", CrimeType.Assault => "폭행", CrimeType.Extortion => "갈취", CrimeType.Murder => "살인",
-        CrimeType.Embezzle => "공납 빼돌리기", _ => "약탈",
+        CrimeType.Embezzle => "공납 빼돌리기", CrimeType.Kidnap => "납치", _ => "약탈",
     };
 
     public static string VerdictName(Verdict v) => v switch
@@ -57,7 +57,7 @@ public sealed partial class World
 
     private static float CrimeWeight(CrimeType t) => t switch
     {
-        CrimeType.Murder => 2.5f, CrimeType.Raid => 1.5f, CrimeType.Assault => 1.3f, CrimeType.Embezzle => 0.5f, _ => 1f,
+        CrimeType.Murder => 2.5f, CrimeType.Kidnap => 1.8f, CrimeType.Raid => 1.5f, CrimeType.Assault => 1.3f, CrimeType.Embezzle => 0.5f, _ => 1f,
     };
 
     private static float Sigmoid(float x) => 1f / (1f + MathF.Exp(-x));

@@ -472,6 +472,9 @@ public partial class SimHost : Node
                     ["authority"] = depth == 0 ? g.Authority : 0f,
                     ["leak"] = g.Leak,
                     ["inner"] = g.Inner.Count,
+                    ["joinRule"] = (int)g.JoinRule,
+                    ["shareRule"] = (int)g.ShareRule,
+                    ["treasury"] = g.Treasury,
                     ["command"] = command,
                     ["canSplit"] = command && g.Members >= 9,
                     ["mineIn"] = mine.Any(i => w.InGroup(i, g)),
@@ -544,13 +547,29 @@ public partial class SimHost : Node
             vs.Add((v, d));
         }
         vs.Sort((x, y) => x.d.CompareTo(y.d));
-        foreach (var verb in new[] { Verb.Guard, Verb.Chase, Verb.Charity, Verb.Raid })
-            foreach (var (v, _) in vs.Take(6))
+        var root = _w.RootOf(g);
+        var verbs = new[] { Verb.Guard, Verb.Chase, Verb.Charity, Verb.Preach, Verb.Recruit, Verb.Collect, Verb.Trade, Verb.Escort,
+                            Verb.Mercenary, Verb.Brothel, Verb.Agitate, Verb.Raid, Verb.Kidnap };
+        foreach (var verb in verbs)
+        {
+            bool harsh = verb is Verb.Raid or Verb.Kidnap or Verb.Agitate or Verb.Collect;
+            if (!_w.CanUseVerb(root, verb, out var why))
+            {
+                // 잠긴 일도 보여 준다(무엇이 있어야 열리는지)
+                a.Add(new Godot.Collections.Dictionary
+                {
+                    ["verb"] = (int)verb, ["village"] = -1, ["verbName"] = World.VerbName(verb), ["place"] = "", ["houses"] = 0, ["harsh"] = harsh, ["locked"] = why,
+                });
+                continue;
+            }
+            // 용병은 계약할 곳을 스스로 찾으니 마을을 고르지 않는다
+            foreach (var (v, _) in verb == Verb.Mercenary ? vs.Take(1) : vs.Take(4))
                 a.Add(new Godot.Collections.Dictionary
                 {
                     ["verb"] = (int)verb, ["village"] = v, ["verbName"] = World.VerbName(verb),
-                    ["place"] = VillageName(from, v), ["houses"] = vl.Households[v], ["harsh"] = verb == Verb.Raid,
+                    ["place"] = verb == Verb.Mercenary ? "계약할 곳을 찾는다" : VillageName(from, v), ["houses"] = vl.Households[v], ["harsh"] = harsh, ["locked"] = "",
                 });
+        }
         return a;
     }
 
@@ -560,6 +579,18 @@ public partial class SimHost : Node
         if (g == null) return false;
         _w!.SetUnitTask(g, (Verb)verb, village);
         _w.Chronicle.Add((_w.Day, $"{g.Name}에 {World.VerbName((Verb)verb)}({VillageName(g.Village, village)})을(를) 맡겼다"));
+        return true;
+    }
+
+    /// <summary>회칙: 누가 들어오나(0 아무나, 1 혈족만, 2 신앙 깊은 자만), 어떻게 나누나(0 우두머리, 1 고르게, 2 곳간).</summary>
+    public bool SetOrgRules(int id, int join, int share)
+    {
+        var g = Commandable(id);
+        if (g == null) return false;
+        var root = _w!.RootOf(g);
+        root.JoinRule = (JoinRule)Math.Clamp(join, 0, 2);
+        root.ShareRule = (ShareRule)Math.Clamp(share, 0, 2);
+        _w.Chronicle.Add((_w.Day, $"{root.Name}의 회칙: {World.JoinRuleName(root.JoinRule)}, 번 것은 {World.ShareRuleName(root.ShareRule)}"));
         return true;
     }
 

@@ -35,16 +35,8 @@ public class CrimeTests
     [Fact]
     public void PunishingRaisesAndCoveringLowersVictimsView()
     {
-        var w = new World(5, 400);
-        w.SeedCouples(5);
+        var (w, lord) = TestWorlds.WithLord(3);
         var p = w.People; var hh = w.Households;
-        int lord = -1;
-        for (int y = 0; y < 300 && lord < 0; y++)
-        {
-            for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
-            lord = Enumerable.Range(0, hh.HighWater).FirstOrDefault(h => hh.IsAlive(h) && w.ClientCount(h) >= 3 && p.IsValid(hh.Head[h]), -1);
-        }
-        Assert.True(lord >= 0);
         int vh = Enumerable.Range(0, hh.HighWater).First(h => hh.IsAlive(h) && w.PatronOf(h) == lord && p.IsValid(hh.Head[h]));
         int victim = hh.Head[vh].Index, lu = p.Uid[hh.Head[lord].Index];
         int culprit = Enumerable.Range(0, p.HighWater).First(i => p.IsAliveIndex(i) && Years(w, i) >= 16 && p.Household[i] != vh && p.Household[i] != lord);

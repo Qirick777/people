@@ -189,6 +189,7 @@ public sealed partial class World
                 w.Stats.SexTradesTotal++;
                 int sv = w.Households.IsAlive(th) ? w.Households.Village[th] : -1;
                 if (sv >= 0 && w.VillageList.Households[sv] >= w.Config.TradeVillage) w.Stats.SexTradesBig++;
+                if (sv >= 0) w._sexTradeByVillage[sv] = w._sexTradeByVillage.GetValueOrDefault(sv) + price;
                 w.Stats.SexTradeValue += price;
             },
         };

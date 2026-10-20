@@ -443,6 +443,7 @@ public sealed partial class World
             Timed("상호작용", SocialSeason);
             Timed("범죄", CrimeSeason);
             BanditSeason();
+            KidnapSeason();
         }
         Timed("식량 소비", Consume);
         Timed("삶(사망·임신·출산)", Life);

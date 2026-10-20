@@ -28,17 +28,8 @@ public class OrgTests
     [Fact]
     public void EnfeoffThenTakeBackOrBreakAway()
     {
-        var w = new World(5, 400);
-        w.SeedCouples(5);
+        var (w, lord) = TestWorlds.WithLord(8);
         var hh = w.Households;
-        int lord = -1;
-        for (int y = 0; y < 300 && lord < 0; y++)
-        {
-            for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
-            for (int h = 0; h < hh.HighWater; h++)
-                if (hh.IsAlive(h) && w.ClientCount(h) >= 8) { lord = h; break; }
-        }
-        Assert.True(lord >= 0, "따르는 집 여덟이 넘는 집이 생겨야 한다");
         var mine = Enumerable.Range(0, hh.HighWater).Where(h => hh.IsAlive(h) && w.PatronOf(h) == lord).ToList();
         int vassal = mine[0];
         int before = w.ClientCount(lord);
