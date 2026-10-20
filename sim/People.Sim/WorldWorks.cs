@@ -144,7 +144,7 @@ public sealed partial class World
             {
                 // 플레이어 조직의 해를 끼치는 일은 플레이어가 직접 정했을 때만 한다
                 if (playerAuto && t.Verb is Verb.Collect or Verb.Agitate) continue;
-                float effort = g.Members * t.Weight, strength = g.OwnStrength * t.Weight;
+                float effort = g.Members * t.Weight * WorkFactor(g), strength = g.OwnStrength * t.Weight * WorkFactor(g);   // 가르치는 몫만큼 덜 한다
                 if (effort <= 0.1f || !CanUseVerb(root, t.Verb, out _)) continue;
                 switch (t.Verb)
                 {
@@ -364,7 +364,7 @@ public sealed partial class World
             int lord = PatronOf(h);
             int hd = HeadIdx(h), lh = HeadIdx(lord);
             if (lord < 0 || hd < 0 || lh < 0) continue;
-            Social.Add(p, hd, p.Uid[lh], -4f);
+            Social.Add(p, hd, p.Uid[lh], IsIdleScholar(hd) ? -6f : -4f);
             Stats.Agitations++;
         }
         root.Leak += 0.02f * MathF.Sqrt(effort);
@@ -383,7 +383,7 @@ public sealed partial class World
         if (uid < 0 || p.RelAff[sl] < 10f) return;
         int t = FindAlive(uid);
         if (t < 0 || !Adult(t) || IsPlayer(t) || InGroup(t, root) || GroupsOf(t).Count() >= GroupSlots || !RuleAllows(root, t)) return;
-        float a = 0.2f + Social.Opinion(p, t, p.Uid[r]) / 100f + 0.2f * p.Get(t, Trait.Ambition);
+        float a = 0.2f + Social.Opinion(p, t, p.Uid[r]) / 100f + 0.2f * p.Get(t, Trait.Ambition) + (IsIdleScholar(t) ? 0.2f : 0f);   // 자리 없는 배운 사람은 잘 넘어온다
         if (_rng.Chance(Math.Clamp(a, 0.02f, 0.9f)) && JoinGroup(t, unit)) Stats.SecretRecruits++;
     }
 
@@ -418,7 +418,7 @@ public sealed partial class World
             var mem = MembersOf(target);
             if (mem.Count < 2) continue;
             int victim = mem.OrderBy(m => AgeYears(m)).First(m => m != hh.Head[target].Index);   // 어린 식구부터
-            float atk = g.OwnStrength * (0.7f + 0.6f * _rng.NextFloat());   // 갈래가 통째로 나선다
+            float atk = g.OwnStrength * WorkFactor(g) * (0.7f + 0.6f * _rng.NextFloat());   // 갈래가 통째로 나선다
             float def = DefensePower(target) * 0.5f * (0.7f + 0.6f * _rng.NextFloat()) + 0.2f;
             Stats.Kidnaps++;
             root.Leak += 0.15f;

@@ -459,6 +459,9 @@ func _open_orgs() -> void:
 		if depth == 0: info += " · 권위 %.0f · %s" % [float(e["authority"]), e["visibilityName"]]
 		tv.add_child(UI.label(info, 12, UI.MUTED))
 		tv.add_child(UI.label(("정한 일: " if e["manual"] else "맡은 일: ") + e["tasks"], 12, UI.INK))
+		var teach: String = "가르침: " + e["lesson"] + (" %d%%" % int(float(e["teachShare"]) * 100.0) if float(e["teachShare"]) > 0.0 else "")
+		if e["heir"] != "": teach += " · 후계자 %s(이음 %d%%)" % [e["heir"], int(float(e["inherit"]) * 100.0)]
+		tv.add_child(UI.label(teach, 12, UI.MUTED))
 		r.add_child(tv)
 		if e["command"]:
 			var id := int(e["id"])
@@ -471,6 +474,9 @@ func _open_orgs() -> void:
 			var nb := UI.ghost("이름 짓기")
 			nb.pressed.connect(func(): _open_org_name(id, e["name"], e["named"]))
 			r.add_child(_center(nb))
+			var lb := UI.ghost("가르치기")
+			lb.pressed.connect(func(): _open_org_lessons(id, e["name"]))
+			r.add_child(_center(lb))
 			var tb := UI.ghost("일 정하기")
 			tb.pressed.connect(func(): _open_org_tasks(id, e["name"]))
 			r.add_child(_center(tb))
@@ -725,6 +731,35 @@ func _open_org_name(id: int, name: String, named: bool) -> void:
 	org_box.add_child(row)
 	edit.grab_focus()
 	edit.select_all()
+
+
+func _open_org_lessons(id: int, name: String) -> void:
+	org_title.text = name + " · 가르치기"
+	for c in org_box.get_children(): c.queue_free()
+	var back := UI.ghost("← 조직으로")
+	back.pressed.connect(_open_orgs)
+	org_box.add_child(back)
+	var note := UI.label("가르치는 몫만큼 갈래의 일이 줄고, 한 사람에 한 해 식량 8 × 몫이 든다. 교리는 충성을 0.8까지만 올린다. 이음은 후계자에게 우두머리가 아는 것을 넘긴다.", 12, UI.MUTED)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note.custom_minimum_size = Vector2(600, 0)
+	org_box.add_child(note)
+	var names := ["안 가르침", "무예", "글", "장사", "공예", "교리", "이음"]
+	for k in names.size():
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		var lab := UI.label(names[k], 14, UI.INK, true)
+		lab.custom_minimum_size = Vector2(90, 0)
+		row.add_child(_center(lab))
+		var shares := [0] if k == 0 else [10, 20, 30]
+		for pct in shares:
+			var b := UI.ghost("정하기" if k == 0 else "%d%%" % pct)
+			var kk := k; var pp: int = pct
+			b.pressed.connect(func():
+				host.SetUnitLesson(id, kk, pp)
+				for line in host.DrainChronicle(): _log(line)
+				_open_orgs())
+			row.add_child(b)
+		org_box.add_child(row)
 
 
 func _open_org_tasks(id: int, name: String) -> void:
@@ -1260,6 +1295,9 @@ func _run_autotest() -> void:
 			var me_org: Dictionary = host.OrgPanel().filter(func(o): return int(o["id"]) == int(orgs[0]["id"]))[0]
 			print("autotest: 알려진 정도 ", me_org["visibilityName"], " · 권위 ", me_org["authority"])
 			host.SetOrgRules(int(orgs[0]["id"]), 0, 2)
+			_open_org_lessons(int(orgs[0]["id"]), orgs[0]["name"])
+			await _snap("live_org_lessons.png")
+			host.SetUnitLesson(int(orgs[0]["id"]), 1, 20)
 			_open_orgs()
 			await _snap("live_orgs_rules.png")
 		org_panel.visible = false

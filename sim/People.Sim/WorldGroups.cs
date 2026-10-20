@@ -34,6 +34,12 @@ public sealed class Group
     public JoinRule JoinRule;
     public ShareRule ShareRule;
     public float Treasury, Income;                    // 조직 곳간, 올해 번 것
+    // O3 교육과 이음
+    public Lesson Lesson;
+    public float TeachShare;                          // 조직원 시간 가운데 가르치는 몫(0~0.3)
+    public bool TeachManual;                          // 플레이어가 정했다(AI 가 바꾸지 않는다)
+    public int HeirUid = -1;
+    public float Inherit;                             // 이음(0~1): 후계자가 우두머리가 아는 것을 얼마나 넘겨받았나
     public readonly List<OrgTask> Tasks = new();
 }
 
@@ -226,8 +232,8 @@ public sealed partial class World
             bool lost = !leaderAlive.Contains(g.Id) || (g.Parent >= 0 && members != null && !members.Any(m => p.Uid[m] == g.LeaderUid));
             if (lost && members != null && members.Count > 0)
             {
-                // 말솜씨와 싸움 힘이 큰 어른이 잇는다
-                int next = members.Where(Adult).OrderByDescending(m => p.Get(m, Trait.Charisma) + FightPower(m)).DefaultIfEmpty(-1).First();
+                // 이음이 넉넉한 후계자가 잇거나, 아니면 말솜씨와 싸움 힘이 큰 어른이 억지로 잇는다(O3)
+                int next = PickSuccessor(g, members);
                 if (next >= 0) g.LeaderUid = p.Uid[next];
             }
             bool tooSmall = g.Parent >= 0 ? g.Members == 0 || (g.Members < 2 && Day - g.Founded >= 2 * Config.DaysPerYear) : g.Members < 2;
@@ -421,7 +427,7 @@ public sealed partial class World
         {
             if (!g.Alive) continue;
             foreach (var t in g.Tasks)
-                if (t.Verb == Verb.Guard && t.Village == v) s += g.OwnStrength * t.Weight * (g.Paid || g.Parent >= 0 || g.Sanction >= 0 ? 0.6f : 0.4f);
+                if (t.Verb == Verb.Guard && t.Village == v) s += g.OwnStrength * t.Weight * WorkFactor(g) * (g.Paid || g.Parent >= 0 || g.Sanction >= 0 ? 0.6f : 0.4f);
         }
         foreach (var (mv, ms) in _mercGuard) if (mv == v) s += 0.6f * ms;   // 용병 계약
         return s;
@@ -435,7 +441,7 @@ public sealed partial class World
             if (!g.Alive) continue;
             float w = 0f;
             foreach (var t in g.Tasks) if (t.Verb == Verb.Raid) w += t.Weight;
-            if (w <= 0f || !_rng.Chance(0.3f * w)) continue;
+            if (w <= 0f || !_rng.Chance(0.3f * w * WorkFactor(g))) continue;
             int leader = FindAlive(g.LeaderUid);
             if (leader < 0 || (IsPlayer(leader) && !g.Manual)) continue;
             TryRaid(People.Household[leader], 10f + 8f * g.Members, g);

@@ -269,7 +269,7 @@ public sealed partial class World
             if (_rng.NextBool() && p.RelUid[sl] >= 0 && p.RelAff[sl] >= 10f) t = FindAlive(p.RelUid[sl]);
             else if (Households.IsAlive(p.Household[r]) && Households.Village[p.Household[r]] >= 0) t = RandomVillager(Households.Village[p.Household[r]]);
             if (t < 0 || !Adult(t) || IsPlayer(t) || InGroup(t, g) || GroupsOf(t).Count() >= GroupSlots || GroupOfKind(t, g.Kind) != null || !RuleAllows(g, t)) continue;
-            float a = GroupWant(t, g.Kind) + Social.Opinion(p, t, p.Uid[r]) / 100f - 0.1f;
+            float a = GroupWant(t, g.Kind) + Social.Opinion(p, t, p.Uid[r]) / 100f - 0.1f + (IsIdleScholar(t) ? 0.2f : 0f);
             if (_rng.Chance(Math.Clamp(a, 0.02f, 0.9f)) && JoinGroup(t, g)) Stats.SecretRecruits++;
         }
     }

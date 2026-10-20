@@ -31,7 +31,7 @@ public class OrgTests
         var (w, lord) = TestWorlds.WithLord(8);
         var hh = w.Households;
         var mine = Enumerable.Range(0, hh.HighWater).Where(h => hh.IsAlive(h) && w.PatronOf(h) == lord).ToList();
-        int vassal = mine[0];
+        int vassal = mine.First(h => w.ClientCount(h) == 0);
         int before = w.ClientCount(lord);
         int n = w.Enfeoff(lord, vassal, -1, 4);
         Assert.True(n >= 1);

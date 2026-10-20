@@ -57,7 +57,7 @@ public static class Social
             // 충성이 받아들이는 눈을 바꾼다. 광신이면 나쁜 일은 관계 대신 의심으로 쌓인다.
             float l = p.Loyalty[i];
             if (aff >= 0f) aff *= 0.5f + l;
-            else if (p.Fanatic[i] != 0) { p.Doubt[i] -= aff; aff = 0f; }
+            else if (p.Fanatic[i] != 0) { p.Doubt[i] -= aff * (1f + p.GetSkill(i, Skill.Letters)); aff = 0f; }   // 글을 배운 광신자는 의심이 빨리 쌓인다
             else aff *= 1.5f - l;
         }
         else aff *= Borrowed(p, i, uid, aff);

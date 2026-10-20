@@ -472,6 +472,10 @@ public partial class SimHost : Node
                     ["authority"] = depth == 0 ? g.Authority : 0f,
                     ["leak"] = g.Leak,
                     ["inner"] = g.Inner.Count,
+                    ["lesson"] = World.LessonName(g.Lesson),
+                    ["teachShare"] = g.TeachShare,
+                    ["heir"] = g.HeirUid >= 0 && FindAlive(g.HeirUid) >= 0 ? Names.Full(w.Lineage, g.HeirUid) : "",
+                    ["inherit"] = g.Inherit,
                     ["joinRule"] = (int)g.JoinRule,
                     ["shareRule"] = (int)g.ShareRule,
                     ["treasury"] = g.Treasury,
@@ -615,11 +619,24 @@ public partial class SimHost : Node
         return true;
     }
 
+    /// <summary>갈래가 가르칠 것(0 없음, 1 무예, 2 글, 3 장사, 4 공예, 5 교리, 6 이음)과 몫(0~30%).</summary>
+    public bool SetUnitLesson(int id, int lesson, int pct)
+    {
+        var g = Commandable(id);
+        if (g == null) return false;
+        g.Lesson = (Lesson)Math.Clamp(lesson, 0, 6);
+        g.TeachShare = g.Lesson == Lesson.None ? 0f : Math.Clamp(pct, 0, 30) / 100f;
+        g.TeachManual = true;
+        _w!.Chronicle.Add((_w.Day, $"{g.Name}: {World.LessonName(g.Lesson)}을(를) {(int)(g.TeachShare * 100)}% 가르친다"));
+        return true;
+    }
+
     public bool OrgAuto(int id)
     {
         var g = Commandable(id);
         if (g == null) return false;
         _w!.ClearManual(g);
+        g.TeachManual = false;
         return true;
     }
 
