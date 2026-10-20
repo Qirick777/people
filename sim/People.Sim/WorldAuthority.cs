@@ -245,7 +245,7 @@ public sealed partial class World
                 int par = pu >= 0 ? FindAlive(pu) : -1;
                 if (par < 0) continue;
                 var g = GroupsOf(par).Select(RootOf).FirstOrDefault(r => r.Visibility == Visibility.Proclaimed && r.Home < 0);
-                if (g == null || InGroup(i, g)) continue;
+                if (g == null || InGroup(i, g) || GroupOfKind(i, g.Kind) != null || !RuleAllows(g, i)) continue;
                 if (JoinGroup(i, g)) { Stats.BornMembers++; break; }
             }
         }

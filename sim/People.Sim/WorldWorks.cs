@@ -149,11 +149,11 @@ public sealed partial class World
                 switch (t.Verb)
                 {
                     case Verb.Collect: if (root.Home < 0) TakeProtection(root, g, t.Village, effort, strength); break;
-                    case Verb.Preach: Preach(root, t.Village, effort, leader); break;
+                    case Verb.Preach: Preach(root, g, t.Village, effort, leader); break;
                     case Verb.Trade: Trade(root, g, t.Village, t.Weight); break;
                     case Verb.Escort: Escort(root, t.Village, effort); break;
                     case Verb.Mercenary: Hireout(root, g, effort, strength, leader); break;
-                    case Verb.Brothel: BrothelCut(root, t.Village, t.Weight, leader); break;
+                    case Verb.Brothel: BrothelCut(root, g, t.Village, t.Weight, leader); break;
                     case Verb.Agitate: Agitate(root, t.Village, effort); break;
                     case Verb.Recruit: for (int k = 0; k < Math.Min(6, (int)MathF.Ceiling(effort / 2f)); k++) RecruitOne(root, g); break;
                 }
@@ -224,19 +224,8 @@ public sealed partial class World
         RecountClients();
     }
 
-    private int RandomHouseIn(int v)
-    {
-        var hh = Households;
-        for (int k = 0; k < 8; k++)
-        {
-            int h = _rng.NextInt(hh.HighWater);
-            if (hh.IsAlive(h) && hh.Village[h] == v) return h;
-        }
-        return -1;
-    }
-
     /// <summary>설교: 마을 사람의 신앙을 올리고, 깊어진 사람을 신도로 들인다. 넉넉한 신도 집은 헌금을 낸다.</summary>
-    private void Preach(Group root, int v, float effort, int leader)
+    private void Preach(Group root, Group unit, int v, float effort, int leader)
     {
         var p = People; var hh = Households;
         float cha = p.Get(leader, Trait.Charisma);
@@ -249,8 +238,9 @@ public sealed partial class World
             if (p.Piety[i] > 0.6f && !InGroup(i, root) && GroupsOf(i).Count() < GroupSlots && RuleAllows(root, i) && JoinFactor(root, i) > 0f && _rng.Chance(0.2f))
                 if (JoinGroup(i, root)) Stats.Converts++;
         }
+        // 헌금은 이 갈래에 바로 딸린 신도에게서만 받는다(갈래마다 같은 신도에게 거두지 않게)
         float gift = 0f;
-        foreach (int m in MembersFast(root).Take(40))
+        foreach (int m in MembersFast(unit).Take(40))
         {
             int h = p.Household[m];
             if (!hh.IsAlive(h) || Surplus(h) < 1f) continue;
@@ -264,7 +254,8 @@ public sealed partial class World
     private void Trade(Group root, Group unit, int v, float weight)
     {
         var p = People;
-        var traders = Traders(root);
+        // 이 갈래에 바로 딸린 장사꾼만 짐을 진다(갈래마다 조직 전체 장사꾼을 세면 이익이 불어난다)
+        var traders = MembersFast(unit).Where(m => Adult(m) && (p.JobOf[m] == (byte)Job.Trader || p.GetSkill(m, Skill.Trade) >= 0.3f)).ToList();
         if (traders.Count == 0) return;
         // 짐: 장사꾼 솜씨만큼. 이웃 마을과의 값 차이로 실제 물건을 사고팔아 번다
         float capacity = 0f;
@@ -277,7 +268,15 @@ public sealed partial class World
         float profit = TradeGoods(v, capacity);
         float escort = Subtree(root).Where(g => g.Tasks.Any(t => t.Verb == Verb.Escort)).Sum(g => g.OwnStrength);
         float robbed = Math.Clamp(0.1f + 0.2f * DangerAt(v) - 0.05f * escort, 0f, 0.6f);
-        if (_rng.Chance(robbed)) { profit *= 0.5f; Stats.TradeRobbed++; }
+        if (_rng.Chance(robbed))
+        {
+            // 털린 몫은 그 마을을 터는 떼에게 간다(떼가 없으면 길에서 잃는다)
+            float lost = profit * 0.5f;
+            profit -= lost;
+            Stats.TradeRobbed++;
+            foreach (var b in _groups)
+                if (b.Alive && b.Tasks.Any(t => t.Verb == Verb.Raid && t.Village == v)) { Earn(RootOf(b), lost); break; }
+        }
         Stats.TradeProfit += profit;
         Earn(root, profit);
     }
@@ -288,8 +287,9 @@ public sealed partial class World
         var p = People; var hh = Households;
         float pay = 0f;
         int n = 0;
-        for (int h = 0; h < hh.HighWater && n < (int)(effort * 2) + 1; h++)
+        foreach (int h in VillageHouses(v))
         {
+            if (n >= (int)(effort * 2) + 1) break;
             if (!hh.IsAlive(h) || hh.Village[h] != v) continue;
             bool trader = false;
             foreach (int m in MembersOf(h)) if (p.JobOf[m] == (byte)Job.Trader) { trader = true; break; }
@@ -329,17 +329,17 @@ public sealed partial class World
     }
 
     /// <summary>유곽: 스스로 몸 파는 일을 하는 어른에게 손님을 잇고 보호하며, 그 마을 거래 값의 몫을 받는다. 강압은 없다.</summary>
-    private void BrothelCut(Group root, int v, float weight, int leader)
+    private void BrothelCut(Group root, Group unit, int v, float weight, int leader)
     {
         var p = People; var hh = Households;
         float value = _sexTradeByVillage.GetValueOrDefault(v);
         if (value <= 0f) return;
         float cut = 0.2f * value * MathF.Min(1f, weight * 2f);
-        // 몫은 일하는 사람들의 집에서 나간다. 대신 보호받아 우두머리를 좋게 본다
+        // 몫은 이 조직에 든 일꾼(스스로 든 어른)의 집에서만 나간다. 대신 보호받아 우두머리를 좋게 본다
         var workers = new List<int>();
-        for (int h = 0; h < hh.HighWater; h++)
-            if (hh.IsAlive(h) && hh.Village[h] == v)
-                foreach (int m in MembersOf(h)) if (p.JobOf[m] == (byte)Job.SexWorker) workers.Add(m);
+        foreach (var g in Subtree(root))
+            foreach (int m in MembersFast(g))
+                if (p.JobOf[m] == (byte)Job.SexWorker && AgeYears(m) >= 16 && hh.IsAlive(p.Household[m]) && hh.Village[p.Household[m]] == v && !workers.Contains(m)) workers.Add(m);
         if (workers.Count == 0) return;
         foreach (int w in workers)
         {
@@ -382,7 +382,7 @@ public sealed partial class World
         int uid = p.RelUid[sl];
         if (uid < 0 || p.RelAff[sl] < 10f) return;
         int t = FindAlive(uid);
-        if (t < 0 || !Adult(t) || IsPlayer(t) || InGroup(t, root) || GroupsOf(t).Count() >= GroupSlots || !RuleAllows(root, t)) return;
+        if (t < 0 || !Adult(t) || IsPlayer(t) || InGroup(t, root) || GroupOfKind(t, root.Kind) != null || GroupsOf(t).Count() >= GroupSlots || !RuleAllows(root, t)) return;
         float a = 0.2f + Social.Opinion(p, t, p.Uid[r]) / 100f + 0.2f * p.Get(t, Trait.Ambition) + (IsIdleScholar(t) ? 0.2f : 0f);   // 자리 없는 배운 사람은 잘 넘어온다
         if (_rng.Chance(Math.Clamp(a, 0.02f, 0.9f)) && JoinGroup(t, unit)) Stats.SecretRecruits++;
     }

@@ -501,15 +501,51 @@ public sealed partial class World
 
     private int RandomVillager(int v)
     {
-        var hh = Households;
         for (int k = 0; k < 6; k++)
         {
-            int h = _rng.NextInt(hh.HighWater);
-            if (!hh.IsAlive(h) || hh.Village[h] != v) continue;
+            int h = RandomHouseIn(v);
+            if (h < 0) return -1;
             var mem = MembersOf(h);
             if (mem.Count == 0) continue;
             int i = mem[_rng.NextInt(mem.Count)];
             if (Adult(i)) return i;
+        }
+        return -1;
+    }
+
+    // 마을 → 집 목록. 하루에 한 번 다시 만든다(그날 끊긴 집은 고를 때 거른다)
+    private List<int>[]? _villageHouses;
+    private int _villageHousesDay = -1;
+
+    /// <summary>마을 v 의 집 목록(오늘 아침 기준, 고른 뒤 살아 있는지 다시 본다).</summary>
+    private List<int> VillageHouses(int v)
+    {
+        var hh = Households;
+        if (_villageHouses == null || _villageHousesDay != Day || _villageHouses.Length < VillageList.Count)
+        {
+            if (_villageHouses == null || _villageHouses.Length < VillageList.Count) _villageHouses = new List<int>[VillageList.Count + 16];
+            foreach (var l in _villageHouses) l?.Clear();
+            for (int h = 0; h < hh.HighWater; h++)
+            {
+                if (!hh.IsAlive(h) || hh.Village[h] < 0) continue;
+                (_villageHouses[hh.Village[h]] ??= new()).Add(h);
+            }
+            _villageHousesDay = Day;
+        }
+        return v >= 0 && v < _villageHouses.Length && _villageHouses[v] is { } l2 ? l2 : _noHouses;
+    }
+    private static readonly List<int> _noHouses = new();
+
+    /// <summary>마을 v 의 살아 있는 집 하나(없으면 -1).</summary>
+    private int RandomHouseIn(int v)
+    {
+        var hh = Households;
+        var list = VillageHouses(v);
+        if (list.Count == 0) return -1;
+        for (int k = 0; k < 4; k++)
+        {
+            int h = list[_rng.NextInt(list.Count)];
+            if (hh.IsAlive(h) && hh.Village[h] == v) return h;
         }
         return -1;
     }

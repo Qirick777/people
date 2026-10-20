@@ -88,7 +88,7 @@ public sealed partial class World
         for (int k = 0; k < GroupSlots; k++)
         {
             int j = i * GroupSlots + k;
-            if (GroupById(People.GroupIds[j]) == null) { People.GroupIds[j] = g.Id; g.Members++; return true; }
+            if (GroupById(People.GroupIds[j]) == null) { People.GroupIds[j] = g.Id; g.Members++; g.OwnStrength += FightPower(i); return true; }
         }
         return false;
     }
@@ -98,7 +98,7 @@ public sealed partial class World
         for (int k = 0; k < GroupSlots; k++)
         {
             int j = i * GroupSlots + k;
-            if (People.GroupIds[j] == g.Id) { People.GroupIds[j] = -1; g.Members--; }
+            if (People.GroupIds[j] == g.Id) { People.GroupIds[j] = -1; g.Members--; g.OwnStrength = MathF.Max(0f, g.OwnStrength - FightPower(i)); }
         }
     }
 
@@ -218,29 +218,40 @@ public sealed partial class World
                 (byGroup.TryGetValue(g.Id, out var l) ? l : byGroup[g.Id] = new()).Add(i);
             }
         }
-        foreach (var g in _groups)
+        SumSubtrees();
+        foreach (var g in _groups.ToList())
         {
             if (!g.Alive) continue;
             var members = byGroup.GetValueOrDefault(g.Id);
             if (g.Home >= 0)
             {
                 // 지배자의 조직: 우두머리는 지배자 가장(회원 칸 밖). 집이 끊기면 닫는다.
-                if (!hh.IsAlive(g.Home) || hh.FoundedDay[g.Home] != g.HomeFounded) { g.Alive = false; Stats.GroupsDissolved++; }
+                if (!hh.IsAlive(g.Home) || hh.FoundedDay[g.Home] != g.HomeFounded) CloseGroup(g);
                 continue;
             }
+            // 바로 딸린 사람이 없는 맨 위 조직은 가장 센 갈래를 끌어올려 몸통으로 삼는다
+            if (g.Parent < 0 && (members == null || members.Count == 0) && ChildrenOf(g).OrderByDescending(c => c.Members).FirstOrDefault() is { } big)
+            {
+                var bm = byGroup.GetValueOrDefault(big.Id) ?? new List<int>();
+                MergeInto(big, g, bm);
+                members = new List<int>(bm);
+                byGroup[g.Id] = members;
+                byGroup.Remove(big.Id);
+            }
             // 갈래 우두머리가 갈래를 떠났으면(군인을 그만둠 등) 남은 사람 가운데서 새로 세운다
-            bool lost = !leaderAlive.Contains(g.Id) || (g.Parent >= 0 && members != null && !members.Any(m => p.Uid[m] == g.LeaderUid));
+            bool lost = members == null || !members.Any(m => p.Uid[m] == g.LeaderUid);
             if (lost && members != null && members.Count > 0)
             {
                 // 이음이 넉넉한 후계자가 잇거나, 아니면 말솜씨와 싸움 힘이 큰 어른이 억지로 잇는다(O3)
                 int next = PickSuccessor(g, members);
                 if (next >= 0) g.LeaderUid = p.Uid[next];
             }
-            bool tooSmall = g.Parent >= 0 ? g.Members == 0 || (g.Members < 2 && Day - g.Founded >= 2 * Config.DaysPerYear) : g.Members < 2;
-            if (tooSmall || !members!.Any(m => p.Uid[m] == g.LeaderUid))
+            // 맨 위 조직은 갈래까지 모두 세어 둘이 안 되면 흩어진다
+            bool tooSmall = g.Parent >= 0 ? g.Members == 0 || (g.Members < 2 && Day - g.Founded >= 2 * Config.DaysPerYear) : g.Total < 2;
+            if (tooSmall || members == null || !members.Any(m => p.Uid[m] == g.LeaderUid))
             {
-                if (g.Parent >= 0 && GroupById(g.Parent) != null && members != null) MergeInto(g, _groups[g.Parent], members);
-                else { g.Alive = false; Stats.GroupsDissolved++; }
+                if (g.Parent >= 0 && GroupById(g.Parent) is { } up && members != null) MergeInto(g, up, members);
+                else CloseGroup(g);
                 continue;
             }
             if (g.Sanction >= 0 && (!hh.IsAlive(g.Sanction) || hh.FoundedDay[g.Sanction] != g.SanctionFounded)) g.Sanction = -1;
@@ -302,7 +313,7 @@ public sealed partial class World
                     if (!inIt && here.Members < cap && GroupOfKind(i, kind) == null && RuleAllows(RootOf(here), i) && _rng.Chance(MathF.Max(0f, want - 0.35f) * 0.5f * JoinFactor(RootOf(here), i))) JoinGroup(i, here);
                     else if (inIt && !IsLeader(i, here) && want < 0.15f && _rng.Chance(0.3f)) LeaveGroup(i, here);
                 }
-                if (kind == GroupKind.Watch && danger < 0.1f && here.Sanction < 0 && _rng.Chance(0.1f)) { here.Alive = false; Stats.GroupsDissolved++; }
+                if (kind == GroupKind.Watch && danger < 0.1f && here.Sanction < 0 && _rng.Chance(0.1f)) CloseGroup(here);
             }
         }
         // 3) 모임 안: 서로 가까워지고, 신도회는 굶는 회원을 돕는다
@@ -413,8 +424,7 @@ public sealed partial class World
         {
             int leader = FindAlive(g.LeaderUid);
             if (leader >= 0) { Stats.RaidDeaths++; Die(leader, false); }
-            g.Alive = false;
-            Stats.GroupsDissolved++;
+            CloseGroup(g);
             Stats.SuppressWins++;
         }
     }

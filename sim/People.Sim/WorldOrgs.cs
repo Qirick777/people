@@ -64,6 +64,9 @@ public sealed partial class World
         foreach (var c in _groups) if (c.Alive && c.Parent == g.Id) yield return c;
     }
 
+    /// <summary>스스로 선 조직이 지배자의 인정을 받아 그 아래 붙은 것(지배자 군대의 갈래와 다르다).</summary>
+    private static bool IsAttached(Group g) => g.Sanction >= 0 && g.Home < 0 && g.Kind != GroupKind.Army;
+
     private static void DefaultTask(Group g)
     {
         g.Tasks.Clear();
@@ -89,14 +92,55 @@ public sealed partial class World
         Stats.UnitMerges++;
     }
 
-    /// <summary>아래 갈래까지 사람 수와 힘을 더한다(갈래는 위 조직보다 늦게 생겨 번호가 크다).</summary>
+    /// <summary>
+    /// 조직을 닫는다. 갈래는 닫힌 조직의 위 조직으로 올라가고, 위가 없으면 홀로 선다.
+    /// 홀로 서는 갈래는 맨 위 조직의 알려진 정도와 회칙, 가르침을 물려받는다. 품삯은 끊긴다.
+    /// </summary>
+    private void CloseGroup(Group g)
+    {
+        if (!g.Alive) return;
+        var root = RootOf(g);
+        var up = g.Parent >= 0 ? GroupById(g.Parent) : null;
+        g.Alive = false;
+        Stats.GroupsDissolved++;
+        foreach (var c in _groups)
+        {
+            if (!c.Alive || c.Parent != g.Id) continue;
+            if (up != null) { c.Parent = up.Id; continue; }
+            c.Parent = -1;
+            c.Visibility = root.Visibility;
+            c.JoinRule = root.JoinRule;
+            c.ShareRule = root.ShareRule;
+            c.Lesson = root.Lesson;
+            c.Paid = false;
+            if (c.Kind == GroupKind.Army && c.Home < 0) c.Kind = GroupKind.Watch;
+            if (!c.NameFixed && FindAlive(c.LeaderUid) is int cl && cl >= 0)
+                c.Name = $"{Names.Family(Lineage.FamilyOf(c.LeaderUid))} {GroupKindName(c.Kind)}";
+        }
+    }
+
+    /// <summary>아래 갈래까지 사람 수와 힘을 더한다. 깊은 갈래부터 더한다(번호 순서는 믿지 않는다: 봉신 군대가 나중에 생긴 주군 군대 아래로 가기도 한다).</summary>
     private void SumSubtrees()
     {
-        foreach (var g in _groups) if (g.Alive) { g.Strength = g.OwnStrength; g.Total = g.Members; }
-        for (int k = _groups.Count - 1; k >= 0; k--)
+        var order = new List<(int depth, Group g)>();
+        foreach (var g in _groups)
         {
-            var g = _groups[k];
-            if (!g.Alive || g.Parent < 0) continue;
+            if (!g.Alive) continue;
+            g.Strength = g.OwnStrength; g.Total = g.Members;
+            if (g.Parent < 0) continue;
+            int d = 0;
+            for (var x = g; x.Parent >= 0 && d < 16; d++)
+            {
+                var up = GroupById(x.Parent);
+                if (up == null) { x.Parent = -1; break; }
+                x = up;
+            }
+            order.Add((d, g));
+        }
+        order.Sort((a, b) => b.depth.CompareTo(a.depth));
+        foreach (var (_, g) in order)
+        {
+            if (g.Parent < 0) continue;
             var up = GroupById(g.Parent);
             if (up == null) { g.Parent = -1; continue; }
             up.Strength += g.Strength;
@@ -142,6 +186,12 @@ public sealed partial class World
         {
             string fam0 = Names.Family(Lineage.FamilyOf(People.Uid[Households.Head[g.Home].Index]));
             g.Name = $"{fam0} {RealmWord(TierOf(g.Home))}";
+            return;
+        }
+        if (IsAttached(g))
+        {
+            // 붙은 조직은 제 이름을 지킨다
+            if (g.Name.Length == 0 || g.Name.EndsWith("갈래")) g.Name = $"{Names.Family(Lineage.FamilyOf(g.LeaderUid))} {GroupKindName(g.Kind)}";
             return;
         }
         if (g.Parent >= 0 && GroupById(g.Parent) is { } up)
@@ -255,6 +305,9 @@ public sealed partial class World
         {
             var o = GroupById(id);
             if (o == null || !hh.IsAlive(h)) { _lordOrg.Remove(h); continue; }
+            // 군인이 없어도 우두머리는 지금 가장이다
+            var head = hh.Head[h];
+            if (p.IsValid(head)) o.LeaderUid = p.Uid[head.Index];
             int liege = PatronOf(h);
             var up = liege >= 0 ? LordOrg(liege, false) : null;
             o.Parent = up != null && RootOf(up).Id != o.Id ? up.Id : -1;
@@ -305,7 +358,9 @@ public sealed partial class World
             KindNeeds(root, leader, list);
         }
         list.Sort((a, b) => b.Weight.CompareTo(a.Weight));
-        if (list.Count > 4) list.RemoveRange(4, list.Count - 4);
+        // 지배자 조직은 다스리는 마을마다 일이 있다. 다른 조직은 큰 일 넷까지
+        int cap = root.Home >= 0 ? 24 : 4;
+        if (list.Count > cap) list.RemoveRange(cap, list.Count - cap);
         float tot = list.Sum(t => t.Weight);
         for (int k = 0; k < list.Count; k++) { var t = list[k]; t.Weight = tot > 0 ? t.Weight / tot : 1f / list.Count; list[k] = t; }
         return list;
@@ -321,6 +376,9 @@ public sealed partial class World
         var left = new List<OrgTask>(tasks);
         if (!g.Manual)
         {
+            // 인정받아 붙은 조직은 제 일(자경단은 제 마을 지킴)을 한다. 지배자 군대의 일을 넘겨받지 않는다
+            foreach (var c in children.Where(c => IsAttached(c) && !c.Manual).ToList()) DefaultTask(c);
+            children = children.Where(c => !IsAttached(c)).ToList();
             foreach (var c in children)
             {
                 if (c.Manual) continue;
@@ -335,7 +393,13 @@ public sealed partial class World
             {
                 // 하위 조직이 있는 맨 위 조직은 일을 갈래에 넘긴다. 남은 일은 가장 센 갈래가 더 맡는다
                 var top = children.FirstOrDefault(c => !c.Manual);
-                if (top != null) foreach (var t in left) top.Tasks.Add(new OrgTask { Verb = t.Verb, Village = t.Village, Weight = 0.5f });
+                if (top != null && left.Count > 0)
+                {
+                    // 제 일 1, 남은 일 0.5씩 두고 합이 1이 되게 나눈다(힘이 무에서 생기지 않게)
+                    foreach (var t in left) top.Tasks.Add(new OrgTask { Verb = t.Verb, Village = t.Village, Weight = 0.5f });
+                    float tw = top.Tasks.Sum(t => t.Weight);
+                    for (int k = 0; k < top.Tasks.Count; k++) { var t = top.Tasks[k]; t.Weight /= tw; top.Tasks[k] = t; }
+                }
                 g.Tasks.Clear();
             }
             else
@@ -367,7 +431,7 @@ public sealed partial class World
             }
             if (over > 4) SplitUnit(g);
         }
-        foreach (var c in children)
+        foreach (var c in ChildrenOf(g).ToList())
         {
             // 갓 뗀 갈래는 두 해 동안 합치지 않는다(사람이 잠깐 빠져도 갈래를 지킨다)
             if (c.Members < 2 && !ChildrenOf(c).Any() && !c.Manual && Day - c.Founded >= 2 * Config.DaysPerYear)
