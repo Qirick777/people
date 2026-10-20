@@ -17,6 +17,7 @@ public sealed class Crime
     public bool VictimKnows;
     public int Lord = -1;                      // 맡은 지배자 집
     public bool Reported;
+    public bool Counted;                       // 맡은 땅의 사건으로 이미 셌다(다시 열린 사건을 두 번 세지 않게)
     public Verdict Verdict;
 }
 
@@ -82,6 +83,7 @@ public sealed partial class World
     {
         int lord = Households.IsAlive(h) ? PatronOf(h) : -1;
         if (lord < 0) return 0.05f;
+        LawOwner(lord);
         // 지배자의 성품은 소문으로 알려지고, 실제 판결이 그 소문을 고친다
         float sev = Severity(lord);
         float rep = 0.5f * sev + 0.5f * _harshness.GetValueOrDefault(lord, sev);
@@ -311,7 +313,7 @@ public sealed partial class World
                 p.Honor[c.Target] -= 0.03f;
                 w.Stats.Assaults++;
                 bool dead = w._rng.Chance(0.02f);
-                w.CommitCrime(dead ? CrimeType.Murder : CrimeType.Assault, c.Actor, c.Target, 0f, false);
+                w.CommitCrime(dead ? CrimeType.Murder : CrimeType.Assault, c.Actor, c.Target, 0f, false, faceToFace: true);
                 if (dead) w.Die(c.Target, false);
             },
             // 지면 내가 맞는다
@@ -377,7 +379,7 @@ public sealed partial class World
     /// 범죄가 일어났다. 피해자가 알아보는지, 누가 봤는지 정하고, 신고와 수사를 한다.
     /// 피해자는 아직 살아 있을 때 부른다(살인도 죽기 전에).
     /// </summary>
-    public Crime CommitCrime(CrimeType type, int culprit, int victim, float amount, bool attempt)
+    public Crime CommitCrime(CrimeType type, int culprit, int victim, float amount, bool attempt, bool faceToFace = false)
     {
         var p = People; var hh = Households;
         int vh = p.Household[victim];
@@ -387,10 +389,15 @@ public sealed partial class World
             Village = hh.IsAlive(vh) ? hh.Village[vh] : -1, Day = Day, Amount = amount, Attempt = attempt,
         };
         // 피해자가 범인을 알아보는가
-        float know = attempt ? 0.8f : type switch { CrimeType.Theft => 0.25f, CrimeType.Murder => 0f, CrimeType.Embezzle => 0.3f, _ => 1f };
+        // 빼돌리기는 지배자가 알아챘을 때만 사건이 되므로 범인을 안다. 맞대고 한 일(폭행이 살인으로 번짐)도 안다
+        float know = attempt || faceToFace ? 0.8f : type switch { CrimeType.Theft => 0.25f, CrimeType.Murder => 0f, CrimeType.Embezzle => 1f, _ => 1f };
+        if (faceToFace) know = 1f;
         c.VictimKnows = _rng.Chance(know);
-        // 목격자: 피해자 집 사람, 마을 사람 몇
-        float see = type switch { CrimeType.Theft => 0.12f, CrimeType.Murder => 0.2f, CrimeType.Raid => 0.8f, CrimeType.Embezzle => 0f, _ => 0.3f };
+        // 목격자: 피해자 집 사람, 마을 사람 몇(갈취는 둘만 있을 때 한다)
+        float see = type switch
+        {
+            CrimeType.Theft => 0.12f, CrimeType.Murder => 0.2f, CrimeType.Raid => 0.8f, CrimeType.Embezzle or CrimeType.Extortion => 0f, _ => 0.3f,
+        };
         if (hh.IsAlive(vh) && see > 0f)
             foreach (int m in MembersOf(vh))
                 if (m != victim && Adult(m) && _rng.Chance(see)) c.Witnesses.Add(p.Uid[m]);
@@ -422,10 +429,62 @@ public sealed partial class World
         if (c.Village >= 0) _crimeHeat[c.Village] = _crimeHeat.GetValueOrDefault(c.Village) + w;
         _crimes.Add(c);
         if (_crimes.Count > 3000) _crimes.RemoveRange(0, 1000);
-        Chron(culprit, $"{SubjName(culprit)} {Names.Full(Lineage, c.Victim)}에게 {CrimeName(type)}" + (attempt ? "을(를) 하려다 실패했다" : "을(를) 했다"));
-        Chron(victim, $"{SubjName(victim)} {CrimeName(type)}을(를) 당했다" + (c.VictimKnows ? $"(범인 {Names.Full(Lineage, c.Culprit)})" : ""));
-        ReportCrime(c, victim);
+        string vn = Names.Full(Lineage, c.Victim);
+        Chron(culprit, $"{SubjName(culprit)} {DidText(type, vn, attempt)}");
+        Chron(victim, $"{SubjName(victim)} {SufferText(type, attempt)}" + (c.VictimKnows ? $"(범인 {Names.Full(Lineage, c.Culprit)})" : ""));
+        LastCrime = c;
+        // 살해당한 사람은 신고하지 못한다
+        ReportCrime(c, type == CrimeType.Murder && !attempt ? -1 : victim);
         return c;
+    }
+
+    /// <summary>가장 최근에 일어난 사건(화면이 행동 결과를 보여 줄 때).</summary>
+    public Crime? LastCrime;
+
+    /// <summary>범인 쪽 연대기 문장.</summary>
+    private static string DidText(CrimeType t, string v, bool attempt) => (t, attempt) switch
+    {
+        (CrimeType.Theft, false) => $"{v}의 식량을 훔쳤다",
+        (CrimeType.Theft, true) => $"{v}의 식량을 훔치려다 들켰다",
+        (CrimeType.Assault, false) => $"{Obj(v)} 때렸다",
+        (CrimeType.Assault, true) => $"{Obj(v)} 때리려다 오히려 얻어맞았다",
+        (CrimeType.Extortion, false) => $"{v}에게서 식량을 갈취했다",
+        (CrimeType.Extortion, true) => $"{v}에게서 식량을 갈취하려다 거절당했다",
+        (CrimeType.Murder, false) => $"{Obj(v)} 해쳤다",
+        (CrimeType.Murder, true) => $"{Obj(v)} 해치려다 실패했다",
+        (CrimeType.Embezzle, _) => $"{v}의 공납을 빼돌렸다",
+        (CrimeType.Raid, _) => $"{v}의 집을 털었다",
+        _ => $"{Obj(v)} 납치했다",
+    };
+
+    /// <summary>피해자 쪽 연대기 문장.</summary>
+    private static string SufferText(CrimeType t, bool attempt) => t switch
+    {
+        CrimeType.Theft => attempt ? "도둑을 막았다" : "도둑을 맞았다",
+        CrimeType.Assault => attempt ? "덤벼든 사람을 물리쳤다" : "얻어맞았다",
+        CrimeType.Extortion => attempt ? "갈취를 거절했다" : "갈취를 당했다",
+        CrimeType.Murder => attempt ? "습격을 물리쳤다" : "습격을 받았다",
+        CrimeType.Embezzle => "징수관이 공납을 빼돌린 것을 알아냈다",
+        CrimeType.Raid => "약탈을 당했다",
+        _ => "식구를 납치당했다",
+    };
+
+    private static string VerdictDone(Verdict v, string n) => v switch
+    {
+        Verdict.Fine => $"{n}에게 벌금을 물렸다", Verdict.Flog => $"{Obj(n)} 매질했다", Verdict.Execute => $"{Obj(n)} 처형했다",
+        Verdict.Covered => $"{n}의 일을 덮어 주었다", _ => $"{Obj(n)} 풀어 주었다",
+    };
+
+    // 지배자 집마다 쌓는 기록(잡는 비율, 벌의 세기, 사건 장부, 경고)이 그 집 것인지(집 번호를 다시 쓰면 비운다)
+    private readonly Dictionary<int, int> _lawOwner = new();
+
+    private void LawOwner(int h)
+    {
+        if (h < 0 || !Households.IsAlive(h)) return;
+        int f = Households.FoundedDay[h];
+        if (_lawOwner.TryGetValue(h, out int o) && o == f) return;
+        _catchRate.Remove(h); _harshness.Remove(h); _lordLedger.Remove(h); _restrained.Remove(h);
+        _lawOwner[h] = f;
     }
 
     private void CountCrime(CrimeType t)
@@ -464,9 +523,14 @@ public sealed partial class World
         var p = People; var hh = Households;
         c.Lord = c.Type == CrimeType.Embezzle ? c.VictimHouse : ResponsibleLord(c.VictimHouse);
         if (c.Lord < 0) { c.Verdict = Verdict.NoLord; return; }
-        var lg = _lordLedger.GetValueOrDefault(c.Lord);
-        lg.committed++;
-        _lordLedger[c.Lord] = lg;
+        LawOwner(c.Lord);
+        if (!c.Counted)
+        {
+            var lg = _lordLedger.GetValueOrDefault(c.Lord);
+            lg.committed++;
+            _lordLedger[c.Lord] = lg;
+            c.Counted = true;
+        }
         int ci = FindAlive(c.Culprit);
         if (ci >= 0 && p.Household[ci] == c.Lord)
         {
@@ -514,15 +578,35 @@ public sealed partial class World
         _lordLedger[c.Lord] = led;
         Stats.Caught++;
         Interrogated(culprit);   // 잡힌 범인이 든 숨긴 조직의 비밀이 새어 나간다
-        bool close = CloseToLord(culprit, c.Lord);
-        if (c.Lord == PlayerHousehold && _player >= 0 && (PlayerJudgesAll || close || c.Type == CrimeType.Murder))
+        bool close = CloseToLord(culprit, c.Lord) && c.Type != CrimeType.Embezzle;   // 빼돌리기는 지배자 자신이 당한 일이라 덮을 것이 없다
+        // 플레이어가 직접 판결할 사건: 모두 고른 경우, 혈족(3촌 안, 같은 집), 살인. 부리는 사람의 일은 정한 세기로 판결한다
+        if (c.Lord == PlayerHousehold && _player >= 0 && (PlayerJudgesAll || KinOfLord(culprit, c.Lord) || c.Type == CrimeType.Murder))
         {
             c.Verdict = Verdict.Pending;
             _fork = true;
-            Chronicle.Add((Day, $"{CrimeName(c.Type)} 사건의 범인 {Names.Full(Lineage, c.Culprit)}을(를) 잡았다. 판결을 기다린다"));
+            Chronicle.Add((Day, $"{CrimeName(c.Type)} 사건의 범인 {Obj(Names.Full(Lineage, c.Culprit))} 잡았다. 판결을 기다린다"));
             return;
         }
         Judge(c, ChooseVerdict(c, culprit, close));
+    }
+
+    /// <summary>범인이 지배자의 3촌 안 혈족이거나 그 집 사람인가.</summary>
+    private bool KinOfLord(int culprit, int lord)
+    {
+        var p = People; var hh = Households;
+        if (p.Household[culprit] == lord) return true;
+        if (!p.IsValid(hh.Head[lord])) return false;
+        int chon = Lineage.Chon(p.Uid[hh.Head[lord].Index], p.Uid[culprit]);
+        return chon > 0 && chon <= 3;
+    }
+
+    /// <summary>판결 기다리는 사건의 범인을 플레이어가 덮어 줄 수 있나(혈족이나 부리는 사람, 빼돌리기는 빼고).</summary>
+    public bool CanCover(int crimeId)
+    {
+        var c = CrimeById(crimeId);
+        if (c == null || c.Type == CrimeType.Embezzle) return false;
+        int culprit = FindAlive(c.Culprit);
+        return culprit >= 0 && CloseToLord(culprit, c.Lord);
     }
 
     /// <summary>범인이 지배자의 3촌 안 혈족이거나 그 집 사람이거나 그가 부리는 사람인가.</summary>
@@ -555,6 +639,7 @@ public sealed partial class World
     public void Judge(Crime c, Verdict v)
     {
         var p = People; var hh = Households;
+        LawOwner(c.Lord);
         int culprit = FindAlive(c.Culprit);
         c.Verdict = v;
         int lordHead = hh.IsAlive(c.Lord) && p.IsValid(hh.Head[c.Lord]) ? hh.Head[c.Lord].Index : -1;
@@ -576,14 +661,18 @@ public sealed partial class World
                 if (lordHead >= 0) Social.Add(p, culprit, p.Uid[lordHead], -20f, 20f);
                 Social.Remember(p, culprit, MemoryType.Punished, lordHead >= 0 ? p.Uid[lordHead] : -1, Day, -50);
                 Stats.Floggings++;
-                if (_rng.Chance(0.02f)) Die(culprit, false);
+                if (_rng.Chance(0.02f))
+                {
+                    Chron(culprit, $"{SubjName(culprit)} {Ro(CrimeName(c.Type))} 매를 맞다 죽었다");
+                    Die(culprit, false);
+                }
                 break;
             case Verdict.Execute:
                 // 범인 집 사람들은 지배자를 원망한다
                 if (lordHead >= 0 && hh.IsAlive(p.Household[culprit]))
                     foreach (int m in MembersOf(p.Household[culprit])) if (m != culprit) Social.Add(p, m, p.Uid[lordHead], -40f, 20f);
                 Stats.Executions++;
-                Chron(culprit, $"{SubjName(culprit)} {CrimeName(c.Type)}로 처형되었다");
+                Chron(culprit, $"{SubjName(culprit)} {Ro(CrimeName(c.Type))} 처형되었다");
                 Die(culprit, false);
                 break;
             case Verdict.Covered:
@@ -602,10 +691,18 @@ public sealed partial class World
         }
         float harsh = v switch { Verdict.Execute => 1f, Verdict.Flog => 0.6f, Verdict.Fine => 0.3f, _ => 0f };
         _harshness[c.Lord] = 0.85f * _harshness.GetValueOrDefault(c.Lord, Severity(c.Lord)) + 0.15f * harsh;
-        if (culprit >= 0 && v is Verdict.Fine or Verdict.Flog)
-            Chron(culprit, $"{SubjName(culprit)} {CrimeName(c.Type)}로 잡혀 {VerdictName(v)}을(를) 받았다");
+        bool stillAlive = culprit >= 0 && p.IsAliveIndex(culprit) && p.Uid[culprit] == c.Culprit;
+        if (stillAlive && v is Verdict.Fine or Verdict.Flog)
+            Chron(culprit, $"{SubjName(culprit)} {Ro(CrimeName(c.Type))} 잡혀 {Obj(VerdictName(v))} 받았다");
         bool punished = v is Verdict.Fine or Verdict.Flog or Verdict.Execute;
         if (punished) _priors[c.Culprit] = _priors.GetValueOrDefault(c.Culprit) + 1;
+        // 빼돌린 징수관은 벌을 받으면 자리에서 쫓겨난다
+        if (stillAlive && c.Type == CrimeType.Embezzle && v is Verdict.Fine or Verdict.Flog
+            && _employer.TryGetValue(culprit, out int boss) && boss == c.Lord)
+        {
+            p.JobOf[culprit] = 0;
+            _employer.Remove(culprit);
+        }
         CrimeLoyalty(c, punished, v is Verdict.Covered or Verdict.Released);
     }
 
@@ -642,17 +739,21 @@ public sealed partial class World
         CrimeSizeLedger[bucket] = (e.n + 1, e.caught + (punished ? 1 : 0), e.opinion + big);
     }
 
-    /// <summary>드러난 범죄 비밀: 범인이 알려졌으니 다시 신고될 수 있다.</summary>
+    /// <summary>
+    /// 드러난 범죄 비밀: 범인이 알려졌다. 신고되지 않았던 사건은 다시 신고될 수 있고, 놓친 사건은 범인을 알고 다시 쫓는다.
+    /// 맡은 땅의 사건 수는 다시 세지 않는다.
+    /// </summary>
     private void ReopenCrime(Secret s)
     {
         int culprit = FindAlive(s.A), victim = FindAlive(s.B);
         foreach (var c in _crimes)
         {
             if (c.Culprit != s.A || c.Victim != s.B || c.Verdict is not (Verdict.Unreported or Verdict.Escaped or Verdict.NoLord)) continue;
-            c.VictimKnows = victim >= 0;
-            c.Verdict = Verdict.Open;
-            if (culprit >= 0) { ReportCrime(c, victim); Stats.Reopened++; }
-            else c.Verdict = Verdict.Escaped;
+            if (culprit < 0) return;
+            c.VictimKnows = true;   // 이제 범인이 알려졌다
+            Stats.Reopened++;
+            if (c.Verdict == Verdict.Escaped && c.Lord >= 0) { c.Verdict = Verdict.Open; Investigate(c); }
+            else { c.Verdict = Verdict.Open; ReportCrime(c, c.Type == CrimeType.Murder ? -1 : victim); }
             return;
         }
     }
@@ -707,13 +808,16 @@ public sealed partial class World
 
     public Crime? CrimeById(int id) => _crimes.FirstOrDefault(c => c.Id == id);
 
-    /// <summary>플레이어 판결. 덮기는 내 사람일 때만, 풀어 주기는 언제나.</summary>
+    /// <summary>플레이어 판결. 벌금, 매질, 처형, 풀어 주기는 언제나, 덮기는 내 사람일 때만.</summary>
     public bool PlayerJudge(int id, Verdict v)
     {
         var c = CrimeById(id);
         if (c == null || c.Verdict != Verdict.Pending || c.Lord != PlayerHousehold) return false;
+        if (v is not (Verdict.Fine or Verdict.Flog or Verdict.Execute or Verdict.Released or Verdict.Covered)) return false;
+        if (v == Verdict.Covered && !CanCover(id)) return false;
+        string name = Names.Full(Lineage, c.Culprit);
         Judge(c, v);
-        Chronicle.Add((Day, $"{CrimeName(c.Type)} 사건의 {Names.Full(Lineage, c.Culprit)}에게 {VerdictName(v)}"));
+        Chronicle.Add((Day, $"{CrimeName(c.Type)} 사건: {VerdictDone(v, name)}"));
         return true;
     }
 
@@ -725,7 +829,7 @@ public sealed partial class World
         int vh = p.Household[target];
         int lord = ResponsibleLord(vh);
         if (lord < 0) return (0f, "맡은 지배자 없음");
-        float know = type switch { CrimeType.Theft => 0.25f, CrimeType.Murder => 0.2f, _ => 1f };
+        float know = type switch { CrimeType.Theft => 0.25f, CrimeType.Murder => 0f, _ => 1f };
         float report = Math.Clamp(0.25f + 0.6f * 0.5f + (type == CrimeType.Murder ? 0.4f : 0f), 0.05f, 0.95f);
         var c = new Crime { Type = type, Lord = lord, Village = Households.Village[vh], VictimKnows = know >= 1f };
         float catchKnown = CatchChance(c, actor);
@@ -733,7 +837,7 @@ public sealed partial class World
         float catchUnknown = CatchChance(c, actor);
         float caught = report * (know * catchKnown + (1f - know) * catchUnknown);
         float x = Severity(lord) * CrimeWeight(type);
-        string punish = CloseToLord(actor, lord) ? "덮어 줄 수도 있다" : x > 1.2f ? "처형" : x > 0.45f ? "매질" : "벌금";
+        string punish = CloseToLord(actor, lord) ? "내 사람이라 덮어 줄 수도 있다" : x > 1.2f ? "처형" : x > 0.45f ? "매질" : "벌금";
         return (caught, punish);
     }
 }

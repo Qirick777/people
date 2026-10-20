@@ -403,7 +403,6 @@ public sealed partial class World
             int leader = FindAlive(root.LeaderUid);
             if (leader < 0 || (IsPlayer(leader) && !g.Manual) || !CanUseVerb(root, Verb.Kidnap, out _)) continue;
             int home = p.Household[leader];
-            // 근처의 넉넉한 집
             // 근처에서 넉넉하고 지킴이 약한 집
             int target = -1;
             float bs = 0f;
@@ -426,20 +425,27 @@ public sealed partial class World
             int head = HeadIdx(target);
             float ransom = MathF.Min(hh.Food[target] * 0.3f, 80f);
             float pay = head >= 0 ? 0.5f + 0.3f * p.Get(head, Trait.Caution) + (AgeYears(victim) < 16 ? 0.2f : 0f) - 0.3f * p.Get(head, Trait.Stubbornness) : 0.5f;
-            var c = CommitCrime(CrimeType.Kidnap, g.Members > 0 ? leader : leader, victim, ransom, false);
+            // 사건이 되기 전에 두목을 적어 둔다(그 자리에서 잡혀 처형될 수 있다)
+            int leaderUid = p.Uid[leader];
+            float aggr = p.Get(leader, Trait.Aggression);
+            int victimUid = p.Uid[victim];
+            var c = CommitCrime(CrimeType.Kidnap, leader, victim, ransom, false);
+            // 두목이 잡혔으면 아이는 돌아오고 몸값은 없다
+            if (c.Verdict is Verdict.Fine or Verdict.Flog or Verdict.Execute or Verdict.Pending) continue;
+            bool victimAlive = p.IsAliveIndex(victim) && p.Uid[victim] == victimUid;
             if (_rng.Chance(Math.Clamp(pay, 0.1f, 0.95f)))
             {
                 hh.Food[target] -= ransom;
                 Stats.Ransoms++;
                 Earn(root, ransom);
-                if (head >= 0) Social.Add(p, head, p.Uid[leader], -40f, 30f);
+                if (head >= 0 && p.IsAliveIndex(head)) Social.Add(p, head, leaderUid, -40f, 30f);
             }
-            else if (p.IsAliveIndex(victim) && _rng.Chance(0.15f * p.Get(leader, Trait.Aggression)))
+            else if (victimAlive && _rng.Chance(0.15f * aggr))
             {
                 Stats.KidnapKills++;
                 Die(victim, false);
             }
-            else if (head >= 0) Social.Add(p, head, p.Uid[leader], -30f);
+            else if (head >= 0 && p.IsAliveIndex(head)) Social.Add(p, head, leaderUid, -30f);
         }
     }
 

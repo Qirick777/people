@@ -331,8 +331,18 @@ public sealed partial class World
         var p = People;
         s.Exposed = true;
         Stats.SecretsExposed++;
-        foreach (int u in new[] { s.A, s.B })
-            if (byUid.TryGetValue(u, out int who)) Chron(who, $"{Names.Full(Lineage, u)}의 비밀({SecretName(s.Type)})이 드러났다");
+        if (s.Type is SecretType.Crime or SecretType.CoverUp)
+        {
+            // 범죄 비밀은 저지른 쪽(덮은 쪽) 이름만 쓴다. 피해자 이름이 비밀 주인처럼 보이면 안 된다
+            string text = s.Type == SecretType.Crime
+                ? $"{Names.Full(Lineage, s.A)}의 숨은 범죄가 드러났다"
+                : $"{Subj(Names.Full(Lineage, s.A))} 덮은 사건이 드러났다";
+            foreach (int u in new[] { s.A, s.B })
+                if (byUid.TryGetValue(u, out int who)) Chron(who, text);
+        }
+        else
+            foreach (int u in new[] { s.A, s.B })
+                if (byUid.TryGetValue(u, out int who)) Chron(who, $"{Names.Full(Lineage, u)}의 비밀({SecretName(s.Type)})이 드러났다");
         if (s.Type == SecretType.Affair) { _lover.Remove(s.A); _lover.Remove(s.B); }
         if (s.Type is SecretType.Crime or SecretType.CoverUp) { ExposeCrime(s, byUid); return; }
         byUid.TryGetValue(s.A, out int a);

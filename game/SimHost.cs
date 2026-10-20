@@ -403,13 +403,14 @@ public partial class SimHost : Node
         var def = w.Def((InteractionId)id);
         string an = Names.Full(w.Lineage, p.Uid[actor]), tn = Names.Full(w.Lineage, p.Uid[target]);
         string about = third >= 0 && p.IsAliveIndex(third) ? $"({Names.Full(w.Lineage, p.Uid[third])}" + (amount > 0 ? $", {amount:0})" : ")") : "";
+        w.LastCrime = null;   // 이번 행동이 만든 사건만 본다
         var r = w.Interact((InteractionId)id, new InteractionContext { Actor = actor, Target = target, Third = third, Amount = amount });
         string outcome = r.Accepted ? "받아들였다" : "거절당했다";
         if (def.Id == InteractionId.Enfeoff && r.Accepted) outcome = $"집 {r.Amount:0}곳을 맡겼다";
         else if (def.Id == InteractionId.Revoke) outcome = r.Accepted ? "집을 돌려받았다" : "거부하고 떨어져 나갔다";
         else if (def.Id is InteractionId.Steal or InteractionId.Assault or InteractionId.Extort or InteractionId.Murder)
         {
-            var last = w.Crimes.Count > 0 ? w.Crimes[^1] : null;
+            var last = w.LastCrime;
             outcome = r.Accepted ? "해냈다" + (r.Amount > 0.5f ? $"(식량 {r.Amount:0})" : "") : "실패했다";
             if (last != null && last.Culprit == p.Uid[actor])
                 outcome += last.Verdict switch
@@ -665,6 +666,7 @@ public partial class SimHost : Node
                 ["witnesses"] = c.Witnesses.Count,
                 ["amount"] = c.Amount,
                 ["mine"] = who,
+                ["canCover"] = w.CanCover(c.Id),
                 ["date"] = $"{c.Day / w.Config.DaysPerYear + 1}년",
             });
         }
@@ -740,12 +742,12 @@ public partial class SimHost : Node
         var w = _w!; var p = w.People;
         foreach (var d in w.Demands)
         {
-            var head = w.Households.Head[d.Lord];
+            var head = w.Households.Head[d.From];
             a.Add(new Godot.Collections.Dictionary
             {
                 ["id"] = d.Id,
                 ["lord"] = p.IsValid(head) ? Names.Full(w.Lineage, p.Uid[head.Index]) : "",
-                ["realm"] = w.RealmName(d.Lord),
+                ["realm"] = w.RealmName(d.From),
                 ["text"] = w.DemandTextOf(d),
                 ["date"] = $"{d.Day / w.Config.DaysPerYear + 1}년",
             });

@@ -415,9 +415,11 @@ public sealed partial class World
             if (WouldLoop(k, to)) { _patron[k] = -1; continue; }   // 상속자가 그 집 아래에 있었다
             _patron[k] = to;
             _patronFounded[k] = hh.FoundedDay[to];
+            Resnap(k);   // 물려받은 것은 오름이 아니다
             moved++;
         }
         if (to < _patron.Length && PatronOf(to) == from) _patron[to] = -1;
+        Resnap(to);
         foreach (var person in _employer.Keys.ToList()) if (_employer[person] == from) _employer[person] = to;
         Map.Transfer(from, to, hh.PlotCount[from], hh);
         hh.Food[to] += hh.Food[from];
@@ -572,8 +574,8 @@ public sealed partial class World
                 hh.Food[lord] += collected - skim;
                 got += collected - skim;
                 Stats.Skimmed += skim;
-                // 몫을 넘게 떼면 빼돌리기다. 지배자 가장의 눈썰미로 알아챈다
-                float excess = skim - collected * Config.CollectorCut;
+                // 웬만큼 더 떼는 건 눈감는 관행이다. 야망이 0.6을 넘는 몫만 빼돌리기로 친다
+                float excess = collected * 0.15f * MathF.Max(0f, (p.Get(c, Trait.Ambition) - 0.6f) / 0.4f) * SkimFactor(c);
                 var lh = hh.Head[lord];
                 if (excess > 1f && p.IsValid(lh) && hh.IsAlive(ch) && _rng.Chance(0.1f + 0.4f * p.Get(lh.Index, Trait.Perception)))
                     CommitCrime(CrimeType.Embezzle, c, lh.Index, excess, false);

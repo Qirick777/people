@@ -9,12 +9,12 @@ public sealed class Rival
     public int Since;           // 처음 알아챈 날
 }
 
-/// <summary>NPC 지배자가 플레이어 집에 한 요구. 받거나 거절할 때까지 기다린다.</summary>
+/// <summary>NPC가 플레이어 집에 한 요구나 제안(지배자의 요구, 아래 세력의 서약). 받거나 거절할 때까지 기다린다.</summary>
 public sealed class Demand
 {
     public int Id;
     public InteractionId Kind;
-    public int Lord, LordFounded, Day;
+    public int From, FromFounded, To, ToFounded, Day;   // From 집의 가장이 To 집(플레이어)의 가장에게 한다
 }
 
 /// <summary>
@@ -46,7 +46,7 @@ public sealed partial class World
 
     private int HeadIdx(int h) => Households.IsAlive(h) && People.IsValid(Households.Head[h]) ? Households.Head[h].Index : -1;
 
-    public bool Restrained(int h) => _restrained.TryGetValue(h, out int until) && Day < until;
+    public bool Restrained(int h) { LawOwner(h); return _restrained.TryGetValue(h, out int until) && Day < until; }
 
     private bool SameHouse(Rival r) =>
         Households.IsAlive(r.Lord) && Households.FoundedDay[r.Lord] == r.LordFounded && Households.IsAlive(r.Riser) && Households.FoundedDay[r.Riser] == r.RiserFounded;
@@ -144,9 +144,7 @@ public sealed partial class World
             Stats.RiseActs++;
             if (IsPlayer(rh) && act is InteractionId.RiseCoopt or InteractionId.RiseWarn or InteractionId.RiseOath or InteractionId.RiseInvest)
             {
-                _demands.Add(new Demand { Id = ++_demandIds, Kind = act.Value, Lord = r.Lord, LordFounded = hh.FoundedDay[r.Lord], Day = Day });
-                _fork = true;
-                Chronicle.Add((Day, $"{Names.Full(Lineage, p.Uid[lh])}이(가) {DemandText(act.Value)}"));
+                AskPlayer(act.Value, r.Lord, r.Riser);
                 continue;
             }
             var res = Interact(act.Value, new InteractionContext { Actor = lh, Target = rh, Third = -1 });
@@ -176,6 +174,7 @@ public sealed partial class World
     private void DetectRises()
     {
         var hh = Households; var p = People;
+        var noticed = new HashSet<(int lord, int riser)>();
         for (int h = 0; h < hh.HighWater; h++)
         {
             if (!hh.IsAlive(h)) continue;
@@ -186,7 +185,7 @@ public sealed partial class World
             if (same && prev == cur) continue;
             int lord;
             bool stole;
-            if (prev >= 0 && prev != cur && !InTreeOf(cur, prev) && ClientCount(prev) + 1 >= 1) { lord = prev; stole = true; }
+            if (prev >= 0 && prev != cur && !InTreeOf(cur, prev)) { lord = prev; stole = true; }
             else { lord = PatronOf(cur); stole = false; }
             if (lord < 0 || lord == cur || InTreeOf(lord, cur)) continue;
             if (RiseSize(lord) < RiseSize(cur)) continue;   // 아래에서 올라오는 세력만
@@ -204,13 +203,19 @@ public sealed partial class World
                          + 0.3f * Notoriety(cur) - 0.4f * MathF.Min(1f, dist / Config.VassalRange);
             if (!_rng.Chance(Math.Clamp(notice, 0.05f, 0.95f))) continue;
             Stats.RiseNoticed++;
-            if (!_rivals.TryGetValue((lord, cur), out var r) || !SameHouse(r))
+            bool fresh = !_rivals.TryGetValue((lord, cur), out var r) || !SameHouse(r);
+            if (fresh)
                 _rivals[(lord, cur)] = r = new Rival { Lord = lord, LordFounded = hh.FoundedDay[lord], Riser = cur, RiserFounded = hh.FoundedDay[cur], Since = Day };
-            r.Stole |= stole;
+            r!.Stole |= stole;
             // 자리 잡은 땅에서 서는 세력일수록 크게 의심한다
             r.Suspicion += 8f * (1f + 3f * RiseSize(cur) / MathF.Max(5f, RiseSize(lord))) * (stole ? 1.5f : 1f) * (0.5f + Established(hh.Village[cur]));
-            int rh = HeadIdx(cur);
-            if (rh >= 0) Chron(rh, $"{Names.Full(Lineage, lu)}이(가) 우리 집이 세를 늘리는 것을 알아챘다");
+            if (fresh) noticed.Add((lord, cur));
+        }
+        // 처음 알아챈 것만 지배자마다 한 줄(집마다 적으면 연대기를 덮는다)
+        foreach (var (lord, cur) in noticed)
+        {
+            int rh = HeadIdx(cur), lh = HeadIdx(lord);
+            if (rh >= 0 && lh >= 0) Chron(rh, $"{Subj(Names.Full(Lineage, p.Uid[lh]))} 우리 집이 세를 늘리는 것을 알아챘다");
         }
     }
 
@@ -223,6 +228,10 @@ public sealed partial class World
         float lp = LordPower(r.Lord), rp = RisePower(r.Riser);
         float ratio = lp / (lp + rp + 0.01f);
         float rel = Math.Clamp(Social.Opinion(p, lh, p.Uid[rh]) / 50f, -1f, 1f);
+        // 3촌 안 혈족은 끌어들이거나 서임하고, 무력으로 누르는 일은 드물다
+        int chon = Lineage.Chon(p.Uid[lh], p.Uid[rh]);
+        bool kin = chon > 0 && chon <= 3;
+        if (kin) rel = MathF.Max(rel, 0.5f);
         var w = new List<(InteractionId id, float w)>();
         void Add(InteractionId id, float x) { if (x > 0f) w.Add((id, x)); }
         bool near = size >= (int)(0.7f * TierUp[2]) || TierOf(r.Riser) >= 2;
@@ -255,6 +264,7 @@ public sealed partial class World
             Add(InteractionId.RiseInvest, 1.5f * cha * cha + 0.4f * cau * (1f - ratio) + 0.3f * rel);
             Add(InteractionId.RiseOath, 1.5f * cau * cau + 0.1f);
         }
+        if (kin) for (int k = 0; k < w.Count; k++) if (w[k].id is InteractionId.RiseSuppress or InteractionId.RiseSlander) w[k] = (w[k].id, w[k].w * 0.1f);
         // 같은 해에 할 수 없는 일(이미 봉신이 된 집에 서임 등)은 뺀다
         var c = new InteractionContext { Actor = lh, Target = rh, Third = -1 };
         w.RemoveAll(x => x.id != InteractionId.Count && !Def(x.id).Can(this, c));
@@ -274,14 +284,21 @@ public sealed partial class World
         var c = new InteractionContext { Actor = rh, Target = lh, Third = -1 };
         if (_rng.Chance(0.15f * p.Get(rh, Trait.Caution)) && Def(InteractionId.RiseSwear).Can(this, c))
         {
-            Interact(InteractionId.RiseSwear, c);
+            // 받는 쪽이 플레이어면 플레이어가 정한다
+            if (IsPlayer(lh)) AskPlayer(InteractionId.RiseSwear, r.Riser, r.Lord);
+            else Interact(InteractionId.RiseSwear, c);
             return true;
         }
         int g = PatronOf(r.Lord), gh = HeadIdx(g);
         if (gh >= 0 && _rng.Chance(0.06f * p.Get(rh, Trait.Ambition)))
         {
             var c2 = new InteractionContext { Actor = rh, Target = gh, Third = -1 };
-            if (Def(InteractionId.RiseOverHead).Can(this, c2)) { Interact(InteractionId.RiseOverHead, c2); return true; }
+            if (Def(InteractionId.RiseOverHead).Can(this, c2))
+            {
+                if (IsPlayer(gh)) AskPlayer(InteractionId.RiseOverHead, r.Riser, g);
+                else Interact(InteractionId.RiseOverHead, c2);
+                return true;
+            }
         }
         return false;
     }
@@ -341,7 +358,7 @@ public sealed partial class World
                 w.MakeVassal(H(w, c.Actor), H(w, c.Target), Legitimacy.Granted);
                 Social.AddFrom(w.People, c.Target, c.Actor, 10f);
                 w.Stats.Coopted++;
-                w.RiseChron(c, "끌어들여 봉신으로 삼았다", "자리를 받고 봉신이 되었다");
+                w.RiseChron(c, n => $"{Obj(n)} 끌어들여 봉신으로 삼았다", n => $"{n}에게서 자리를 받고 봉신이 되었다");
             },
             Fail = (w, c) => w.Suspect(H(w, c.Actor), H(w, c.Target), 10f),
         };
@@ -358,7 +375,7 @@ public sealed partial class World
                 Social.Add(w.People, c.Target, w.People.Uid[c.Actor], -5f, 20f);
                 if (w.RivalOf(H(w, c.Actor), H(w, c.Target)) is { } r) r.Suspicion *= 0.5f;
                 w.Stats.Warned++;
-                w.RiseChron(c, "경고했고, 상대가 물러섰다", "경고를 받고 두 해 동안 새 집을 받지 않기로 했다");
+                w.RiseChron(c, n => $"{n}에게 경고했고, 그가 물러섰다", n => $"{n}의 경고를 받고 두 해 동안 새 집을 받지 않기로 했다");
             },
             Fail = (w, c) =>
             {
@@ -392,7 +409,8 @@ public sealed partial class World
                 Social.Add(p, c.Target, p.Uid[c.Actor], -20f);
                 r.Amount = n;
                 w.Stats.Swayed += n;
-                w.RiseChron(c, $"따르는 집 {n}곳을 내 쪽으로 돌렸다", $"따르는 집 {n}곳을 빼앗겼다");
+                if (n > 0) w.RiseChron(c, x => $"{Obj(x)} 따르던 집 {n}곳을 내 쪽으로 돌렸다", x => $"{x}에게 따르는 집 {n}곳을 빼앗겼다");
+                else w.RiseChron(c, x => $"{Obj(x)} 따르는 집들을 흔들었지만 넘어온 집이 없었다", null);
             },
             Fail = (w, c) => Social.Add(w.People, c.Target, w.People.Uid[c.Actor], -10f),
         };
@@ -407,13 +425,13 @@ public sealed partial class World
                 w.MakeVassal(H(w, c.Actor), H(w, c.Target), Legitimacy.Granted);
                 Social.AddFrom(w.People, c.Target, c.Actor, 15f);
                 w.Stats.OathsTaken++;
-                w.RiseChron(c, "서약을 받았다", "서약하고 봉신이 되었다");
+                w.RiseChron(c, n => $"{n}에게서 서약을 받았다", n => $"{n}에게 서약하고 봉신이 되었다");
             },
             Fail = (w, c) =>
             {
                 Social.Add(w.People, c.Actor, w.People.Uid[c.Target], -20f);
                 w.Suspect(H(w, c.Actor), H(w, c.Target), 25f);
-                w.RiseChron(c, "서약을 요구했으나 거절당했다", "서약 요구를 거절했다");
+                w.RiseChron(c, n => $"{n}에게 서약을 요구했으나 거절당했다", n => $"{n}의 서약 요구를 거절했다");
             },
         };
         d[(int)InteractionId.RiseSlander] = new InteractionDef
@@ -430,7 +448,7 @@ public sealed partial class World
                 for (int h = 0; h < hh.HighWater; h++)
                     if (hh.IsAlive(h) && w.PatronOf(h) == t && w.HeadIdx(h) is int hd && hd >= 0) Social.Add(p, hd, p.Uid[c.Target], -10f);
                 w.Stats.Slanders++;
-                w.RiseChron(c, "상대의 이름을 깎았다", "나쁜 소문이 돌아 따르는 집들의 눈이 차가워졌다");
+                w.RiseChron(c, n => $"{n}에 대한 나쁜 소문을 퍼뜨렸다", _ => "나쁜 소문이 돌아 따르는 집들의 눈이 차가워졌다");
             },
             Fail = (w, c) =>
             {
@@ -459,7 +477,7 @@ public sealed partial class World
                 w.MakeVassal(H(w, c.Actor), H(w, c.Target), Legitimacy.Granted);
                 Social.AddFrom(w.People, c.Target, c.Actor, 30f);
                 w.Stats.Invested++;
-                w.RiseChron(c, "영주로 서임했다", "영주로 서임받았다");
+                w.RiseChron(c, n => $"{Obj(n)} 영주로 서임했다", n => $"{n}에게서 영주로 서임받았다");
             },
             Fail = (w, c) => w.Suspect(H(w, c.Actor), H(w, c.Target), 10f),
         };
@@ -480,7 +498,7 @@ public sealed partial class World
                 w.MakeVassal(H(w, c.Target), H(w, c.Actor), Legitimacy.Granted);
                 Social.AddFrom(w.People, c.Target, c.Actor, 10f);
                 w.Stats.SworeUp++;
-                w.RiseChron(c, "서약하고 봉신이 되었다", "서약을 받았다");
+                w.RiseChron(c, n => $"{n}에게 서약하고 봉신이 되었다", n => $"{n}에게서 서약을 받았다");
             },
         };
         d[(int)InteractionId.RiseOverHead] = new InteractionDef
@@ -508,7 +526,7 @@ public sealed partial class World
                 if (lh >= 0) { Social.Add(p, lh, p.Uid[c.Actor], -40f); Social.Remember(p, lh, MemoryType.Betrayed, p.Uid[c.Actor], w.Day, -50); }
                 w.Suspect(l, a, 30f);
                 w.Stats.OverHead++;
-                w.RiseChron(c, "옛 주군을 건너뛰어 주군의 주군에게 서약했다", "봉신의 봉신에게서 직접 서약을 받았다");
+                w.RiseChron(c, n => $"옛 주군을 건너뛰어 {n}에게 직접 서약했다", n => $"봉신의 봉신인 {n}에게서 직접 서약을 받았다");
             },
             Fail = (w, c) =>
             {
@@ -519,11 +537,12 @@ public sealed partial class World
         };
     }
 
-    private void RiseChron(InteractionContext c, string actorText, string targetText)
+    /// <summary>두 쪽 연대기. 글을 만드는 함수는 상대 이름을 받는다(null 이면 그쪽에는 적지 않는다).</summary>
+    private void RiseChron(InteractionContext c, Func<string, string>? actorText, Func<string, string>? targetText)
     {
         var p = People;
-        Chron(c.Actor, $"{SubjName(c.Actor)} {Names.Full(Lineage, p.Uid[c.Target])}을(를) 두고: {actorText}");
-        Chron(c.Target, $"{SubjName(c.Target)} {Names.Full(Lineage, p.Uid[c.Actor])}에게서: {targetText}");
+        if (actorText != null && p.IsAliveIndex(c.Actor)) Chron(c.Actor, $"{SubjName(c.Actor)} {actorText(Names.Full(Lineage, p.Uid[c.Target]))}");
+        if (targetText != null && p.IsAliveIndex(c.Target)) Chron(c.Target, $"{SubjName(c.Target)} {targetText(Names.Full(Lineage, p.Uid[c.Actor]))}");
     }
 
     /// <summary>진압에 이겼다: 상대를 따르는 집이 내게 오고, 상대는 내 아래로 들어오며 벌을 받는다.</summary>
@@ -536,11 +555,14 @@ public sealed partial class World
             if (hh.IsAlive(h) && PatronOf(h) == t) { _patron[h] = a; _patronFounded[h] = hh.FoundedDay[a]; Resnap(h); n++; }
         Casualty(t, HouseholdPower(t));
         Stats.RiseSuppressWins++;
-        RiseChron(new InteractionContext { Actor = lh, Target = rh }, $"무력으로 눌렀다(집 {n}곳을 거둠)", $"무력 진압에 져서 집 {n}곳을 잃었다");
+        RiseChron(new InteractionContext { Actor = lh, Target = rh }, x => $"{Obj(x)} 무력으로 누르고 집 {n}곳을 거두었다", x => $"{x}의 진압에 져서 집 {n}곳을 잃었다");
         if (p.IsAliveIndex(rh))
         {
             Social.Add(p, rh, p.Uid[lh], -40f, 40f);
-            if (Severity(a) > 0.7f && _rng.Chance(0.5f)) { Stats.Executions++; Die(rh, false); }
+            // 엄한 지배자는 반쯤 처형한다. 3촌 안 혈족은 처형하지 않고, 플레이어 지배자는 자동으로 처형하지 않는다
+            int chon = p.IsAliveIndex(lh) ? Lineage.Chon(p.Uid[lh], p.Uid[rh]) : -1;
+            bool kin = chon > 0 && chon <= 3;
+            if (!kin && !IsPlayer(lh) && Severity(a) > 0.7f && _rng.Chance(0.5f)) { Stats.Executions++; Chron(rh, $"{SubjName(rh)} 진압 끝에 처형되었다"); Die(rh, false); }
             else p.Honor[rh] -= 0.3f;
         }
         if (hh.IsAlive(t) && !WouldLoop(t, a)) { _patron[t] = a; _patronFounded[t] = hh.FoundedDay[a]; EnsureRealmArrays(); _legit[t] = 0; Resnap(t); }
@@ -554,7 +576,7 @@ public sealed partial class World
         var hh = Households; var p = People;
         int a = p.Household[lh], t = p.Household[rh];
         Casualty(a, LordPower(a));
-        if (PatronOf(t) == a || InTreeOf(t, a)) { _patron[t] = -1; Resnap(t); }
+        if (PatronOf(t) == a) { _patron[t] = -1; Resnap(t); }   // 바로 아래일 때만 끊는다(중간 영주는 죄가 없다)
         EnsureRealmArrays();
         _legit[t] = (byte)Legitimacy.Self;
         if (p.IsAliveIndex(lh)) p.Honor[lh] -= 0.1f;
@@ -571,34 +593,56 @@ public sealed partial class World
         _rivals.Remove((a, t));
         Stats.Tyrants++;
         RecountClients();
-        RiseChron(new InteractionContext { Actor = lh, Target = rh }, $"무력 진압에 실패했다(집 {moved}곳이 떠남)", "진압을 물리치고 홀로 섰다");
+        RiseChron(new InteractionContext { Actor = lh, Target = rh }, x => $"{Obj(x)} 누르려다 실패했고 집 {moved}곳이 떠났다", x => $"{x}의 진압을 물리치고 홀로 섰다");
     }
 
     // ------------------------------------------------------------------ 플레이어에게 온 요구
 
-    public IEnumerable<Demand> Demands => _demands.Where(d => Households.IsAlive(d.Lord) && Households.FoundedDay[d.Lord] == d.LordFounded);
+    private bool DemandLive(Demand d) =>
+        Households.IsAlive(d.From) && Households.FoundedDay[d.From] == d.FromFounded && Households.IsAlive(d.To) && Households.FoundedDay[d.To] == d.ToFounded;
+
+    /// <summary>지금 맡은 집에 온 요구만.</summary>
+    public IEnumerable<Demand> Demands => _demands.Where(d => DemandLive(d) && d.To == PlayerHousehold);
+
+    /// <summary>플레이어 집이 받는 쪽인 수를 요구로 올리고 시간을 멈춘다.</summary>
+    private void AskPlayer(InteractionId kind, int from, int to)
+    {
+        var hh = Households;
+        if (!hh.IsAlive(from) || !hh.IsAlive(to)) return;
+        _demands.Add(new Demand { Id = ++_demandIds, Kind = kind, From = from, FromFounded = hh.FoundedDay[from], To = to, ToFounded = hh.FoundedDay[to], Day = Day });
+        _fork = true;
+        int fh = HeadIdx(from);
+        if (fh >= 0) Chronicle.Add((Day, $"{Subj(Names.Full(Lineage, People.Uid[fh]))} {DemandText(kind)}"));
+    }
 
     private static string DemandText(InteractionId k) => k switch
     {
         InteractionId.RiseCoopt => "자리를 줄 테니 봉신이 되라고 한다",
         InteractionId.RiseWarn => "더는 집을 끌어들이지 말라고 경고한다",
         InteractionId.RiseOath => "서약하라고 요구한다",
-        _ => "영주로 서임하겠다고 한다",
+        InteractionId.RiseInvest => "영주로 서임하겠다고 한다",
+        InteractionId.RiseSwear => "봉신으로 서약하겠다고 한다",
+        _ => "자기 주군을 건너뛰고 직접 서약하겠다고 한다",
     };
 
     public string DemandTextOf(Demand d) => DemandText(d.Kind);
 
-    /// <summary>요구에 답한다. accept 가 null 이면 NPC처럼 확률로 정한다.</summary>
+    /// <summary>요구에 답한다. accept 가 null 이면 NPC처럼 확률로 정한다(한 해 안에 답하지 않은 요구). 집이 바뀌었으면 사라진다.</summary>
     public bool AnswerDemand(int id, bool? accept)
     {
         var d = _demands.FirstOrDefault(x => x.Id == id);
         if (d == null) return false;
         _demands.Remove(d);
-        int lh = HeadIdx(d.Lord), me = HeadIdx(PlayerHousehold);
-        if (lh < 0 || me < 0 || !Households.IsAlive(d.Lord) || Households.FoundedDay[d.Lord] != d.LordFounded) return false;
+        if (!DemandLive(d)) return false;
+        int fh = HeadIdx(d.From), th = HeadIdx(d.To);
+        if (fh < 0 || th < 0) return false;
         var def = Def(d.Kind);
-        var c = new InteractionContext { Actor = lh, Target = me, Third = -1 };
-        if (!def.Can(this, c)) return false;
+        var c = new InteractionContext { Actor = fh, Target = th, Third = -1 };
+        if (!def.Can(this, c))
+        {
+            if (accept != null) Chronicle.Add((Day, "그 사이 형편이 바뀌어 요구가 없던 일이 되었다"));
+            return false;
+        }
         bool yes = accept ?? _rng.Chance(def.Accept(this, c));
         if (yes) def.Success?.Invoke(this, c, new InteractionResult { Accepted = true });
         else def.Fail?.Invoke(this, c);

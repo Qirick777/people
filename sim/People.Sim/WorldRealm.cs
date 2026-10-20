@@ -177,7 +177,7 @@ public sealed partial class World
             {
                 if (o == l) continue;
                 float other = power[o] + 0.3f * BelowOf(o);
-                if (other < 2f * own || WouldLoop(l, o)) continue;
+                if (other < 2f * own || WouldLoop(l, o) || Restrained(o)) continue;   // 경고를 받아들인 세력은 봉신도 받지 않는다
                 float dx = hh.X[o] - hh.X[l], dy = hh.Y[o] - hh.Y[l];
                 float d = MathF.Sqrt(dx * dx + dy * dy);
                 if (d > Config.VassalRange) continue;

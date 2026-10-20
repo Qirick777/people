@@ -118,17 +118,33 @@ public sealed partial class World
 
     public string DateText => $"{Calendar.Year + 1}년 {SeasonName(Calendar.Season)} {Calendar.DayOfSeason + 1}일";
 
-    private static bool Batchim(string s)
+    /// <summary>마지막 한글 글자의 받침(0 없음). 따옴표·괄호·숫자는 건너뛰고 본다(숫자는 읽는 소리로).</summary>
+    private static int FinalJong(string s)
     {
-        if (s.Length == 0) return false;
-        char c = s[^1];
-        return c >= '가' && c <= '힣' && (c - '가') % 28 != 0;
+        for (int k = s.Length - 1; k >= 0; k--)
+        {
+            char c = s[k];
+            if (c >= '가' && c <= '힣') return (c - '가') % 28;
+            // 숫자: 영(ㅇ) 일(ㄹ) 이(없음) 삼(ㅁ) 사 오 육(ㄱ) 칠(ㄹ) 팔(ㄹ) 구
+            if (c >= '0' && c <= '9') return "\u0015\u0008\u0000\u0010\u0000\u0000\u0001\u0008\u0008\u0000"[c - '0'];
+            if (c is '\'' or '"' or ')' or ']' or ' ' or '’' or '”') continue;
+            return 0;
+        }
+        return 0;
     }
+
+    private static bool Batchim(string s) => FinalJong(s) != 0;
 
     /// <summary>이름 + 이/가</summary>
     public static string Subj(string s) => s + (Batchim(s) ? "이" : "가");
     /// <summary>이름 + 과/와</summary>
     public static string With(string s) => s + (Batchim(s) ? "과" : "와");
+    /// <summary>이름 + 을/를</summary>
+    public static string Obj(string s) => s + (Batchim(s) ? "을" : "를");
+    /// <summary>이름 + 으로/로(ㄹ 받침은 로)</summary>
+    public static string Ro(string s) { int j = FinalJong(s); return s + (j != 0 && j != 8 ? "으로" : "로"); }
+    /// <summary>이름 + 은/는</summary>
+    public static string Topic(string s) => s + (Batchim(s) ? "은" : "는");
 
     private static string SecretName(SecretType t) => t switch { SecretType.Affair => "불륜", SecretType.HiddenFather => "숨긴 아버지", SecretType.Abortion => "낙태", SecretType.Crime => "숨은 범죄", SecretType.CoverUp => "덮은 사건", _ => "하룻밤 거래" };
 }

@@ -719,7 +719,7 @@ func _open_judge() -> void:
 		row.add_theme_constant_override("separation", 6)
 		var id := int(e["id"])
 		var opts := [["벌금", 3, false], ["매질", 4, false], ["처형", 5, true], ["풀어 주기", 7, false]]
-		if e["mine"] != "": opts.append(["덮기", 6, true])
+		if e["canCover"]: opts.append(["덮기", 6, true])
 		for o in opts:
 			var b := UI.action(o[0], "", -1.0, o[2])
 			b.custom_minimum_size = Vector2(110, 40)
