@@ -452,6 +452,80 @@ switch (cmd)
         }
         break;
     }
+    case "audit":
+    {
+        // 검토: 깨지면 안 되는 조건을 세고, 여러 집을 맡아 연대기 문장을 모은다
+        var map = WorldMap.Generate((uint)Arg("--seed", 2), Arg("--size", 48));
+        var w = new World((ulong)Arg("--seed", 2), map, Config());
+        w.SeedCouples(Arg("--couples", 10));
+        for (int y = 0; y < Arg("--years", 220); y++) for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
+        var p = w.People; var hh = w.Households;
+        void Check(string what)
+        {
+            int negFood = 0, negGoods = 0, deadLeader = 0, deadHome = 0, cycles = 0, overSlots = 0, badMembers = 0, negTreasury = 0, patronDead = 0, loops = 0;
+            for (int h = 0; h < hh.HighWater; h++)
+            {
+                if (!hh.IsAlive(h)) continue;
+                if (hh.Food[h] < -0.01f) negFood++;
+                for (int g = 0; g < World.GoodCount; g++) if (w.GoodsOf(h, (Good)g) < -0.01f) negGoods++;
+                int x = h, k = 0;
+                while (x >= 0 && k < 40) { x = w.PatronOf(x); k++; }
+                if (k >= 40) loops++;
+            }
+            var memberCount = new Dictionary<int, int>();
+            for (int i = 0; i < p.HighWater; i++)
+            {
+                if (!p.IsAliveIndex(i)) continue;
+                int n = w.GroupsOf(i).Count();
+                if (n > World.GroupSlots) overSlots++;
+                foreach (var g in w.GroupsOf(i)) memberCount[g.Id] = memberCount.GetValueOrDefault(g.Id) + 1;
+            }
+            foreach (var g in w.Groups.Where(g => g.Alive))
+            {
+                bool leaderAlive = false;
+                for (int i = 0; i < p.HighWater; i++) if (p.IsAliveIndex(i) && p.Uid[i] == g.LeaderUid) { leaderAlive = true; break; }
+                if (!leaderAlive) { deadLeader++; if (what == "220년") Console.WriteLine($"   죽은 우두머리: {World.GroupKindName(g.Kind)} {g.Name} 지배자 집 {g.Home} 위 {g.Parent} 사람 {g.Members}"); }
+                if (g.Home >= 0 && !hh.IsAlive(g.Home)) deadHome++;
+                var seen = new HashSet<int>(); var c = g; int depth = 0;
+                while (c.Parent >= 0 && depth++ < 40) { if (!seen.Add(c.Id)) { cycles++; break; } c = w.GroupById(c.Parent) ?? c; if (c.Parent < 0) break; }
+                if (memberCount.GetValueOrDefault(g.Id) != g.Members) badMembers++;
+                if (g.Treasury < -0.01f) negTreasury++;
+            }
+            Console.WriteLine($"[{what}] 음수 식량 {negFood}, 음수 재화 {negGoods}, 섬김 고리 {loops}, 죽은 우두머리 조직 {deadLeader}, 집 끊긴 지배자 조직 {deadHome}, 조직 고리 {cycles}, 칸 넘침 {overSlots}, 사람 수 어긋난 조직 {badMembers}(해마다 다시 셈), 음수 곳간 {negTreasury}");
+        }
+        Check("220년");
+        // 볼 만한 집을 차례로 맡아 15년씩
+        int Best(Func<int, bool> ok, Func<int, float> sc) { int b = -1; float bs = float.MinValue; for (int h = 0; h < hh.HighWater; h++) if (hh.IsAlive(h) && ok(h)) { float v = sc(h); if (v > bs) { bs = v; b = h; } } return b; }
+        var picks = new List<(string, Func<int>)>
+        {
+            ("가장 큰 지배자", () => Best(h => w.PatronOf(h) < 0 && w.ClientCount(h) > 0, h => w.BelowOf(h))),
+            ("봉신 영주", () => Best(h => w.TierOf(h) >= 2 && w.PatronOf(h) >= 0, h => w.BelowOf(h))),
+            ("무리", () => Best(h => w.TierOf(h) == 1, h => w.ClientCount(h))),
+            ("의심받는 세력", () => w.Rivals.Where(r => hh.IsAlive(r.Riser)).OrderByDescending(r => r.Suspicion).Select(r => r.Riser).DefaultIfEmpty(-1).First()),
+            ("소작", () => Best(h => w.ClassOf(h) == LandClass.Tenant, h => hh.Members[h])),
+            ("상단", () => { var g = w.Groups.Where(x => x.Alive && x.Parent < 0 && x.Kind == GroupKind.Company).OrderByDescending(x => x.Total).FirstOrDefault(); int l = -1; if (g != null) for (int i = 0; i < p.HighWater; i++) if (p.IsAliveIndex(i) && p.Uid[i] == g.LeaderUid) l = p.Household[i]; return l; }),
+        };
+        var lines = new List<string>();
+        foreach (var (name, pick) in picks)
+        {
+            int h = pick();
+            if (h < 0) { Console.WriteLine($"{name}: 없음"); continue; }
+            w.PlayerHousehold = h;
+            int from = w.Chronicle.Count;
+            int forks = 0, demands = 0;
+            for (int y = 0; y < Arg("--each", 15); y++)
+            {
+                for (int d = 0; d < w.Config.DaysPerYear; d++) { w.Step(); if (w.TakeFork()) forks++; }
+                foreach (var dm in w.Demands.ToList()) { w.AnswerDemand(dm.Id, null); demands++; }
+                foreach (var c in w.PendingCases().ToList()) w.PlayerJudge(c.Id, Verdict.Fine);
+            }
+            Console.WriteLine($"{name}: 집 {h}, 갈림길 {forks}, 요구 {demands}, 연대기 {w.Chronicle.Count - from}줄, 지금 플레이어 집 {w.PlayerHousehold}");
+            foreach (var (day, text) in w.Chronicle.Skip(from)) lines.Add($"{name}\t{day / w.Config.DaysPerYear}\t{text}");
+            Check(name + " 뒤");
+        }
+        { int oi = a.IndexOf("--out"); File.WriteAllLines(oi >= 0 && oi + 1 < a.Count ? a[oi + 1] : "audit.txt", lines); }
+        break;
+    }
     case "familydiag":
     {
         // C 묶음 진단: 첩을 들일 만한 남자, 미혼·과부 여자, 받아들일 확률, 약초꾼, 신앙심 분포
