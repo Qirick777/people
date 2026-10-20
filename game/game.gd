@@ -68,7 +68,7 @@ func _ready() -> void:
 	add_child(host)
 	_build_ui()
 	if autotest:
-		_start(false)
+		_start(0)
 	else:
 		start_panel.visible = true
 		if "--startshot" in OS.get_cmdline_user_args():
@@ -77,15 +77,20 @@ func _ready() -> void:
 
 
 ## 세계를 고른다: 기본은 자리 잡은 세계(지배자와 조직이 다 있는 220년), 또는 개척(150년)
-func _start(rev: bool) -> void:
+## mode: 0 개척, 1 오래 돌린 세계(검토용), 2 장원 세계 작게, 3 장원 세계 크게
+func _start(mode: int) -> void:
+	var rev := mode != 0
 	review = rev
 	started = true
 	_set_hint("")
 	start_panel.visible = false
 	boot_panel.visible = true
 	show_button.visible = true
-	if rev: host.Boot(2, 220, 10)
-	else: host.Boot(1, 40 if autotest else 150, 10)
+	match mode:
+		1: host.Boot(2, 220, 10)
+		2: host.BootGenerated(1 + randi() % 1000, 3, 8, 15)
+		3: host.BootGenerated(1 + randi() % 1000, 5, 10, 15)
+		_: host.Boot(1, 40 if autotest else 150, 10)
 
 
 func _process(dt: float) -> void:
@@ -102,7 +107,7 @@ func _process(dt: float) -> void:
 		_recenter(host.BiggestVillage())
 		if autotest: _run_autotest()
 		elif review:
-			_set_hint("볼 만한 집을 골라 맡는다. 위 막대의 '둘러보기'로 다시 연다.", true)
+			_set_hint("처지를 골라 맡는다(소작농, 몰락한 지주, 서자, 용병, 지배자 …). 위 막대의 '둘러보기'로 다시 연다.", true)
 			_open_showcase()
 		else: _set_hint("집을 눌러 '이 집을 맡는다'를 고르면 시작한다.", true)
 	if speed > 0 and host.Player >= 0:
@@ -680,6 +685,21 @@ func _open_rise() -> void:
 			box.add_child(row)
 			rise_box.add_child(box)
 		rise_box.add_child(HSeparator.new())
+	# 다음 단계 판: 지금 처지와 다음 단계까지 모자란 것
+	var pg: Dictionary = host.Progress()
+	if not pg.is_empty():
+		var top := "지금 %s · 따르는 집 %d · 명예 %+.1f" % [pg["tier"], int(pg["clients"]), float(pg["honor"])]
+		if pg["legit"] != "": top += " · 칭호 " + pg["legit"]
+		if pg["suspicion"] != "": top += " · 주군이 " + pg["suspicion"]
+		rise_box.add_child(UI.label(top, 14, UI.INK, true))
+		var parts := []
+		for row in pg["rows"]:
+			parts.append("%s %s %d/%d" % ["✓" if row["ok"] else "·", row["what"], int(float(row["have"])), int(ceil(float(row["need"])))])
+		var pl2 := UI.label("%s까지: %s" % [pg["next"], ", ".join(parts)], 12, UI.MUTED)
+		pl2.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		pl2.custom_minimum_size = Vector2(600, 0)
+		rise_box.add_child(pl2)
+		rise_box.add_child(HSeparator.new())
 	# 내가 꾸미는 거사
 	var plot: Dictionary = host.PlotInfo()
 	if not plot.is_empty():
@@ -774,7 +794,7 @@ func _open_rise() -> void:
 				grid.add_child(b)
 			rise_box.add_child(grid)
 			rise_box.add_child(HSeparator.new())
-	if demands.is_empty() and rows.is_empty() and plot.is_empty():
+	if demands.is_empty() and rows.is_empty() and plot.is_empty() and int(pg.get("clients", 0)) == 0:
 		rise_box.add_child(UI.label("지금은 다툼이 없다. 세를 늘리면 위의 지배자가 알아챌 수 있고, 내 아래에서 세를 늘리는 집이 생기면 여기에 나온다.", 13, UI.MUTED))
 	_show_panel(rise_panel)
 
@@ -1373,7 +1393,12 @@ func _build_ui() -> void:
 	shv.add_child(UI.label("맡으면 그 집의 가족이 된다. 다른 집으로 옮기려면 여기서 다시 고른다.", 12, UI.MUTED))
 	show_box = VBoxContainer.new()
 	show_box.add_theme_constant_override("separation", 4)
-	shv.add_child(show_box)
+	show_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var shsc := ScrollContainer.new()
+	shsc.custom_minimum_size = Vector2(640, 520)
+	shsc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	shsc.add_child(show_box)
+	shv.add_child(shsc)
 	show_panel.visible = false
 	rootc.add_child(show_panel)
 
@@ -1386,14 +1411,15 @@ func _build_ui() -> void:
 	sv.add_theme_constant_override("separation", 10)
 	start_panel.add_child(sv)
 	sv.add_child(UI.label("어떤 세계로 시작할까", 20, UI.INK, true))
-	var b2 := UI.action("자리 잡은 세계", "정착한 지 220년. 지배자, 봉신, 상단, 신도회, 범죄가 다 있다", -1.0, false)
-	b2.custom_minimum_size = Vector2(420, 56)
-	b2.pressed.connect(func(): _start(true))
-	sv.add_child(b2)
-	var b1 := UI.action("개척", "작은 무리가 빈 땅에 자리 잡은 뒤(150년). 지배자가 아직 드물다", -1.0, false)
-	b1.custom_minimum_size = Vector2(420, 56)
-	b1.pressed.connect(func(): _start(false))
-	sv.add_child(b1)
+	for o in [["장원 세계 · 작게", "군주 셋, 마을 스물넷. 영주와 봉신, 소작과 지주가 갖춰진 세계에서 처지를 골라 시작", 2],
+			["장원 세계 · 크게", "군주 다섯, 마을 쉰. 만드는 데 조금 더 걸린다", 3],
+			["개척", "작은 무리가 빈 땅에 자리 잡은 뒤(150년). 지배자가 아직 드물다", 0],
+			["오래 돌린 세계", "개척에서 220년을 돌린 검토용 세계", 1]]:
+		var b := UI.action(o[0], o[1], -1.0, false)
+		b.custom_minimum_size = Vector2(460, 56)
+		var m: int = o[2]
+		b.pressed.connect(func(): _start(m))
+		sv.add_child(b)
 	start_panel.visible = false
 	rootc.add_child(start_panel)
 
@@ -1686,6 +1712,27 @@ func _run_autotest() -> void:
 		await _snap("live_plot.png")
 		rise_panel.visible = false
 		break
+	# 장원 세계: 만들고 처지 목록을 본다
+	host.BootGenerated(3, 3, 8, 10)
+	while not host.Ready: await get_tree().create_timer(0.5).timeout
+	var gsc: Array = host.Showcase()
+	print("autotest: 장원 세계 처지 %d곳: %s" % [gsc.size(), ", ".join(gsc.map(func(x): return x["what"]))])
+	_recenter(host.BiggestVillage())
+	card.visible = false
+	_open_showcase()
+	await _snap("live_gen_showcase.png")
+	show_panel.visible = false
+	for e in gsc:
+		if e["what"] == "소작농 가족":
+			_take_house(int(e["id"]))
+			_on_player_changed()
+			_recenter(host.HousePos(int(e["id"])))
+			_set_speed(0)
+			await _snap("live_gen_tenant.png")
+			_open_rise()
+			await _snap("live_gen_progress.png")
+			rise_panel.visible = false
+			break
 	get_tree().quit()
 
 

@@ -101,11 +101,11 @@ public sealed class SimConfig
     public float FarmSkillBaseline { get; init; } = 0.68f;   // 보통 농가의 솜씨(이때 수확이 기술 넣기 전과 같다)
     // 4단계: 소작, 품삯, 빚
     public float LeaseKeep { get; init; } = 1.6f;            // 땅 주인은 일손 × 필지 × 이 배수(쉬는 땅 포함)만 남기고 나머지를 내놓는다
-    public float TenantWant { get; init; } = 1.15f;          // 일손 × 필지 × 이 배수보다 땅이 적으면 빌린다
-    public float RentBase { get; init; } = 0.35f;            // 소작료(수확 몫) = 기준 + 기울기 × (빌리려는 양/내놓은 양 − 1)
+    public float TenantWant { get; init; } = 1.6f;           // 일손 × 필지 × 이 배수보다 땅이 적으면 빌린다
+    public float RentBase { get; init; } = 0.2f;             // 소작료(수확 몫) = 기준 + 기울기 × (빌리려는 양/내놓은 양 − 1)
     public float RentSlope { get; init; } = 0.2f;
-    public float RentMin { get; init; } = 0.2f;
-    public float RentMax { get; init; } = 0.6f;
+    public float RentMin { get; init; } = 0.1f;
+    public float RentMax { get; init; } = 0.4f;
     public float WageBase { get; init; } = 0.45f;            // 품삯 = 한 사람 한 해 수확 × (기준 + 기울기 × (수요/공급 − 1))
     public float WageSlope { get; init; } = 0.2f;
     public float WageMin { get; init; } = 0.3f;

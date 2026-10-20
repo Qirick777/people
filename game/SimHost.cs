@@ -38,6 +38,51 @@ public partial class SimHost : Node
         });
     }
 
+    /// <summary>
+    /// 다음 단계 판: 지금 단계, 따르는 집, 무력, 살림, 명성(명예), 칭호, 주군의 의심(눈치 빠른 가장만 짐작),
+    /// 그리고 다음 단계까지 줄마다(가진 것, 필요한 것, 채웠나).
+    /// </summary>
+    public Godot.Collections.Dictionary Progress()
+    {
+        var e = new Godot.Collections.Dictionary();
+        if (!Ready) return e;
+        var w = _w!; var p = w.People; var hh = w.Households;
+        int h = w.PlayerHousehold;
+        if (!hh.IsAlive(h) || !p.IsValid(hh.Head[h])) return e;
+        int head = hh.Head[h].Index;
+        int t = w.TierOf(h);
+        e["tier"] = t >= 1 ? World.TierName(t) : "평민";
+        e["next"] = World.TierName(Math.Min(4, t + 1));
+        e["clients"] = w.ClientCount(h);
+        e["honor"] = p.Honor[head];
+        e["legit"] = t >= 2 ? World.LegitName(w.LegitOf(h)) : "";
+        int liege = w.PatronOf(h);
+        var r = liege >= 0 ? w.RivalOf(liege, h) : null;
+        e["suspicion"] = r == null ? "" : p.Get(head, Trait.Perception) > 0.6f ? (r.Suspicion < 15 ? "눈여겨봄" : r.Suspicion < 35 ? "의심함" : r.Suspicion < 70 ? "크게 의심함" : "칼을 갈고 있음") : "눈여겨보는 듯함";
+        var rows = new Godot.Collections.Array();
+        foreach (var (what, have, need, ok) in w.TierProgress(h))
+            rows.Add(new Godot.Collections.Dictionary { ["what"] = what, ["have"] = have, ["need"] = need, ["ok"] = ok });
+        e["rows"] = rows;
+        return e;
+    }
+
+    /// <summary>자리 잡은 세계를 만들어(spec 34절) warm 해 동안 돌린다.</summary>
+    public void BootGenerated(int seed, int rulers, int villagesPerRuler, int warm)
+    {
+        _boot = Task.Run(() =>
+        {
+            var map = WorldMap.Generate((uint)seed, 48);
+            var w = new World((ulong)seed, map, SimConfig.Default);
+            w.GenerateSettled(new GenOptions { Rulers = rulers, VillagesPerRuler = villagesPerRuler });
+            for (int y = 0; y < warm; y++)
+            {
+                for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
+                _bootYear = y + 1;
+            }
+            _w = w;
+        });
+    }
+
     public string BootError => _boot?.Exception?.InnerException?.ToString() ?? "";
 
     /// <summary>날짜를 days 만큼 나아가게 한다. 플레이어 집에 갈림길이 생기면 멈추고 true.</summary>
@@ -929,6 +974,25 @@ public partial class SimHost : Node
                 if (hh.IsAlive(h) && ok(h)) { float s = score(h); if (s > bs) { bs = s; best = h; } }
             return best;
         }
+        // 시작 처지(plan_power 8.2): 소작농 가족, 몰락한 지주, 영주 집안의 서자, 떠돌이 용병
+        int Men(int h) => w.MembersOf(h).Count(m => p.Male[m] && Age(m) >= 16 && Age(m) <= 40);
+        int poorMany = Best(h => w.ClassOf(h) == LandClass.Tenant && w.PatronOf(h) >= 0, h => Men(h) * 10 + hh.Members[h]);
+        if (poorMany >= 0) Add(poorMany, "소작농 가족", $"장정 {Men(poorMany)}명 · 남의 땅을 빌려 짓는다 · 무력이나 충신의 길");
+        int fallen = Best(h => w.DebtOf(h) > 20f && hh.PlotCount[h] >= 3 && w.TierOf(h) == 0, h => w.DebtOf(h) / (hh.Food[h] + 50f));
+        if (fallen >= 0) Add(fallen, "몰락한 지주 가족", $"땅 {hh.PlotCount[fallen]}필지, 빚 식량 {w.DebtOf(fallen):0} · 재력의 길");
+        var lordFams = new HashSet<int>();
+        for (int h = 0; h < hh.HighWater; h++) if (hh.IsAlive(h) && w.TierOf(h) >= 2 && p.IsValid(hh.Head[h])) lordFams.Add(w.Lineage.FamilyOf(p.Uid[hh.Head[h].Index]));
+        int Bastard(int h)
+        {
+            int u = p.Uid[hh.Head[h].Index];
+            int bio = w.Lineage.BioFather(u);
+            return w.Lineage.RightOf(u) != Birthright.Legit && bio >= 0 && lordFams.Contains(w.Lineage.FamilyOf(bio)) ? 1 : 0;
+        }
+        int bastard = Best(h => p.IsValid(hh.Head[h]) && w.TierOf(h) == 0 && Bastard(h) == 1, h => hh.Members[h]);
+        if (bastard >= 0) Add(bastard, "영주 집안의 서자 가족", "아버지가 지배자 가문이다 · 혼맥이나 음모의 길");
+        int merc = Best(h => w.MembersOf(h).Any(m => w.GroupsOf(m).Any(g => w.RootOf(g).Kind == GroupKind.Sellswords)) && w.TierOf(h) == 0,
+                        h => w.MembersOf(h).Count(m => w.GroupsOf(m).Any(g => w.RootOf(g).Kind == GroupKind.Sellswords)) * 10 - hh.PlotCount[h]);
+        if (merc >= 0) Add(merc, "떠돌이 용병 가족", "용병단에 든 식구가 있다 · 무력의 길(고용되거나 도적)");
         int top = Best(h => w.PatronOf(h) < 0 && w.ClientCount(h) > 0, h => w.BelowOf(h));
         Add(top, "가장 큰 지배자", $"{World.TierName(w.TierOf(top))} · 아래 {w.BelowOf(top)}집 · 재판, 다툼, 분봉, 군대");
         int vassal = Best(h => w.TierOf(h) >= 2 && w.PatronOf(h) >= 0, h => w.BelowOf(h));

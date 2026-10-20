@@ -13,6 +13,13 @@ public sealed partial class World
     private float[] _incTribute = new float[256]; // 올해 받은 공납
     private readonly List<float> _danger = new(); // 마을별 위험(약탈당한 횟수, 해마다 줄어든다)
     private readonly Dictionary<int, int> _employer = new();   // 군인·징수관 → 고용한 지배자 가구
+    private readonly HashSet<int> _enclosed = new();         // 영주의 땅으로 묶인 마을(빈 땅은 지배자만 잡는다)
+    private readonly Dictionary<int, int> _bound = new();      // 관습으로 묶인 따르는 집 → 그 집을 세운 날(위험이 없어도 떠나지 않는다)
+
+    /// <summary>집 h 가 관습으로 주군에게 묶였나(대대로 섬겨 온 땅의 집).</summary>
+    public bool Bound(int h) => _bound.TryGetValue(h, out int f) && Households.IsAlive(h) && Households.FoundedDay[h] == f && PatronOf(h) >= 0;
+
+    private void Bind(int h) { if (Households.IsAlive(h)) _bound[h] = Households.FoundedDay[h]; }
     private int _employerVer, _staffVer = -1;                     // _employer 가 바뀔 때마다 올린다
     private readonly Dictionary<int, List<int>> _staff = new();   // 지배자 가구 → 고용한 사람(_employer 를 뒤집은 것)
 
@@ -242,8 +249,9 @@ public sealed partial class World
             int cur = PatronOf(h);
             if (cur >= 0)
             {
-                // 위험이 사라지면 공납을 그만둔다(고집 센 가장일수록 빨리)
-                if (danger < 0.2f && _rng.Chance((0.1f + 0.3f * HeadTrait(h, Trait.Stubbornness)) * LeaveFactor(h))) _patron[h] = -1;
+                // 위험이 사라지면 공납을 그만둔다(고집 센 가장일수록 빨리). 자리 잡은 땅에서는 섬김이 관습이라 덜 떠나고,
+                // 대대로 묶인 집은 충성이 무너질 때만 떠난다
+                if (!Bound(h) && danger < 0.2f && _rng.Chance((0.1f + 0.3f * HeadTrait(h, Trait.Stubbornness)) * LeaveFactor(h) * (1f - 0.8f * Established(hh.Village[h])))) _patron[h] = -1;
                 else if (Disloyal(h)) { _patron[h] = -1; Stats.DisloyalLeft++; }
                 continue;
             }
@@ -276,8 +284,9 @@ public sealed partial class World
         RecountTree();
         foreach (var (lord, n) in _clientsOf)
         {
-            float tribute = _incTribute[lord];
-            int soldiersWanted = Math.Min(n / 2, (int)(tribute * 0.5f / Config.SoldierWage));
+            float tribute = _incTribute[lord] + IncomeOf(lord).rent;   // 땅 주인인 지배자는 소작료도 군인 품삯으로 쓴다
+            // 수입의 절반과 곳간의 5%로 군인을 쓴다
+            int soldiersWanted = Math.Min(n / 2, (int)((tribute * 0.5f + 0.05f * MathF.Max(0f, hh.Food[lord])) / Config.SoldierWage));
             int collectorsWanted = Math.Max(0, (int)MathF.Ceiling((n - DirectSpan(lord)) / (float)Config.CollectorSpanBase));
             Hire(lord, Job.Soldier, soldiersWanted - RetainerCount(lord, Job.Soldier));
             Hire(lord, Job.Collector, collectorsWanted - RetainerCount(lord, Job.Collector));
@@ -408,7 +417,7 @@ public sealed partial class World
             int u = p.Uid[hh.Head[k].Index];
             bool same = Lineage.FamilyOf(u) == fam;
             float r = Lineage.Relatedness(u, dead);
-            if ((!same && r < 0.06f) || Lineage.Disowned(u)) continue;
+            if (r < (same ? 0.01f : 0.06f) || Lineage.Disowned(u)) continue;   // 성만 같고 피가 섞이지 않은 집(다른 마을의 같은 성)은 잇지 않는다
             float sc = r + (same ? 0.3f : 0f) + (p.Male[hh.Head[k].Index] ? 0.05f : 0f) - (Lineage.RightOf(u) != Birthright.Legit ? 0.15f : 0f);
             if (sc > bs) { bs = sc; best = k; }
         }
@@ -625,7 +634,7 @@ public sealed partial class World
     private float TakeTribute(int h, int lord, float toLord)
     {
         var hh = Households;
-        float income = MathF.Max(0f, _incOwn[h] + _incTenant[h]);
+        float income = MathF.Max(0f, _incOwn[h] + 0.5f * _incTenant[h]);   // 빌린 땅의 수확은 소작료를 이미 냈으니 반만 센다
         float t = MathF.Min(income * Config.TributeRate, MathF.Max(0f, hh.Food[h]));
         hh.Food[h] -= t;
         if (toLord > 0) hh.Food[lord] += t;

@@ -391,10 +391,30 @@ switch (cmd)
         // 세력 균형 진단(plan_orgs 11장, 14.3): 큰 세력 셋의 몫, 새로 영주가 된 가문, 꺾이거나 쪼개진 독립 세력, 쿠데타와 독립
         var map = WorldMap.Generate((uint)Arg("--seed", 1), Arg("--size", 48));
         var w = new World((ulong)Arg("--seed", 1), map, Config());
-        w.SeedCouples(Arg("--couples", 10));
+        bool gen = Arg("--gen", 0) > 0;
+        if (gen) w.GenerateSettled(new GenOptions { Rulers = Arg("--rulers", 4), VillagesPerRuler = Arg("--vpr", 7) });
+        else w.SeedCouples(Arg("--couples", 10));
         int years = Arg("--years", 300);
         var hh = w.Households; var p = w.People;
+        if (gen)
+        {
+            var cl = new int[8];
+            for (int h = 0; h < hh.HighWater; h++) if (hh.IsAlive(h)) cl[(int)w.ClassOf(h)]++;
+            int wom = 0, mar = 0, kids = 0, old = 0, men = 0;
+            var ages = new int[10];
+            for (int i = 0; i < p.HighWater; i++)
+            {
+                if (!p.IsAliveIndex(i)) continue;
+                int ag = (w.Day - p.BirthDay[i]) / w.Config.DaysPerYear;
+                ages[Math.Min(9, ag / 10)]++;
+                if (!p.Male[i] && ag >= 16 && ag <= 42) { wom++; if (p.IsValid(p.Husband[i])) mar++; }
+            }
+            Console.WriteLine($"  여자 16~42세 {wom}, 혼인 {mar}, 나이(10년 단위) {string.Join("/", ages)}");
+            Console.WriteLine($"생성: 사람 {p.AliveCount}, 집 {hh.AliveCount}, 마을 {w.Villages().count}, 단계 {w.Stats.Tier1}/{w.Stats.Tier2}/{w.Stats.Tier3}/{w.Stats.Tier4}");
+        }
         var lordFams = new HashSet<int>();
+        int Fam0(int h) => p.IsValid(hh.Head[h]) ? w.Lineage.FamilyOf(p.Uid[hh.Head[h].Index]) : -1;
+        if (gen) for (int h = 0; h < hh.HighWater; h++) if (hh.IsAlive(h) && w.TierOf(h) >= 1 && Fam0(h) >= 0) lordFams.Add(Fam0(h));   // 생성 때의 지배자 가문은 새 가문이 아니다
         int newLordFams = 0; double houseYears = 0;
         long plots = 0, exposed = 0, purges = 0, strikes = 0, wins = 0, wars = 0, fails = 0, declared = 0, supp = 0, nego = 0, letgo = 0, indep = 0;
         // 독립 세력 표본: (해, 집, 세운 날, 아래 집 수)
@@ -414,17 +434,53 @@ switch (cmd)
                 int f = Fam(h);
                 if (f >= 0 && lordFams.Add(f) && y > 50) newLordFams++;
             }
+            if (Arg("--diag", gen ? 1 : 0) > 0 && (y <= 50 ? y % 10 == 0 : y % 25 == 0))
+            {
+                var cl = new int[8];
+                for (int h = 0; h < hh.HighWater; h++) if (hh.IsAlive(h)) cl[(int)w.ClassOf(h)]++;
+                int n = Math.Max(1, hh.AliveCount);
+                int few = 0, leased = 0, plotsAll = 0, lordPlots = 0;
+                for (int h = 0; h < hh.HighWater; h++) if (hh.IsAlive(h)) { plotsAll += hh.PlotCount[h]; if (hh.PlotCount[h] < 2) few++; leased += w.LeasedInCount(h); if (w.TierOf(h) >= 1) lordPlots += hh.PlotCount[h]; }
+                float foodAll = 0, foodLords = 0; for (int h = 0; h < hh.HighWater; h++) if (hh.IsAlive(h)) { foodAll += hh.Food[h]; if (w.TierOf(h) >= 1) foodLords += hh.Food[h]; }
+                {
+                    int wom = 0, mar = 0, preg = 0; float crowd = 0; int hn2 = 0;
+                    for (int i = 0; i < p.HighWater; i++)
+                    {
+                        if (!p.IsAliveIndex(i) || p.Male[i]) continue;
+                        int ag = (w.Day - p.BirthDay[i]) / w.Config.DaysPerYear;
+                        if (ag < 16 || ag > 42) continue;
+                        wom++; if (p.IsValid(p.Husband[i])) mar++; if (p.PregnantUntil[i] >= 0) preg++;
+                    }
+                    for (int h = 0; h < hh.HighWater; h++) if (hh.IsAlive(h)) { crowd += hh.Crowding(h); hn2++; }
+                    Console.WriteLine($"  여자 16~42 {wom}, 혼인 {mar}, 임신 {preg}, 비좁음 평균 {crowd / Math.Max(1, hn2):F2}");
+                }
+                {
+                    var sum = new double[8]; var lab = new double[8]; var cnt = new int[8]; var plotsC = new double[8]; var leasedN = new double[8];
+                    for (int h = 0; h < hh.HighWater; h++)
+                    {
+                        if (!hh.IsAlive(h)) continue;
+                        int c = (int)w.ClassOf(h);
+                        var (io, it, ir) = w.IncomeOf(h);
+                        sum[c] += io + it; lab[c] += hh.Labor[h]; cnt[c]++; plotsC[c] += hh.PlotCount[h]; leasedN[c] += w.LeasedInCount(h);
+                    }
+                    Console.WriteLine("  일손당 수확: " + string.Join(", ", Enumerable.Range(0, 6).Where(c => cnt[c] > 0).Select(c => $"{(LandClass)c} {sum[c] / Math.Max(0.1, lab[c]):F1}(집 {cnt[c]}, 제 땅 {plotsC[c] / cnt[c]:F1}, 빌림 {leasedN[c] / cnt[c]:F1}, 일손 {lab[c] / cnt[c]:F1})")));
+                }
+                Console.WriteLine($"  수확/사람 {st.Harvest / Math.Max(1, p.AliveCount):F1}, 식량 {foodAll:F0}(지배자 {foodLords:F0}), 공납 {st.Tribute:F0}, 출생 {st.Births}, 죽음 {st.Deaths}");
+                Console.WriteLine($"  땅: 필지 {plotsAll}, 지배자 {lordPlots}, 2필지 못 가진 집 {few}, 빌린 필지 {leased}, 빌린 땅 해 {st.LeasedPlots}");
+                Console.WriteLine($"  {y}년: 사람 {p.AliveCount}, 굶어 죽음 {st.HungerDeaths}, 계층 자작 {cl[0] * 100 / n}% 지주 {cl[1] * 100 / n}% 소작 {cl[2] * 100 / n}% 일꾼 {cl[3] * 100 / n}% 지배자 {cl[4] * 100 / n}%");
+            }
             if (y % 25 == 0)
             {
-                // 100년 전 표본을 판정: 사라졌거나 영주 아래로 떨어졌거나, 위에 섬기게 됐거나, 아래 집이 30% 넘게 줄었으면 꺾임
                 foreach (var sm in samples.Where(s => s.year == y - 100))
                 {
                     judged++;
-                    bool gone = !hh.IsAlive(sm.h) || hh.FoundedDay[sm.h] != sm.founded || w.TierOf(sm.h) < 2 || w.PatronOf(sm.h) >= 0 || w.BelowOf(sm.h) < 0.7 * sm.below;
+                    // 꺾임: 그 가문의 어느 집도 홀로 서서 옛 세력의 절반 넘게 쥐고 있지 않다(같은 가문이 이으면 이어진 것)
+                    int fam = sm.founded;
+                    bool gone = !Enumerable.Range(0, hh.HighWater).Any(k => hh.IsAlive(k) && Fam(k) == fam && w.PatronOf(k) < 0 && w.BelowOf(k) >= 0.5 * sm.below);
                     if (gone) broken++;
                 }
                 for (int h = 0; h < hh.HighWater; h++)
-                    if (hh.IsAlive(h) && w.TierOf(h) >= 2 && w.PatronOf(h) < 0) samples.Add((y, h, hh.FoundedDay[h], w.BelowOf(h)));
+                    if (hh.IsAlive(h) && w.TierOf(h) >= 2 && w.PatronOf(h) < 0 && Fam(h) >= 0) samples.Add((y, h, Fam(h), w.BelowOf(h)));   // founded 칸에 가문을 적는다
                 // 큰 세력 셋의 몫
                 var tops = new List<int>();
                 for (int h = 0; h < hh.HighWater; h++) if (hh.IsAlive(h) && w.PatronOf(h) < 0 && w.BelowOf(h) > 0) tops.Add(w.BelowOf(h) + 1);
@@ -433,6 +489,9 @@ switch (cmd)
                 Console.WriteLine($"{y}년: 집 {hh.AliveCount}, 독립 세력(영주 이상) {samples.Count(s => s.year == y)}, 큰 셋 몫 {share:P0}, 단계 {st.Tier1}/{st.Tier2}/{st.Tier3}/{st.Tier4}");
             }
         }
+        if (gen)
+            foreach (int h in Enumerable.Range(0, hh.HighWater).Where(h => hh.IsAlive(h)).OrderByDescending(h => w.BelowOf(h)).Take(4))
+                Console.WriteLine($"  큰 집 {h}: 단계 {w.TierOf(h)}, 아래 {w.BelowOf(h)}, " + string.Join(", ", w.TierProgress(h).Select(r => $"{r.what} {r.have:0}/{r.need:0}{(r.ok ? "✓" : "✗")}")));
         double perK = houseYears > 0 ? newLordFams / (houseYears / 1000.0) * 100.0 : 0;
         Console.WriteLine($"새로 영주가 된 가문(50년 뒤): {newLordFams} → 1,000집·100년당 {perK:F2} (목표 1~3)");
         Console.WriteLine($"100년 동안 꺾이거나 쪼개진 독립 세력: {broken}/{judged} = {(judged > 0 ? broken / (double)judged : 0):P0} (목표 15~40%)");

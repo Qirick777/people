@@ -254,7 +254,7 @@ public sealed partial class World
                 float mine = RisePower(h), theirs = LordPower(lord);
                 float far = MathF.Min(1.5f, MathF.Sqrt(Dist2(h, lord)) / Config.VassalRange);
                 float press = 0.4f * p.Get(vh, Trait.Ambition) + 0.5f * hate + 0.4f * (1f - loy) + 0.6f * mine / (mine + theirs + 0.01f) + 0.3f * far;
-                float th = 1.0f + 0.3f * p.Get(vh, Trait.Caution);
+                float th = 1.15f + 0.3f * p.Get(vh, Trait.Caution) + (Bound(h) ? 0.2f : 0f);   // 대대로 섬겨 온 봉신은 잘 떨어져 나가지 않는다
                 if (!_rng.Chance(0.05f * Sigmoid((press - th) / 0.1f))) continue;
                 Stats.Declared++;
                 if (IsPlayer(lh))

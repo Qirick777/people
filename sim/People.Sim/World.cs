@@ -662,6 +662,19 @@ public sealed partial class World
     {
         var hh = Households;
         var order = ShuffledHouseholds();
+        // 영주의 땅으로 묶인 마을: 빌리려는 집이 늘면 그 마을 지배자(땅이 가장 많은 지배자 집)가 빈 땅을 직영지로 더 잡는다
+        if (_enclosed.Count > 0)
+        {
+            var landlord = new Dictionary<int, int>();
+            foreach (int h in order)
+            {
+                int v = hh.Village[h];
+                if (v < 0 || !_enclosed.Contains(v) || TierOf(h) < 1) continue;
+                if (!landlord.TryGetValue(v, out int cur) || hh.PlotCount[h] > hh.PlotCount[cur]) landlord[v] = h;
+            }
+            foreach (var (v, l) in landlord)
+                if (_unmetLease.TryGetValue(v, out int miss) && miss > 0) TookPlots(v, ClaimFields(l, (int)(miss * 1.2f) + 1));
+        }
         // 땅이 모자라기 시작한 마을에서는 넉넉한 집(마을에서 재산 상위 5분의 1, 또는 지배자)이 남은 땅을 먼저,
         // 일손보다 많이(내놓기 문턱 바로 아래까지) 잡는다. 남는 땅은 소작으로 나가 지주와 소작농이 생긴다
         var byVillage = new Dictionary<int, List<int>>();
@@ -737,6 +750,15 @@ public sealed partial class World
         int nh = SettleNewHousehold(h);
         if (nh < 0) return -1;
         StarterGoods(nh, h);
+        // 같은 마을에 분가하면 본가의 주군을 섬긴다(그 땅의 관습). 본가가 묶였으면 새 집도 묶인다
+        EnsurePowerArrays();
+        int lord = PatronOf(h);
+        if (lord >= 0 && Households.Village[nh] == Households.Village[h] && !WouldLoop(nh, lord))
+        {
+            _patron[nh] = lord; _patronFounded[nh] = Households.FoundedDay[lord];
+            Resnap(nh);
+            if (Bound(h)) Bind(nh);
+        }
         // 이 남자, 아내들, 그 사이 아이들을 옮긴다.
         int moved = 0;
         var me = p.IdAt(i);
@@ -943,6 +965,8 @@ public sealed partial class World
     {
         var (cx, cy) = ClaimCenter(h);
         int v = Households.Village[h];
+        // 영주의 땅으로 묶인 마을: 빈 땅은 지배자 것이다. 다른 집은 빌려 부친다
+        if (v >= 0 && _enclosed.Contains(v) && TierOf(h) < 1 && ClientCount(h) == 0) return 0;
         if (!Layout || v < 0) return Map.Claim(h, n, Households, cx, cy, FarmRadiusOf(v));
         return Map.ClaimContiguous(h, n, Households, ReachOf(v), HouseZone(v) + 1);
     }

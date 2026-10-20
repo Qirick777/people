@@ -145,13 +145,42 @@ public sealed partial class World
     /// <summary>단계 t 의 실력 문턱을 넘는가.</summary>
     private bool Capable(int h, int t, int vassals) => t < 2 || Failing(h, t, vassals) == 0;
 
+    /// <summary>
+    /// 다음 단계 판(plan_power 8.3): 집 h 가 다음 단계에 오르려면 무엇이 얼마나 있고 얼마나 모자라나.
+    /// (이름, 가진 것, 필요한 것, 채웠나). 아래 집 수와 실력 문턱(무력, 살림, 거처, 봉신, 징수관).
+    /// </summary>
+    public List<(string what, float have, float need, bool ok)> TierProgress(int h)
+    {
+        var list = new List<(string, float, float, bool)>();
+        int t = Math.Min(4, TierOf(h) + 1);
+        int below = BelowOf(h);
+        list.Add(("아래 집", below, TierUp[t], below >= TierUp[t]));
+        if (t < 2) return list;
+        int soldiers = _soldiersOf.GetValueOrDefault(h);
+        float guard = HouseholdPower(h) + 1.5f * soldiers;
+        list.Add(("군인", soldiers, Config.LordSoldiers, soldiers >= Config.LordSoldiers || guard >= Config.LordGuardPower));
+        float income = _incTribute[h] + IncomeOf(h).rent;
+        float wages = 0.8f * soldiers * Config.SoldierWage;
+        list.Add(("공납과 소작료(군인 품삯)", income, wages, income >= wages));
+        list.Add(("거처", ResidenceOf(h), t - 1, ResidenceOf(h) >= t - 1));
+        if (t >= 3)
+        {
+            int vassals = 0;
+            for (int k = 0; k < Households.HighWater; k++) if (Households.IsAlive(k) && PatronOf(k) == h && _tier[k] >= 2) vassals++;
+            list.Add(("영주인 봉신", vassals, t == 3 ? 2 : 5, vassals >= (t == 3 ? 2 : 5)));
+            int col = _collectorsOf.GetValueOrDefault(h);
+            list.Add(("징수관", col, 1, col >= 1));
+        }
+        return list;
+    }
+
     /// <summary>실력 문턱 중 몇 개가 깨졌나: 무력, 살림, 거처, 봉신(대영주부터), 징수관(대영주부터).</summary>
     private int Failing(int h, int t, int vassals)
     {
         int soldiers = _soldiersOf.GetValueOrDefault(h);
         int fail = 0;
         if (soldiers < Config.LordSoldiers && HouseholdPower(h) + 1.5f * soldiers < Config.LordGuardPower) fail++;
-        if (_incTribute[h] < 0.8f * soldiers * Config.SoldierWage) fail++;
+        if (_incTribute[h] + IncomeOf(h).rent < 0.8f * soldiers * Config.SoldierWage) fail++;
         if (ResidenceOf(h) < t - 1) fail++;
         if (t >= 3 && vassals < (t == 3 ? 2 : 5)) fail++;
         if (t >= 3 && _collectorsOf.GetValueOrDefault(h) < 1) fail++;

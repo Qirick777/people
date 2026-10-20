@@ -104,6 +104,16 @@ public sealed class Lineage
     public void SetJob(int uid, Job j) { if (uid >= 0) _job[uid] = (byte)j; }
     public ReadOnlySpan<int> Ancestors(int uid) => _ancestors.AsSpan(uid * AncestorSlots, AncestorSlots);
 
+    /// <summary>부모를 모르는 사람을 이미 있는 가문(성)에 넣는다. 새 가문을 만들지 않는다.</summary>
+    public int AddInto(bool male, int birthDay, int family)
+    {
+        int f0 = Families;
+        int u = Add(male, birthDay, -1, -1);
+        Families = f0;
+        _family[u] = family;
+        return u;
+    }
+
     /// <summary>legalFatherUid 를 주지 않으면 진짜 아버지가 족보 아버지다. -1 이면 사생아.</summary>
     public int Add(bool male, int birthDay, int fatherUid, int motherUid, int legalFatherUid = int.MinValue)
     {

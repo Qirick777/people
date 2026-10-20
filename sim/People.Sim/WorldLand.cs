@@ -14,6 +14,7 @@ public sealed partial class World
     private readonly Dictionary<int, List<int>> _leasedIn = new();
     private readonly List<float> _rentRate = new(), _wageRate = new();
     private readonly List<int> _leaseSlack = new();
+    private readonly Dictionary<int, int> _unmetLease = new();   // 마을 → 지난해 빌리려다 못 빌린 필지
 
     // 품삯: 고용주 → 일꾼 계약
     private readonly List<(int employer, int worker, float units, float wage)> _hires = new();
@@ -25,6 +26,10 @@ public sealed partial class World
 
     private struct Debt { public int Debtor, DebtorFounded, Creditor, CreditorFounded, Years; public float Owed; }
     private readonly List<Debt> _debts = new();
+
+    /// <summary>진단: 지난 수확에서 제 땅 수확, 빌린 땅 수확(소작료 뺀 것), 받은 소작료.</summary>
+    public (float own, float tenant, float rent) IncomeOf(int h) => _lastIncome.TryGetValue(h, out var x) ? x : (0f, 0f, 0f);
+    private readonly Dictionary<int, (float, float, float)> _lastIncome = new();
 
     public LandClass ClassOf(int h) => h >= 0 && h < _class.Length ? (LandClass)_class[h] : LandClass.None;
     public int LeasedInCount(int h) => _leasedIn.TryGetValue(h, out var l) ? l.Count : 0;
@@ -100,8 +105,9 @@ public sealed partial class World
             int own = hh.PlotCount[h];
             if (own > keep)
             {
+                // 지금 지력이 좋은 땅부터(지친 땅은 내놓지 않고 쉬게 둔다)
                 var mine = Map.PlotsOf(h);
-                mine.Sort((a, b) => Map.BaseFert(b).CompareTo(Map.BaseFert(a)));
+                mine.Sort((a, b) => Map.Fert(b).CompareTo(Map.Fert(a)));
                 var o = offers.TryGetValue(v, out var ol) ? ol : offers[v] = new();
                 for (int k = keep; k < mine.Count; k++) o.Add(mine[k]);
             }
@@ -110,6 +116,8 @@ public sealed partial class World
                 (needs.TryGetValue(v, out var nl) ? nl : needs[v] = new()).Add((h, want - own));
             }
         }
+        _unmetLease.Clear();
+        foreach (var (v, dl) in needs) _unmetLease[v] = Math.Max(0, dl.Sum(d => d.n) - (offers.TryGetValue(v, out var sl) ? sl.Count : 0));
         for (int v = 0; v < vl.Count; v++)
         {
             _rentRate[v] = 0; _leaseSlack[v] = 0;
@@ -155,7 +163,7 @@ public sealed partial class World
         var hh = Households;
         for (int h = 0; h < hh.HighWater; h++)
         {
-            if (!hh.IsAlive(h)) continue;
+            if (!hh.IsAlive(h) || TierOf(h) >= 1) continue;   // 지배자는 직영지를 내놓지 않고 빌려준다
             int keep = (int)MathF.Ceiling(hh.Labor[h] * Config.PlotsPerWorker * Config.LandRelease);
             var free = Map.PlotsOf(h).Where(p => !_tiller.ContainsKey(p)).ToList();
             if (free.Count <= keep) continue;
@@ -376,6 +384,7 @@ public sealed partial class World
             else if (own > 0) c = LandClass.Owner;
             else c = LandClass.None;
             _class[h] = (byte)c;
+            _lastIncome[h] = (own, ten, rent);
             _incOwn[h] = _incRent[h] = _incTenant[h] = _incWage[h] = 0;
         }
     }
