@@ -200,14 +200,15 @@ public sealed partial class World
                 if (hh.IsAlive(x) && hh.Village[x] == v && HeadIdx(x) is int xh && xh >= 0 && p.LoyalUid[xh] == lu && p.Loyalty[xh] > 0.5f) loyal++;
             }
             float dist = MathF.Sqrt(Dist2(lord, cur));
-            float notice = 0.2f + 0.06f * MathF.Min(6, loyal) + (_collectorsOf.GetValueOrDefault(lord) > 0 ? 0.15f : 0f)
+            float notice = 0.2f + 0.2f * Established(v) + 0.06f * MathF.Min(6, loyal) + (_collectorsOf.GetValueOrDefault(lord) > 0 ? 0.15f : 0f)
                          + 0.3f * Notoriety(cur) - 0.4f * MathF.Min(1f, dist / Config.VassalRange);
             if (!_rng.Chance(Math.Clamp(notice, 0.05f, 0.95f))) continue;
             Stats.RiseNoticed++;
             if (!_rivals.TryGetValue((lord, cur), out var r) || !SameHouse(r))
                 _rivals[(lord, cur)] = r = new Rival { Lord = lord, LordFounded = hh.FoundedDay[lord], Riser = cur, RiserFounded = hh.FoundedDay[cur], Since = Day };
             r.Stole |= stole;
-            r.Suspicion += 8f * (1f + 3f * RiseSize(cur) / MathF.Max(5f, RiseSize(lord))) * (stole ? 1.5f : 1f);
+            // 자리 잡은 땅에서 서는 세력일수록 크게 의심한다
+            r.Suspicion += 8f * (1f + 3f * RiseSize(cur) / MathF.Max(5f, RiseSize(lord))) * (stole ? 1.5f : 1f) * (0.5f + Established(hh.Village[cur]));
             int rh = HeadIdx(cur);
             if (rh >= 0) Chron(rh, $"{Names.Full(Lineage, lu)}이(가) 우리 집이 세를 늘리는 것을 알아챘다");
         }

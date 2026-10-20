@@ -467,6 +467,11 @@ public partial class SimHost : Node
                     ["tasks"] = tasks == "" ? "맡은 일 없음" : tasks,
                     ["manual"] = g.Manual,
                     ["named"] = g.NameFixed,
+                    ["visibility"] = depth == 0 ? (int)g.Visibility : -1,
+                    ["visibilityName"] = World.VisibilityName(g.Visibility),
+                    ["authority"] = depth == 0 ? g.Authority : 0f,
+                    ["leak"] = g.Leak,
+                    ["inner"] = g.Inner.Count,
                     ["command"] = command,
                     ["canSplit"] = command && g.Members >= 9,
                     ["mineIn"] = mine.Any(i => w.InGroup(i, g)),
@@ -555,6 +560,16 @@ public partial class SimHost : Node
         if (g == null) return false;
         _w!.SetUnitTask(g, (Verb)verb, village);
         _w.Chronicle.Add((_w.Day, $"{g.Name}에 {World.VerbName((Verb)verb)}({VillageName(g.Village, village)})을(를) 맡겼다"));
+        return true;
+    }
+
+    /// <summary>맨 위 조직의 알려진 정도를 고른다(0 완전 은폐 ~ 4 완전 공개).</summary>
+    public bool SetOrgVisibility(int id, int v)
+    {
+        var g = Commandable(id);
+        if (g == null || v < 0 || v > 4) return false;
+        _w!.SetVisibility(g, (Visibility)v);
+        _w.Chronicle.Add((_w.Day, $"{_w.RootOf(g).Name}을(를) '{World.VisibilityName((Visibility)v)}'(으)로 두었다"));
         return true;
     }
 

@@ -133,7 +133,7 @@ public sealed partial class World
             hh.Food[best] -= take;
             hh.Food[h] += take;
             Stats.RaidsWon++;
-            if (gang != null) { Stats.BanditRaids++; if (_rng.Chance(0.5f)) gang.Exposed = true; }   // 털린 집이 누구 짓인지 알아본다
+            if (gang != null) { Stats.BanditRaids++; RootOf(gang).Leak += 0.1f; if (_rng.Chance(0.5f)) gang.Exposed = true; }   // 털린 집이 누구 짓인지 알아본다
             HeadsRelate(best, h, -40f, 20f, 0f, MemoryType.Raided, -60);
             if (p.IsValid(hh.Head[h]) && p.IsValid(hh.Head[best])) CommitCrime(CrimeType.Raid, hh.Head[h].Index, hh.Head[best].Index, take, false);
             Casualty(best, defense);
@@ -211,7 +211,9 @@ public sealed partial class World
             if (!hh.IsAlive(h) || hh.Village[h] < 0) continue;
             if (_patron[h] >= 0 && PatronOf(h) < 0) _patron[h] = -1;
             float pw = LordPower(h);
-            if (pw >= Config.LordMinPower && HeadTrait(h, Trait.Ambition) >= 0.4f) power[h] = pw;
+            // 새로 지배자가 되려면 자리 잡은 땅일수록 더 세야 한다(이미 거느린 집은 그대로)
+            float need = ClientCount(h) > 0 ? Config.LordMinPower : Config.LordMinPower * (1f + 2f * Established(hh.Village[h]));
+            if (pw >= need && HeadTrait(h, Trait.Ambition) >= 0.4f) power[h] = pw;
         }
         var lords = power.Keys.ToList();
 
@@ -514,7 +516,8 @@ public sealed partial class World
                 if (job == Job.Soldier)
                 {
                     if (!p.Male[i] || age < 16 || age > 35) continue;
-                    sc = Skills.Talent(p, i, Skill.Arms) + 0.3f * p.Get(i, Trait.Aggression) + (ClassOf(h) is LandClass.Tenant or LandClass.Laborer or LandClass.None ? 0.3f : 0f);
+                    sc = Skills.Talent(p, i, Skill.Arms) + 0.3f * p.Get(i, Trait.Aggression) + (ClassOf(h) is LandClass.Tenant or LandClass.Laborer or LandClass.None ? 0.3f : 0f)
+                       + 0.4f * p.Get(i, Trait.Ambition) * Established(lv);   // 자리 잡은 땅의 야심가는 세력 안에서 자리를 노린다
                 }
                 else
                 {

@@ -25,6 +25,11 @@ public sealed class Group
     public bool Paid;                                 // 품삯 받는 군인 갈래(지배자가 고용한 사람들)
     public bool Manual;                               // 플레이어가 맡은 일을 정했다(AI 가 바꾸지 않는다)
     public bool NameFixed;                            // 지은 이름(단계가 바뀌어도 그대로 간다)
+    // O1 권위와 알려진 정도(맨 위 조직만 쓴다)
+    public Visibility Visibility = Visibility.Public;
+    public float Leak;                                // 새어 나간 정도(0~1, 넘치면 공개 쪽으로 한 칸)
+    public float Authority, Loyalty;                  // 해마다 센다
+    public readonly HashSet<int> Inner = new();       // 측근 uid(하위 조직이 있을 때만)
     public readonly List<OrgTask> Tasks = new();
 }
 
@@ -88,6 +93,7 @@ public sealed partial class World
         int h = People.Household[leader];
         var g = new Group { Id = _groups.Count, Kind = kind, LeaderUid = People.Uid[leader], Founded = Day, Village = Households.IsAlive(h) ? Households.Village[h] : -1 };
         g.Name = $"{Names.Family(Lineage.FamilyOf(People.Uid[leader]))} {GroupKindName(kind)}";
+        g.Visibility = DefaultVisibility(kind);
         _groups.Add(g);
         DefaultTask(g);
         JoinGroup(leader, g);
@@ -239,15 +245,20 @@ public sealed partial class World
                 // 생길 조건: 자경단은 위험한 마을, 신도회는 신앙심 깊은 사람이 여럿, 도적 떼는 거칠고 가난한 사람이 여럿
                 if (here == null)
                 {
+                    // 빈 땅에서는 도적 떼가 쉽게 서고, 기존 세력이 꽉 잡은 땅에서는 어렵다
+                    float est = Established(v);
                     float pressure = kind switch
                     {
                         GroupKind.Watch => MathF.Max(0f, danger - 0.6f) * 0.5f,
+                        GroupKind.Bandits => 0.25f * (1.3f - est),
                         _ => 0.25f,
                     };
                     if (!_rng.Chance(pressure)) continue;
                     var cand = folk.Where(i => !IsPlayer(i) && GroupWant(i, kind) > 0.35f && GroupOfKind(i, kind) == null).ToList();
                     if (cand.Count < 3) continue;
-                    int leader = cand.OrderByDescending(i => GroupWant(i, kind) + p.Get(i, Trait.Charisma) + (kind == GroupKind.Watch ? FightPower(i) : 0f)).First();
+                    // 야심가가 앞장선다(빈 땅일수록)
+                    int leader = cand.OrderByDescending(i => GroupWant(i, kind) + p.Get(i, Trait.Charisma) + (kind == GroupKind.Watch ? FightPower(i) : 0f)
+                                                         + p.Get(i, Trait.Ambition) * (1f - est)).First();
                     here = FoundGroup(leader, kind);
                     if (kind == GroupKind.Bandits) Stats.BanditGroups++;
                 }
@@ -258,7 +269,8 @@ public sealed partial class World
                     if (IsPlayer(i)) continue;
                     float want = GroupWant(i, kind);
                     bool inIt = InGroup(i, here);
-                    if (!inIt && here.Members < cap && GroupOfKind(i, kind) == null && _rng.Chance(MathF.Max(0f, want - 0.35f) * 0.5f)) JoinGroup(i, here);
+                    // 숨긴 조직은 스스로 찾아오지 않는다(포섭으로만), 공개할수록 잘 모인다
+                    if (!inIt && here.Members < cap && GroupOfKind(i, kind) == null && _rng.Chance(MathF.Max(0f, want - 0.35f) * 0.5f * JoinFactor(RootOf(here), i))) JoinGroup(i, here);
                     else if (inIt && !IsLeader(i, here) && want < 0.15f && _rng.Chance(0.3f)) LeaveGroup(i, here);
                 }
                 if (kind == GroupKind.Watch && danger < 0.1f && here.Sanction < 0 && _rng.Chance(0.1f)) { here.Alive = false; Stats.GroupsDissolved++; }

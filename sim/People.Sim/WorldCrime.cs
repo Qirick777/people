@@ -513,6 +513,7 @@ public sealed partial class World
         led.caught++;
         _lordLedger[c.Lord] = led;
         Stats.Caught++;
+        Interrogated(culprit);   // 잡힌 범인이 든 숨긴 조직의 비밀이 새어 나간다
         bool close = CloseToLord(culprit, c.Lord);
         if (c.Lord == PlayerHousehold && _player >= 0 && (PlayerJudgesAll || close || c.Type == CrimeType.Murder))
         {

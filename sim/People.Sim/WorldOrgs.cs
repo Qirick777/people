@@ -113,6 +113,7 @@ public sealed partial class World
             }
         }
         SumSubtrees();
+        foreach (var g in _groups) if (g.Alive && g.Parent < 0) ComputeAuthority(g);
         RefreshNames();
     }
 
@@ -328,10 +329,20 @@ public sealed partial class World
                 t.Weight = 1f;
                 c.Tasks.Add(t);
             }
-            if (left.Count == 0 && tasks.Count > 0) left.Add(tasks[0]);
-            float tot = left.Sum(t => t.Weight);
-            g.Tasks.Clear();
-            foreach (var t in left) g.Tasks.Add(new OrgTask { Verb = t.Verb, Village = t.Village, Weight = tot > 0 ? t.Weight / tot : 1f });
+            if (depth == 0 && children.Count > 0)
+            {
+                // 하위 조직이 있는 맨 위 조직은 일을 갈래에 넘긴다. 남은 일은 가장 센 갈래가 더 맡는다
+                var top = children.FirstOrDefault(c => !c.Manual);
+                if (top != null) foreach (var t in left) top.Tasks.Add(new OrgTask { Verb = t.Verb, Village = t.Village, Weight = 0.5f });
+                g.Tasks.Clear();
+            }
+            else
+            {
+                if (left.Count == 0 && tasks.Count > 0) left.Add(tasks[0]);
+                float tot = left.Sum(t => t.Weight);
+                g.Tasks.Clear();
+                foreach (var t in left) g.Tasks.Add(new OrgTask { Verb = t.Verb, Village = t.Village, Weight = tot > 0 ? t.Weight / tot : 1f });
+            }
         }
         int leader = FindAlive(g.LeaderUid);
         if (leader >= 0 && g.Members > CommandSpan(leader) + 4 && depth < 4 && !g.Manual)
@@ -626,6 +637,12 @@ public sealed partial class World
         }
         _domainVillages = null;
         DelegationYear();
+        BuildMemberIndex();
+        foreach (var g in _groups) if (g.Alive && g.Parent < 0) PickInner(g);
+        AuthorityYear();
+        VisibilityYear();
+        AuthorityStats();
+        _memberIdx = null;
         RefreshNames();
         Stats.OrgUnits = _groups.Count(g => g.Alive && g.Parent >= 0);
         Stats.LordArmies = _lordOrg.Count;

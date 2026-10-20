@@ -32,7 +32,7 @@ public class OrgTests
         w.SeedCouples(5);
         var hh = w.Households;
         int lord = -1;
-        for (int y = 0; y < 200 && lord < 0; y++)
+        for (int y = 0; y < 300 && lord < 0; y++)
         {
             for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
             for (int h = 0; h < hh.HighWater; h++)

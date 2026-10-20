@@ -453,8 +453,10 @@ func _open_orgs() -> void:
 		tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tv.add_child(UI.label(e["name"], 14, UI.INK, depth == 0))
 		var info := "%s · 바로 %d명" % [e["leader"], int(e["members"])]
+		if int(e["inner"]) > 0: info += "(측근 %d, 소속원 %d)" % [int(e["inner"]), max(0, int(e["members"]) - int(e["inner"]) - 1)]
 		if int(e["total"]) != int(e["members"]): info += " · 모두 %d명" % int(e["total"])
 		info += " · 힘 %.0f" % float(e["strength"])
+		if depth == 0: info += " · 권위 %.0f · %s" % [float(e["authority"]), e["visibilityName"]]
 		tv.add_child(UI.label(info, 12, UI.MUTED))
 		tv.add_child(UI.label(("정한 일: " if e["manual"] else "맡은 일: ") + e["tasks"], 12, UI.INK))
 		r.add_child(tv)
@@ -479,6 +481,27 @@ func _open_orgs() -> void:
 					_open_orgs())
 				r.add_child(_center(ab))
 		org_box.add_child(r)
+		# 맨 위 조직: 알려진 정도 고르기(숨길수록 의심을 피하고, 드러낼수록 사람이 모인다)
+		if depth == 0 and e["command"]:
+			var seg := HBoxContainer.new()
+			seg.add_theme_constant_override("separation", 0)
+			var pad2 := Control.new()
+			pad2.custom_minimum_size = Vector2(22, 0)
+			seg.add_child(pad2)
+			var vnames := ["완전 은폐", "일부 은폐", "중립", "공개", "완전 공개"]
+			var gid := int(e["id"])
+			for k in 5:
+				var b := Button.new()
+				b.text = vnames[k]
+				b.add_theme_font_size_override("font_size", 12)
+				UI.segment(b, int(e["visibility"]) == k, k == 0, k == 4)
+				var kk := k
+				b.pressed.connect(func():
+					host.SetOrgVisibility(gid, kk)
+					for line in host.DrainChronicle(): _log(line)
+					_open_orgs())
+				seg.add_child(b)
+			org_box.add_child(seg)
 	org_panel.visible = true
 
 
@@ -1203,6 +1226,10 @@ func _run_autotest() -> void:
 			_open_orgs()
 			await _snap("live_orgs_named.png")
 			print("autotest: 이름 지음 ", host.OrgPanel()[0]["name"])
+			host.SetOrgVisibility(int(orgs[0]["id"]), 1)
+			_open_orgs()
+			await _snap("live_orgs_vis.png")
+			print("autotest: 알려진 정도 ", host.OrgPanel()[0]["visibilityName"], " · 권위 ", host.OrgPanel()[0]["authority"])
 		org_panel.visible = false
 	# 재판: 주군이 없는 집이 당한 사건은 마을 자경단 우두머리가 맡는다. 방금 세운 자경단의 집으로 모든 사건을 직접 판결한다
 	host.JudgeAll = true
