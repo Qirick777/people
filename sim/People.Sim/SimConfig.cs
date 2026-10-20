@@ -115,6 +115,7 @@ public sealed class SimConfig
     public float LoanInterest { get; init; } = 0.25f;
     public int ForecloseYears { get; init; } = 2;            // 두 수확 넘게 못 갚으면 밭으로 받는다
     public float DistressPrice { get; init; } = 0.6f;        // 급히 파는 땅값 = 땅 가치 × 이 값
+    public float StayLandless { get; init; } = 0.35f;        // 마을 땅이 찼을 때 떠나지 않고 땅 없이 남는 분가의 몫
     public int StayLeaseSlack { get; init; } = 3;            // 빌릴 땅이 이만큼 남아 있으면 분가해도 마을에 남는다
     // 5단계: 약탈, 보호, 공납
     public float RaidAggression { get; init; } = 0.55f;      // 가장의 공격성이 이보다 높아야 약탈을 생각한다

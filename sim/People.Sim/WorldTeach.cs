@@ -165,6 +165,8 @@ public sealed partial class World
         int next = members.Where(Adult).OrderByDescending(m => p.Get(m, Trait.Charisma) + FightPower(m)).DefaultIfEmpty(-1).First();
         if (next < 0) return -1;
         Stats.SuccessionForced++;
+        // 억지 계승은 조직을 흔든다(계획서 7장): 몇 해 동안 권위가 깎인다
+        RootOf(g).Shaken = MathF.Min(1f, RootOf(g).Shaken + 0.5f);
         foreach (int m in members.Take(30))
         {
             if (m == next) continue;

@@ -310,13 +310,14 @@ public sealed partial class World
                 }
                 Learn(i, sk, teacher, 1f);
                 practiced[(int)sk] = true;
-                // 글: 집안에 글 아는 어른이 있으면 틈틈이 배운다
+                // 글: 집안에 글을 제대로 아는 어른(0.5)이 있고 아이 손을 놀릴 만큼 넉넉하면 틈틈이 배운다.
+                // 가난한 집 아이는 일손이라 배울 틈이 없고, 넉넉해도 해마다 배우지는 않는다
                 int lt = -1;
-                float lv = 0.3f;
+                float lv = 0.5f;
                 for (int k = hh.FirstMember[h]; k >= 0; k = p.HhNext[k])
                     if (k != i && p.GetSkill(k, Skill.Letters) > lv) { lv = p.GetSkill(k, Skill.Letters); lt = k; }
-                if (lt < 0 && teacher >= 0 && p.GetSkill(teacher, Skill.Letters) > 0.3f) lt = teacher;
-                if (lt >= 0) { Learn(i, Skill.Letters, lt, 0.5f); practiced[(int)Skill.Letters] = true; _teachingLetters.Add(lt); }
+                if (lt < 0 && teacher >= 0 && p.GetSkill(teacher, Skill.Letters) > 0.5f) lt = teacher;
+                if (lt >= 0 && Surplus(h) >= 1f && _rng.Chance(0.35f)) { Learn(i, Skill.Letters, lt, 0.5f); practiced[(int)Skill.Letters] = true; _teachingLetters.Add(lt); }
             }
             for (int s = 0; s < (int)Skill.Count; s++)
             {

@@ -661,6 +661,21 @@ public sealed partial class World
     {
         var hh = Households;
         var order = ShuffledHouseholds();
+        // 땅이 모자라기 시작한 마을에서는 넉넉한 집(마을에서 재산 상위 5분의 1, 또는 지배자)이 남은 땅을 먼저,
+        // 일손보다 많이(내놓기 문턱 바로 아래까지) 잡는다. 남는 땅은 소작으로 나가 지주와 소작농이 생긴다
+        var byVillage = new Dictionary<int, List<int>>();
+        foreach (int h in order) if (hh.Village[h] >= 0) (byVillage.TryGetValue(hh.Village[h], out var l) ? l : byVillage[hh.Village[h]] = new()).Add(h);
+        foreach (var (v, list) in byVillage)
+        {
+            if (list.Count < 8 || FreeInVillage(v) >= Config.MinFreePlotsToStay) continue;
+            var rich = list.OrderByDescending(Wealth).Take(Math.Max(1, list.Count / 5)).ToList();
+            foreach (int h in list) if (TierOf(h) >= 1 && !rich.Contains(h)) rich.Add(h);
+            foreach (int h in rich)
+            {
+                int want = (int)(hh.Labor[h] * Config.PlotsPerWorker * Config.LandRelease * 0.95f);
+                if (hh.PlotCount[h] < want) TookPlots(v, ClaimFields(h, want - hh.PlotCount[h]));
+            }
+        }
         foreach (int h in order)
         {
             // 일할 수 있는 양보다 넉넉히 잡는다. 남는 땅은 쉬게 되어 비옥도가 돌아온다(돌려짓기가 저절로 생긴다).
@@ -954,6 +969,13 @@ public sealed partial class World
         {
             int nh = SettleIn(v, parent);
             if (nh >= 0) return nh;
+        }
+
+        // 1-1) 땅이 찼어도 혈족 곁에 남는 집이 있다. 남의 땅을 빌리거나 품을 팔아 산다(소작농·일꾼)
+        if (v >= 0 && _rng.Chance(Config.StayLandless))
+        {
+            int nh = SettleIn(v, parent);
+            if (nh >= 0) { Stats.LandlessSettlers++; return nh; }
         }
 
         // 2) 근처 다른 마을 중 빈 땅이 있는 곳, 3) 새 마을 자리. 더 나은 쪽으로 간다.

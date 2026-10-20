@@ -41,6 +41,7 @@ public sealed class Group
     public bool TeachManual;                          // 플레이어가 정했다(AI 가 바꾸지 않는다)
     public int HeirUid = -1;
     public float Inherit;                             // 이음(0~1): 후계자가 우두머리가 아는 것을 얼마나 넘겨받았나
+    public float Shaken;                              // 억지 계승으로 흔들린 정도(0~1, 해마다 줄고 권위를 깎는다)
     public readonly List<OrgTask> Tasks = new();
 }
 
@@ -109,6 +110,12 @@ public sealed partial class World
         var g = new Group { Id = _groups.Count, Kind = kind, LeaderUid = People.Uid[leader], Founded = Day, Village = Households.IsAlive(h) ? Households.Village[h] : -1 };
         g.Name = $"{Names.Family(Lineage.FamilyOf(People.Uid[leader]))} {GroupKindName(kind)}";
         g.Visibility = DefaultVisibility(kind);
+        // NPC 우두머리의 성격: 아주 신중한 도적 두목은 조직원끼리도 모르게 숨기고, 고집 센 신앙인은 신도회를 숨긴다(이단)
+        if (!IsPlayer(leader))
+        {
+            if (kind == GroupKind.Bandits && People.Get(leader, Trait.Caution) > 0.7f) g.Visibility = Visibility.Hidden;
+            else if (kind == GroupKind.Brotherhood && People.Get(leader, Trait.Stubbornness) > 0.75f) g.Visibility = Visibility.Covert;
+        }
         _groups.Add(g);
         DefaultTask(g);
         JoinGroup(leader, g);
@@ -194,7 +201,8 @@ public sealed partial class World
             GroupKind.Sellswords => p.Male[i] && age >= 16 && age <= 40
                 // 싸움 솜씨가 있어야 칼을 팔 마음이 든다
                 ? (0.8f * p.GetSkill(i, Skill.Arms) + 0.3f * p.Get(i, Trait.Aggression) + 0.2f * p.Get(i, Trait.Ambition) - 0.15f) * (ClassOf(h) is LandClass.Laborer or LandClass.Tenant or LandClass.None ? 1.2f : 0.8f) : 0f,
-            GroupKind.Brothel => age >= 16 ? (p.JobOf[i] == (byte)Job.SexWorker ? 0.6f : 0f) + MathF.Max(0f, p.Get(i, Trait.Ambition) - 0.6f) * (1f - p.Piety[i]) * 1.5f : 0f,
+            // 유곽: 스스로 몸 파는 일을 하는 어른, 또는 신앙이 옅고 욕심 있는 어른(포주)
+            GroupKind.Brothel => age >= 16 ? (p.JobOf[i] == (byte)Job.SexWorker ? 0.6f : 0f) + MathF.Max(0f, p.Get(i, Trait.Ambition) - 0.5f) * (1f - p.Piety[i]) * 2f : 0f,
             _ => age >= 16 ? MathF.Max(0f, p.Piety[i] - 0.6f) * 2.5f : 0f,
         };
     }

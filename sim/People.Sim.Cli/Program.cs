@@ -232,6 +232,9 @@ switch (cmd)
                 if (lv >= 0.3f) l3++;
                 if (lv >= 0.6f) l6++;
             }
+            var cls = new int[8]; int hn = 0;
+            for (int h = 0; h < w.Households.HighWater; h++) if (w.Households.IsAlive(h)) { cls[(int)w.ClassOf(h)]++; hn++; }
+            Console.WriteLine("  계층: " + string.Join(", ", Enum.GetValues<LandClass>().Where(c => cls[(int)c] > 0).Select(c => $"{(World.ClassName(c) is { Length: > 0 } nm ? nm : "없음")} {cls[(int)c] * 100.0 / Math.Max(1, hn):F0}%")));
             Console.WriteLine($"  문해율(어른): 글 0.3 넘음 {l3 / (double)Math.Max(1, ad):P0}, 0.6 넘음 {l6 / (double)Math.Max(1, ad):P0}");
         }
         if (profFrom > 0)

@@ -356,7 +356,7 @@ public sealed partial class World
                 {
                     if (AgeYears(i) > 40 || (!p.Male[i] && p.IsValid(p.Husband[i])) || Surplus(h) > 1.6f) { p.JobOf[i] = 0; workers--; }
                 }
-                else if (workers < maxWorkers && p.JobOf[i] == 0 && !head && AgeYears(i) <= 35 && Surplus(h) < 0.7f && p.Piety[i] < 0.4f
+                else if (workers < maxWorkers && p.JobOf[i] == 0 && !head && AgeYears(i) <= 35 && Surplus(h) < 1f && p.Piety[i] < 0.45f
                          && (p.Male[i] ? p.Get(i, Trait.Looks) > Config.MaleAppealFloor && p.WifeCount[i] == 0 : !p.IsValid(p.Husband[i]))
                          && (p.Stigma[i] > 0.15f || p.Get(i, Trait.Ambition) > 0.6f) && _rng.Chance(0.3f))
                 {

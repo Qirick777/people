@@ -149,6 +149,7 @@ public sealed partial class World
                 switch (t.Verb)
                 {
                     case Verb.Collect: if (root.Home < 0) TakeProtection(root, g, t.Village, effort, strength); break;
+                    case Verb.Guard: if (root.Home < 0 && root.Visibility >= Visibility.Public) SeekProtection(root, t.Village, effort); break;
                     case Verb.Preach: Preach(root, g, t.Village, effort, leader); break;
                     case Verb.Trade: Trade(root, g, t.Village, t.Weight); break;
                     case Verb.Escort: Escort(root, t.Village, effort); break;
@@ -191,11 +192,36 @@ public sealed partial class World
         int leader = FindAlive(root.LeaderUid);
         int home = root.Home >= 0 ? root.Home : leader >= 0 ? People.Household[leader] : -1;
         if (home < 0 || TierOf(home) < 2) return;
-        bool low = Subtree(root).Any(g => g.Tasks.Any(t => t.Verb is Verb.Raid or Verb.Kidnap or Verb.Brothel));
+        bool low = Subtree(root).Any(g => g.Tasks.Any(t => t.Verb is Verb.Raid or Verb.Kidnap));   // 계획서 5.4: 털기와 납치만
         if (!low) return;
         if (leader >= 0) People.Honor[leader] -= 0.05f;
         root.Authority *= 0.9f;
         Stats.FaceLost++;
+    }
+
+    /// <summary>
+    /// 보호를 바라는 집(계획서 3.1): 공개한 조직이 지키는 위험한 마을에서, 따르는 곳 없는 집이 스스로 찾아와
+    /// 우두머리 집을 섬긴다. 위험할수록, 지키는 힘이 클수록 잘 온다.
+    /// </summary>
+    private void SeekProtection(Group root, int v, float effort)
+    {
+        var hh = Households;
+        int leader = FindAlive(root.LeaderUid);
+        if (leader < 0) return;
+        int lh = People.Household[leader];
+        float danger = DangerAt(v);
+        if (danger < 0.3f) return;
+        for (int k = 0; k < Math.Min(4, (int)MathF.Ceiling(effort / 4f)); k++)
+        {
+            int h = RandomHouseIn(v);
+            if (h < 0 || h == lh || PatronOf(h) >= 0 || ClientCount(h) > 0 || WouldLoop(h, lh)) continue;
+            if (!_rng.Chance(MathF.Min(0.5f, 0.15f * danger * MathF.Sqrt(effort)))) continue;
+            _patron[h] = lh;
+            _patronFounded[h] = hh.FoundedDay[lh];
+            _clientsOf[lh] = _clientsOf.GetValueOrDefault(lh) + 1;
+            HeadsRelate(h, lh, 10f, 0f, 10f, MemoryType.Protected, 10);
+            Stats.ProtectionTaken++;
+        }
     }
 
     /// <summary>보호세: 지켜 주지 않는 집(또는 힘없는 주군의 집)에 보호를 팔아 내 우두머리 집을 섬기게 한다. 공납은 기존 규칙대로 흐른다.</summary>
@@ -455,6 +481,20 @@ public sealed partial class World
     // ------------------------------------------------------------------ AI가 고르는 일
 
     /// <summary>지배자 조직이 아닌 맨 위 조직의 할 일. 종류의 기본 일에 우두머리 성격과 처지가 더한다. 열리지 않은 일은 뺀다.</summary>
+    /// <summary>마을 v 가 우두머리 집이 아닌 다른 지배자의 땅인가(선동할 곳).</summary>
+    private bool OthersRealm(int v, int leader)
+    {
+        if (leader < 0) return false;
+        int lh = People.Household[leader];
+        var hs = VillageHouses(v);
+        for (int k = 0; k < Math.Min(6, hs.Count); k++)
+        {
+            int l = PatronOf(hs[_rng.NextInt(hs.Count)]);
+            if (l >= 0 && l != lh && !InTreeOf(l, lh)) return true;
+        }
+        return false;
+    }
+
     private void KindNeeds(Group root, int leader, List<OrgTask> list)
     {
         var p = People;
@@ -471,12 +511,17 @@ public sealed partial class World
                 break;
             case GroupKind.Bandits:
                 Add(Verb.Raid, 0.5f + aggr);
+                // 야심가 두목은 남의 세력 마을에서 선동하고, 숨긴 떼는 사람을 직접 끌어들인다
+                if (root.Visibility <= Visibility.Covert) Add(Verb.Recruit, 0.3f);
+                if (amb > 0.6f && OthersRealm(v, leader)) Add(Verb.Agitate, 0.5f * amb);
                 Add(Verb.Kidnap, 0.2f + 0.6f * MathF.Max(0f, aggr - 0.4f));
                 Add(Verb.Collect, amb > 0.5f ? amb : 0f);   // 야심가 두목은 보호세로 터를 잡는다
                 break;
             case GroupKind.Brotherhood:
                 Add(Verb.Charity, 0.5f + piety);
                 Add(Verb.Preach, piety);
+                // 숨긴 신도회(이단)는 지배자를 깎아내린다
+                if (root.Visibility <= Visibility.Covert && OthersRealm(v, leader)) Add(Verb.Agitate, 0.4f * amb);
                 break;
             case GroupKind.Company:
                 Add(Verb.Trade, 1.5f);
@@ -485,6 +530,7 @@ public sealed partial class World
             case GroupKind.Sellswords:
                 Add(Verb.Mercenary, 1.5f);
                 Add(Verb.Guard, 0.3f);
+                if (DangerAt(v) > 0.4f) Add(Verb.Escort, 0.3f);
                 Add(Verb.Collect, amb > 0.6f ? 0.6f * amb : 0f);
                 break;
             case GroupKind.Brothel:

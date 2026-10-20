@@ -139,14 +139,14 @@ public sealed partial class World
             if (ms.Count > 0) loyal = ms.Take(20).Average(m => Math.Clamp((Social.Opinion(p, m, g.LeaderUid) + 50f) / 100f, 0f, 1f));
         }
         g.Loyalty = loyal;
-        g.Authority = (money + power + force) * (0.5f + loyal);
+        g.Authority = (money + power + force) * (0.5f + loyal) * (1f - 0.3f * g.Shaken);
     }
 
     /// <summary>해마다 맨 위 조직마다 권위를 세고, 마을마다 자리 잡은 정도를 잰다.</summary>
     private void AuthorityYear()
     {
         var hh = Households;
-        foreach (var g in _groups) if (g.Alive && g.Parent < 0) ComputeAuthority(g);
+        foreach (var g in _groups) if (g.Alive && g.Parent < 0) { ComputeAuthority(g); g.Shaken *= 0.7f; }
         // 자리 잡은 정도: 지배자 조직의 밖에서 보이는 권위가 마을마다 미치는 크기(멀수록 줄어든다)
         _established.Clear();
         var vl = VillageList;

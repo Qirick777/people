@@ -351,7 +351,8 @@ public sealed partial class World
         d[(int)InteractionId.RiseCoopt] = new InteractionDef
         {
             Id = InteractionId.RiseCoopt, Name = "끌어들이기", Category = InteractionCategory.Rule,
-            Can = (w, c) => w.CanRule(c) && w.PatronOf(H(w, c.Target)) != H(w, c.Actor) && w.RiseSize(H(w, c.Target)) < 20,
+            // 바로 아래에서 세를 늘리는 집도 끌어들일 수 있다(자리를 주어 인정받은 봉신으로). 이미 인정한 봉신은 빼고
+            Can = (w, c) => w.CanRule(c) && !(w.PatronOf(H(w, c.Target)) == H(w, c.Actor) && w.LegitOf(H(w, c.Target)) == Legitimacy.Granted) && w.RiseSize(H(w, c.Target)) < 20,
             // 자리를 주고 내 사람으로 만든다. 욕심이 작고 내가 셀수록 받는다
             Accept = (w, c) => Math.Clamp(0.25f + Social.Opinion(w.People, c.Target, w.People.Uid[c.Actor]) / 100f + 0.3f * (1f - w.People.Get(c.Target, Trait.Ambition))
                                           + 0.3f * w.PowerRatio(H(w, c.Actor), H(w, c.Target)) - 0.02f * w.ClientCount(H(w, c.Target)), 0.03f, 0.95f),

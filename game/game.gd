@@ -76,14 +76,14 @@ func _ready() -> void:
 			get_tree().quit()
 
 
-## 세계를 고른다: 기본(개척 150년) 또는 검토용(지배자와 조직이 다 있는 큰 세계, 220년)
+## 세계를 고른다: 기본은 자리 잡은 세계(지배자와 조직이 다 있는 220년), 또는 개척(150년)
 func _start(rev: bool) -> void:
 	review = rev
 	started = true
 	_set_hint("")
 	start_panel.visible = false
 	boot_panel.visible = true
-	show_button.visible = rev
+	show_button.visible = true
 	if rev: host.Boot(2, 220, 10)
 	else: host.Boot(1, 40 if autotest else 150, 10)
 
@@ -1096,7 +1096,7 @@ func _build_ui() -> void:
 	judge_button.pressed.connect(_open_judge)
 	tr.add_child(_center(judge_button))
 	show_button = UI.ghost("둘러보기")
-	show_button.tooltip_text = "검토용: 볼 만한 집 목록"
+	show_button.tooltip_text = "볼 만한 집 목록(지배자, 봉신, 조직 우두머리 들)"
 	show_button.pressed.connect(_open_showcase)
 	show_button.visible = false
 	tr.add_child(_center(show_button))
@@ -1328,14 +1328,14 @@ func _build_ui() -> void:
 	sv.add_theme_constant_override("separation", 10)
 	start_panel.add_child(sv)
 	sv.add_child(UI.label("어떤 세계로 시작할까", 20, UI.INK, true))
-	var b1 := UI.action("개척", "작은 무리가 빈 땅에 자리 잡은 뒤(150년)", -1.0, false)
-	b1.custom_minimum_size = Vector2(420, 56)
-	b1.pressed.connect(func(): _start(false))
-	sv.add_child(b1)
-	var b2 := UI.action("검토용 세계", "지배자, 상단, 용병단, 범죄가 다 있는 큰 세계(220년). 볼 만한 집을 골라 맡는다", -1.0, false)
+	var b2 := UI.action("자리 잡은 세계", "정착한 지 220년. 지배자, 봉신, 상단, 신도회, 범죄가 다 있다", -1.0, false)
 	b2.custom_minimum_size = Vector2(420, 56)
 	b2.pressed.connect(func(): _start(true))
 	sv.add_child(b2)
+	var b1 := UI.action("개척", "작은 무리가 빈 땅에 자리 잡은 뒤(150년). 지배자가 아직 드물다", -1.0, false)
+	b1.custom_minimum_size = Vector2(420, 56)
+	b1.pressed.connect(func(): _start(false))
+	sv.add_child(b1)
 	start_panel.visible = false
 	rootc.add_child(start_panel)
 
