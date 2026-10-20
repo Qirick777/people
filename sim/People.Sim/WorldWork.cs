@@ -50,6 +50,7 @@ public sealed partial class World
     /// <summary>집 짓기·늘리기 값. 마을 목수가 있으면 목수 솜씨만큼 싸지고 값은 목수 집이 받는다.</summary>
     private float PayCarpenter(int payer, float baseCost)
     {
+        UseBuildMaterials(payer, baseCost);   // 짓는 데 자재가 든다
         var hh = Households;
         int v = hh.IsAlive(payer) ? hh.Village[payer] : -1;
         float cost = baseCost;
@@ -179,14 +180,17 @@ public sealed partial class World
             if (!vl.Alive[v]) continue;
             int n = vl.Households[v];
             // 마을 수요로 정하는 일(목수·약초꾼·장사꾼). 군인·징수관은 지배자가 고용한다(WorldPower).
-            for (int j = 1; j <= (int)Job.Trader; j++)
+            foreach (var job in new[] { Job.Carpenter, Job.Healer, Job.Trader, Job.Crafter })
             {
-                var job = (Job)j;
+                int j = (int)job;
+                // 장인: 도구와 의류가 비쌀수록(모자랄수록) 자리가 는다
+                float craftDemand = Math.Clamp((PriceAt(v, Good.Tools) / BasePrice[(int)Good.Tools] + PriceAt(v, Good.Cloth) / BasePrice[(int)Good.Cloth]) / 2f, 0.5f, 2f);
                 int slots = job switch
                 {
                     Job.Carpenter => n >= 8 ? Math.Clamp((int)MathF.Round(_buildsLastYear[v] / 4f), 1, Math.Max(1, n / 6)) : 0,
                     Job.Healer => n >= 10 ? 1 + n / 40 : 0,
                     Job.Trader => n >= 15 ? Math.Max(1, n / 30) : 0,
+                    Job.Crafter => n >= 6 ? Math.Max(1, (int)MathF.Round(n / 12f * craftDemand)) : 0,
                     _ => 0,
                 };
                 var list = holders[v * (int)Job.Count + j] ??= new();
@@ -236,7 +240,7 @@ public sealed partial class World
                 var m = p.Master[k];
                 if (!m.IsNone && (!p.IsValid(m) || p.JobOf[m.Index] == 0 || AgeYears(k) >= 16)) p.Master[k] = PersonId.None;
             }
-            for (int j = 1; j <= (int)Job.Collector; j++)   // 몸 파는 일은 도제를 두지 않는다
+            foreach (int j in new[] { 1, 2, 3, 4, 5, (int)Job.Crafter })   // 몸 파는 일은 도제를 두지 않는다
             {
                 var list = holders[v * (int)Job.Count + j];
                 if (list == null) continue;

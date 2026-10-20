@@ -1,13 +1,13 @@
 namespace People.Sim;
 
 /// <summary>후천 기술. 연습해야 오르고, 재능이 오를 수 있는 높이를 정한다.</summary>
-public enum Skill : byte { Farming, Carpentry, Herbalism, Trade, Letters, Arms, Count }
+public enum Skill : byte { Farming, Carpentry, Herbalism, Trade, Letters, Arms, Craft, Count }
 
 /// <summary>
 /// 하는 일. 농부가 기본이고, 나머지는 마을에 그 일을 맡길 수요가 있을 때만 생긴다.
 /// 일을 맡은 사람은 밭일을 덜 한다(FarmShare).
 /// </summary>
-public enum Job : byte { Farmer, Carpenter, Healer, Trader, Soldier, Collector, SexWorker, Count }
+public enum Job : byte { Farmer, Carpenter, Healer, Trader, Soldier, Collector, SexWorker, Crafter, Count }
 
 /// <summary>어릴 때 겪은 일. 유전되지 않고 성격 축을 조금 옮긴다.</summary>
 [Flags]
@@ -28,6 +28,7 @@ public static class Skills
         Job.Trader => Skill.Trade,
         Job.Soldier => Skill.Arms,
         Job.Collector => Skill.Letters,
+        Job.Crafter => Skill.Craft,
         _ => Skill.Farming,
     };
 
@@ -40,6 +41,7 @@ public static class Skills
         Skill.Trade => 0.4f * p.Get(i, Trait.Charisma) + 0.4f * p.Get(i, Trait.Intelligence) + 0.2f * p.Get(i, Trait.Sociability),
         Skill.Letters => p.Get(i, Trait.Intelligence),
         Skill.Arms => 0.5f * Math.Min(1f, p.Get(i, Trait.Strength)) + 0.3f * p.Get(i, Trait.Aggression) + 0.2f * p.Get(i, Trait.Dexterity),
+        Skill.Craft => 0.6f * p.Get(i, Trait.Dexterity) + 0.2f * p.Get(i, Trait.Intelligence) + 0.2f * p.Get(i, Trait.Diligence),
         _ => 0.5f,
     };
 
@@ -66,12 +68,12 @@ public static class Skills
 
     public static string JobName(Job j) => j switch
     {
-        Job.Carpenter => "목수", Job.Healer => "약초꾼", Job.Trader => "장사꾼", Job.Soldier => "군인", Job.Collector => "징수관", Job.SexWorker => "창부", _ => "농부",
+        Job.Carpenter => "목수", Job.Healer => "약초꾼", Job.Trader => "장사꾼", Job.Soldier => "군인", Job.Collector => "징수관", Job.SexWorker => "창부", Job.Crafter => "장인", _ => "농부",
     };
 
     public static string SkillName(Skill s) => s switch
     {
-        Skill.Farming => "농사", Skill.Carpentry => "목공", Skill.Herbalism => "약초", Skill.Trade => "장사", Skill.Letters => "글", Skill.Arms => "싸움",
+        Skill.Farming => "농사", Skill.Carpentry => "목공", Skill.Herbalism => "약초", Skill.Trade => "장사", Skill.Letters => "글", Skill.Arms => "싸움", Skill.Craft => "공예",
         _ => "?",
     };
 

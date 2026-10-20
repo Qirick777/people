@@ -266,13 +266,15 @@ public sealed partial class World
         var p = People;
         var traders = Traders(root);
         if (traders.Count == 0) return;
-        float profit = 0f;
+        // 짐: 장사꾼 솜씨만큼. 이웃 마을과의 값 차이로 실제 물건을 사고팔아 번다
+        float capacity = 0f;
         foreach (int m in traders.Take(20))
         {
             float s = p.GetSkill(m, Skill.Trade);
-            profit += (6f + 20f * s) * weight;
+            capacity += (4f + 10f * s) * weight;
             p.SetSkill(m, Skill.Trade, s + 0.01f * (1f - s));
         }
+        float profit = TradeGoods(v, capacity);
         float escort = Subtree(root).Where(g => g.Tasks.Any(t => t.Verb == Verb.Escort)).Sum(g => g.OwnStrength);
         float robbed = Math.Clamp(0.1f + 0.2f * DangerAt(v) - 0.05f * escort, 0f, 0.6f);
         if (_rng.Chance(robbed)) { profit *= 0.5f; Stats.TradeRobbed++; }

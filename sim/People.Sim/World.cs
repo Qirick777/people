@@ -468,6 +468,7 @@ public sealed partial class World
         DecayVacant();
         SocialYear();
         YearOfWork();
+        GoodsYear();
         if (Layout) Stats.RegrownForest += Map.AgeAbandoned(Config.ForestYears);
         Splits();
         ClaimLand();
@@ -576,7 +577,7 @@ public sealed partial class World
             var mine = WorkPlots(h);
             if (mine.Count == 0) continue;
             float capacity = MathF.Max(0f, hh.Labor[h] + _hiredIn[h] - _hiredOut[h]) * Config.PlotsPerWorker;
-            float farmK = 1f + Config.FarmSkillEffect * (FarmSkillOf(h) - Config.FarmSkillBaseline);
+            float farmK = (1f + Config.FarmSkillEffect * (FarmSkillOf(h) - Config.FarmSkillBaseline)) * ToolFactor(h);   // 도구가 없으면 덜 거둔다
             mine.Sort((a, b) => map.Fert(b).CompareTo(map.Fert(a)));
             float yield = 0, tenantYield = 0;
             int hv = hh.Village[h];
@@ -1169,6 +1170,8 @@ public sealed partial class World
             if (age < 5 && Genetics.Expressed(p.Genome(i), Marker.DiseaseA, p.Male[i])) situ *= 4f;
             if (age < 5 && p.LoadInfant[i] > 0) situ *= MathF.Pow(Config.LoadInfantMortality, p.LoadInfant[i]);
             if (age < 5) situ *= 1f - Config.HealerEffect * HealerSkillAt(h);
+            // 겨울에 입을 것이 모자라면 아이와 노인이 더 죽는다
+            if (Calendar.Season == Season.Winter) situ *= 1f + (age < 5 || age >= 55 ? 0.3f : 0.05f) * ClothShort(h);
             else if (age >= 16 && age < 60) situ *= 1.15f - 0.3f * p.Get(i, Trait.Caution);   // 신중한 사람은 덜 다친다
             if (age == 6 && p.RaisedBy[i] < 0) RecordRaisedBy(i);
             float d = Mortality.Daily(age, p.Get(i, Trait.Longevity), p.Get(i, Trait.Constitution), situ);

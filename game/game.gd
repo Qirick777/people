@@ -1270,7 +1270,7 @@ func _run_autotest() -> void:
 	for e in scene.pickables:
 		var pd: Dictionary = e["pd"]
 		if not mine.has(int(pd["i"])) and int(pd["age"]) >= 16: folk.append(int(pd["i"]))
-	for k in 200:
+	for k in 400:
 		if int(host.PendingCount) > 0 or folk.size() < 2: break
 		var a: int = folk[k % folk.size()]
 		var b: int = folk[(k * 7 + 3) % folk.size()]
@@ -1326,6 +1326,13 @@ func _run_autotest() -> void:
 		await _snap("live_crime.png")
 		print("autotest: 훔치기 ", host.Interact(sid, actor, int(pd["i"]), -1, 0.0))
 		break
+	# 집 카드: 재화와 마을 값
+	_redraw()
+	var hi_me: int = scene.house_index(int(host.Player))
+	if hi_me >= 0:
+		_show_house(hi_me)
+		await _snap("live_house_goods.png")
+		print("autotest: 집 재화 ", data["hinfo"][hi_me].get("goods", []), " · 마을 값 ", data["hinfo"][hi_me].get("prices", []))
 	# 다툼: 지배자가 있는 큰 세계를 새로 띄워, 의심받는 집을 맡고 요구가 올 때까지 돌린다
 	host.Boot(2, 200, 10)
 	while not host.Ready: await get_tree().create_timer(0.5).timeout

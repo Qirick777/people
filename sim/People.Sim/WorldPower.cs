@@ -81,7 +81,7 @@ public sealed partial class World
     {
         float s = HouseholdPower(lord);
         foreach (var (person, l) in _employer)
-            if (l == lord && People.IsAliveIndex(person) && People.JobOf[person] == (byte)Job.Soldier) s += FightPower(person);
+            if (l == lord && People.IsAliveIndex(person) && People.JobOf[person] == (byte)Job.Soldier) s += FightPower(person) * (1f + 0.3f * WeaponCov(lord));   // 무장
         return s;
     }
 
@@ -135,6 +135,7 @@ public sealed partial class World
             Stats.RaidsWon++;
             if (gang != null) { Stats.BanditRaids++; RootOf(gang).Leak += 0.1f; if (_rng.Chance(0.5f)) gang.Exposed = true; }   // 털린 집이 누구 짓인지 알아본다
             HeadsRelate(best, h, -40f, 20f, 0f, MemoryType.Raided, -60);
+            LootGoods(best, h);
             if (p.IsValid(hh.Head[h]) && p.IsValid(hh.Head[best])) CommitCrime(CrimeType.Raid, hh.Head[h].Index, hh.Head[best].Index, take, false);
             Casualty(best, defense);
             // 지켜 주지 못한 지배자를 원망하고, 반쯤은 떠난다(충성할수록 덜)
