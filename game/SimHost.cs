@@ -812,4 +812,58 @@ public partial class SimHost : Node
         var r = _w!.Rivals.Where(x => _w.Households.IsAlive(x.Riser)).OrderByDescending(x => x.Suspicion).FirstOrDefault();
         return r?.Riser ?? -1;
     }
+
+    // ------------------------------------------------------------------ 검토용: 볼 만한 집
+
+    /// <summary>
+    /// 둘러볼 만한 집: 가장 큰 지배자, 봉신 영주, 무리, 의심받는 세력, 도적 두목, 상단·용병단·신도회 우두머리,
+    /// 장인 집, 자리 없는 배운 사람의 집, 소작 집. 줄마다 집 번호, 무엇인지, 한 줄 설명, 위치.
+    /// </summary>
+    public Godot.Collections.Array Showcase()
+    {
+        var a = new Godot.Collections.Array();
+        if (!Ready) return a;
+        var w = _w!; var p = w.People; var hh = w.Households;
+        var seen = new HashSet<int>();
+        void Add(int h, string what, string why)
+        {
+            if (h < 0 || !hh.IsAlive(h) || !p.IsValid(hh.Head[h]) || !seen.Add(h)) return;
+            string head = Names.Full(w.Lineage, p.Uid[hh.Head[h].Index]);
+            string realm = w.RealmName(h);
+            a.Add(new Godot.Collections.Dictionary
+            {
+                ["id"] = h, ["what"] = what, ["name"] = head + (realm != "" ? $" ({realm})" : ""), ["why"] = why,
+                ["x"] = hh.X[h], ["y"] = hh.Y[h],
+            });
+        }
+        int Best(Func<int, bool> ok, Func<int, float> score)
+        {
+            int best = -1; float bs = float.MinValue;
+            for (int h = 0; h < hh.HighWater; h++)
+                if (hh.IsAlive(h) && ok(h)) { float s = score(h); if (s > bs) { bs = s; best = h; } }
+            return best;
+        }
+        int top = Best(h => w.PatronOf(h) < 0 && w.ClientCount(h) > 0, h => w.BelowOf(h));
+        Add(top, "가장 큰 지배자", $"{World.TierName(w.TierOf(top))} · 아래 {w.BelowOf(top)}집 · 재판, 다툼, 분봉, 군대");
+        int vassal = Best(h => w.TierOf(h) >= 2 && w.PatronOf(h) >= 0, h => w.BelowOf(h));
+        Add(vassal, "봉신 영주", $"{World.TierName(w.TierOf(vassal))} · 아래 {w.BelowOf(vassal)}집 · 주군을 섬기는 영주");
+        int band = Best(h => w.TierOf(h) == 1, h => w.ClientCount(h));
+        Add(band, "무리", $"따르는 집 {w.ClientCount(band)} · 영주가 되기 직전");
+        var rival = w.Rivals.Where(r => hh.IsAlive(r.Riser)).OrderByDescending(r => r.Suspicion).FirstOrDefault();
+        if (rival != null) Add(rival.Riser, "의심받는 세력", $"따르는 집 {w.ClientCount(rival.Riser)} · 위 지배자가 눈여겨본다(다툼 창)");
+        foreach (var (kind, what, why) in new[] { (GroupKind.Bandits, "도적 두목", "털기, 납치, 보호세"), (GroupKind.Company, "상단 우두머리", "교역과 호송"),
+                                                  (GroupKind.Sellswords, "용병단 우두머리", "용병 계약"), (GroupKind.Brotherhood, "신도회 우두머리", "돌봄, 설교, 교리") })
+        {
+            var g = w.Groups.Where(x => x.Alive && x.Parent < 0 && x.Kind == kind).OrderByDescending(x => x.Total).FirstOrDefault();
+            int lead = g != null ? FindAlive(g.LeaderUid) : -1;
+            if (lead >= 0) Add(p.Household[lead], what, $"{g!.Name} · {g.Total}명 · {why}");
+        }
+        int crafter = Best(h => w.MembersOf(h).Any(m => p.JobOf[m] == (byte)Job.Crafter), h => w.GoodsOf(h, Good.Tools) + w.GoodsOf(h, Good.Cloth));
+        Add(crafter, "장인 집", "도구와 옷을 만들어 마을 시장에 판다");
+        int scholar = Best(h => w.MembersOf(h).Any(w.IsIdleScholar), h => w.MembersOf(h).Count(w.IsIdleScholar));
+        Add(scholar, "자리 없는 배운 사람의 집", "지배자를 원망하고 포섭·선동에 약하다");
+        int tenant = Best(h => w.ClassOf(h) == LandClass.Tenant, h => hh.Members[h]);
+        Add(tenant, "소작 집", "남의 땅을 빌려 짓는 밑바닥에서 시작");
+        return a;
+    }
 }

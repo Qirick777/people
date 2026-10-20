@@ -137,6 +137,13 @@ public sealed partial class World
     private void AutoName(Group g)
     {
         if (g.NameFixed) return;
+        // 지배자 집의 조직은 주군 군대 아래에 매달려도 자기 세력 이름을 쓴다(봉신의 영지)
+        if (g.Home >= 0 && Households.IsAlive(g.Home) && People.IsValid(Households.Head[g.Home]))
+        {
+            string fam0 = Names.Family(Lineage.FamilyOf(People.Uid[Households.Head[g.Home].Index]));
+            g.Name = $"{fam0} {RealmWord(TierOf(g.Home))}";
+            return;
+        }
         if (g.Parent >= 0 && GroupById(g.Parent) is { } up)
         {
             int n = 1;

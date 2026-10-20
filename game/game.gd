@@ -49,6 +49,12 @@ var log_box: VBoxContainer
 var hint_label: Label
 var boot_panel: PanelContainer
 var boot_label: Label
+var start_panel: PanelContainer
+var started := false
+var review := false                      # 검토용 세계
+var show_button: Button
+var show_panel: PanelContainer
+var show_box: VBoxContainer
 
 
 func _ready() -> void:
@@ -58,10 +64,28 @@ func _ready() -> void:
 	host = load("res://game/SimHost.cs").new()
 	add_child(host)
 	_build_ui()
-	host.Boot(1, 40 if autotest else 150, 10)
+	if autotest:
+		_start(false)
+	else:
+		start_panel.visible = true
+		if "--startshot" in OS.get_cmdline_user_args():
+			await _snap("live_start.png")
+			get_tree().quit()
+
+
+## 세계를 고른다: 기본(개척 150년) 또는 검토용(지배자와 조직이 다 있는 큰 세계, 220년)
+func _start(rev: bool) -> void:
+	review = rev
+	started = true
+	start_panel.visible = false
+	boot_panel.visible = true
+	show_button.visible = rev
+	if rev: host.Boot(2, 220, 10)
+	else: host.Boot(1, 40 if autotest else 150, 10)
 
 
 func _process(dt: float) -> void:
+	if not started: return
 	if not host.Ready:
 		boot_label.text = "세계를 만드는 중… %d년째" % host.BootYear
 		if host.BootError != "": boot_label.text = host.BootError
@@ -70,6 +94,9 @@ func _process(dt: float) -> void:
 		boot_panel.visible = false
 		_recenter(host.BiggestVillage())
 		if autotest: _run_autotest()
+		elif review:
+			_set_hint("볼 만한 집을 골라 맡는다. 위 막대의 '둘러보기'로 다시 연다.")
+			_open_showcase()
 		else: _set_hint("집을 눌러 '이 집을 맡는다'를 고르면 시작한다.")
 	if speed > 0 and host.Player >= 0:
 		acc += dt * SPEEDS[speed]
@@ -535,6 +562,38 @@ func _open_orgs() -> void:
 	org_panel.visible = true
 
 
+func _open_showcase() -> void:
+	for c in show_box.get_children(): c.queue_free()
+	for e in host.Showcase():
+		var r := HBoxContainer.new()
+		r.add_theme_constant_override("separation", 8)
+		var tv := VBoxContainer.new()
+		tv.add_theme_constant_override("separation", -2)
+		tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var top := HBoxContainer.new()
+		top.add_theme_constant_override("separation", 6)
+		top.add_child(UI.chip(e["what"], Color(0.85, 0.92, 0.9), UI.ACT, 11))
+		top.add_child(UI.label(e["name"], 14, UI.INK, true))
+		tv.add_child(top)
+		tv.add_child(UI.label(e["why"], 12, UI.MUTED))
+		r.add_child(tv)
+		var hid := int(e["id"]); var hx := int(e["x"]); var hy := int(e["y"])
+		var look := UI.ghost("보기")
+		look.pressed.connect(func():
+			show_panel.visible = false
+			_look_at_house(hid, hx, hy))
+		r.add_child(_center(look))
+		var take := UI.ghost("맡기")
+		take.pressed.connect(func():
+			show_panel.visible = false
+			_recenter(Vector2i(hx, hy))
+			_take_house(hid)
+			_on_player_changed())
+		r.add_child(_center(take))
+		show_box.add_child(r)
+	show_panel.visible = true
+
+
 func _refresh_judge_button() -> void:
 	var n: int = host.PendingCount if host != null and host.Ready else 0
 	judge_button.text = "재판 %d" % n if n > 0 else "재판"
@@ -948,6 +1007,11 @@ func _build_ui() -> void:
 	judge_button.tooltip_text = "내 땅에서 잡은 범인의 판결과 벌의 세기"
 	judge_button.pressed.connect(_open_judge)
 	tr.add_child(_center(judge_button))
+	show_button = UI.ghost("둘러보기")
+	show_button.tooltip_text = "검토용: 볼 만한 집 목록"
+	show_button.pressed.connect(_open_showcase)
+	show_button.visible = false
+	tr.add_child(_center(show_button))
 	rise_button = UI.ghost("다툼")
 	rise_button.tooltip_text = "세력 다툼: 받은 요구, 내가 눈여겨보는 세력, 나를 눈여겨보는 지배자"
 	rise_button.pressed.connect(_open_rise)
@@ -1143,11 +1207,56 @@ func _build_ui() -> void:
 	bottom.add_child(chron)
 	rootc.add_child(bottom)
 
+	# 둘러보기 창(검토용)
+	show_panel = UI.panel()
+	show_panel.set_anchors_preset(Control.PRESET_CENTER)
+	show_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	show_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	show_panel.custom_minimum_size = Vector2(660, 0)
+	var shv := VBoxContainer.new()
+	shv.add_theme_constant_override("separation", 6)
+	show_panel.add_child(shv)
+	var shh := HBoxContainer.new()
+	var sht := UI.label("둘러보기", 20, UI.INK, true)
+	sht.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	shh.add_child(sht)
+	var shc := UI.ghost("닫기")
+	shc.pressed.connect(func(): show_panel.visible = false)
+	shh.add_child(shc)
+	shv.add_child(shh)
+	shv.add_child(UI.label("맡으면 그 집의 가족이 된다. 다른 집으로 옮기려면 여기서 다시 고른다.", 12, UI.MUTED))
+	show_box = VBoxContainer.new()
+	show_box.add_theme_constant_override("separation", 4)
+	shv.add_child(show_box)
+	show_panel.visible = false
+	rootc.add_child(show_panel)
+
+	# 시작: 세계 고르기
+	start_panel = UI.panel()
+	start_panel.set_anchors_preset(Control.PRESET_CENTER)
+	start_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	start_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	var sv := VBoxContainer.new()
+	sv.add_theme_constant_override("separation", 10)
+	start_panel.add_child(sv)
+	sv.add_child(UI.label("어떤 세계로 시작할까", 20, UI.INK, true))
+	var b1 := UI.action("개척", "작은 무리가 빈 땅에 자리 잡은 뒤(150년)", -1.0, false)
+	b1.custom_minimum_size = Vector2(420, 56)
+	b1.pressed.connect(func(): _start(false))
+	sv.add_child(b1)
+	var b2 := UI.action("검토용 세계", "지배자, 상단, 용병단, 범죄가 다 있는 큰 세계(220년). 볼 만한 집을 골라 맡는다", -1.0, false)
+	b2.custom_minimum_size = Vector2(420, 56)
+	b2.pressed.connect(func(): _start(true))
+	sv.add_child(b2)
+	start_panel.visible = false
+	rootc.add_child(start_panel)
+
 	# 처음 세계를 만드는 동안
 	boot_panel = UI.panel()
 	boot_panel.set_anchors_preset(Control.PRESET_CENTER)
 	boot_label = UI.label("세계를 만드는 중…", 20, UI.INK, true)
 	boot_panel.add_child(boot_label)
+	boot_panel.visible = false
 	rootc.add_child(boot_panel)
 
 
@@ -1389,6 +1498,12 @@ func _run_autotest() -> void:
 			break
 		riser = host.TopRiser()
 	print("autotest: 다툼 상대 줄 %d · 요구 %d · %s" % [host.RiseRows().size(), int(host.DemandCount), host.DateText])
+	var sc: Array = host.Showcase()
+	print("autotest: 볼 만한 집 %d곳: %s" % [sc.size(), ", ".join(sc.map(func(x): return x["what"]))])
+	card.visible = false
+	_open_showcase()
+	await _snap("live_showcase.png")
+	show_panel.visible = false
 	var pos: Vector2i = host.HousePos(int(host.Player))
 	if pos.x >= 0: _recenter(pos)
 	_refresh_family()
