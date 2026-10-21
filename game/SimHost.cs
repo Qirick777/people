@@ -575,6 +575,7 @@ public partial class SimHost : Node
                     ["producer"] = g.Tasks.Any(t => t.Verb == Verb.Produce),
                     ["recruiter"] = g.Tasks.Any(t => t.Verb == Verb.Recruit),
                     ["captives"] = depth == 0 ? w.Captives.Count(c => c.Root == g.Id) : 0,
+                    ["brothel"] = World.IsBrothelUnit(g),
                     ["force"] = World.IsForce(g.Kind) || g.Tasks.Any(t => World.IsAttackVerb(t.Verb)),
                     ["fullTime"] = g.FullTime,
                     ["arms"] = w.ArmsCov(g),
@@ -1226,6 +1227,33 @@ public partial class SimHost : Node
             lords.Add(new Godot.Collections.Dictionary { ["house"] = l, ["name"] = w.RealmName(l), ["odds"] = w.ContractOdds(root, l, Good.Arms, World.BasePrice[(int)Good.Arms]) });
         e["lords"] = lords;
         return e;
+    }
+
+    /// <summary>유곽 창: 질, 일꾼 몫, 직책별 사람 수, 들은 소식.</summary>
+    public Godot.Collections.Dictionary BrothelInfo(int id)
+    {
+        var e = new Godot.Collections.Dictionary();
+        var g = Commandable(id);
+        if (g == null) return e;
+        var w = _w!;
+        e["quality"] = (int)g.BrothelQuality; e["share"] = g.WorkerShare;
+        var ms = w.Members(g).ToList();
+        e["workers"] = ms.Count(m => w.RoleOf(m, g)?.Kind == RoleKind.Worker);
+        e["bouncers"] = ms.Count(m => w.RoleOf(m, g)?.Kind == RoleKind.Bouncer);
+        e["touts"] = ms.Count(m => w.RoleOf(m, g)?.Kind == RoleKind.Tout);
+        var intel = new Godot.Collections.Array();
+        foreach (var it in w.IntelOf(g).Reverse().Take(15))
+            intel.Add(new Godot.Collections.Dictionary { ["text"] = it.Text, ["kind"] = it.Kind, ["year"] = it.Day / w.Config.DaysPerYear });
+        e["intel"] = intel;
+        return e;
+    }
+
+    public bool SetBrothel(int id, int quality, float share)
+    {
+        var g = Commandable(id);
+        if (g == null) return false;
+        _w!.SetBrothel(g, quality, share);
+        return true;
     }
 
     /// <summary>붙잡힌 사람 창: 사람마다 상태, 햇수, 집, 배치, 할 수 있는 처리.</summary>

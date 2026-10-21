@@ -84,6 +84,8 @@ public sealed class Group
     public int RecruitTarget = -2;   // 모집이 데려갈 곳(R8): -2 자기 갈래(포섭), -1 세력원 집, 그 밖은 같은 세력 갈래 Id
     public bool Conscript;           // 강제 징집(R8)
     public bool Kill;                // 공격 뒤 사살(아니면 포획, R9)
+    public byte BrothelQuality = 2;  // 유곽 질 0~4(R11)
+    public float WorkerShare = 0.5f; // 유곽 일꾼 몫(R11)
     public readonly HashSet<int> Hostile = new();   // 지정한 적대 집(R9)
     public int LastOffering = -1;
 }

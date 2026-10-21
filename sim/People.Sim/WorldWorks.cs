@@ -420,22 +420,22 @@ public sealed partial class World
         var p = People; var hh = Households;
         float value = _sexTradeByVillage.GetValueOrDefault(v);
         if (value <= 0f) return;
-        float cut = 0.2f * value * MathF.Min(1f, weight * 2f);
+        float cut = (1f - unit.WorkerShare) * 0.4f * value * MathF.Min(1f, weight * 2f) * (0.5f + 0.25f * unit.BrothelQuality);
         // 몫은 이 조직에 든 일꾼(스스로 든 어른)의 집에서만 나간다. 대신 보호받아 우두머리를 좋게 본다
         var workers = new List<int>();
         foreach (var g in Subtree(root))
             foreach (int m in MembersFast(g))
-                if (p.JobOf[m] == (byte)Job.SexWorker && AgeYears(m) >= 16 && hh.IsAlive(p.Household[m]) && hh.Village[p.Household[m]] == v && !workers.Contains(m)) workers.Add(m);
+                if (p.JobOf[m] == (byte)Job.SexWorker && AgeYears(m) >= 16 && !IsCaptive(m) && hh.IsAlive(p.Household[m]) && hh.Village[p.Household[m]] == v && !workers.Contains(m)) workers.Add(m);
         if (workers.Count == 0) return;
         foreach (int w in workers)
         {
             int h = p.Household[w];
             float take = MathF.Min(cut / workers.Count, MathF.Max(0f, hh.Food[h] * 0.3f));
             hh.Food[h] -= take;
-            Social.Add(p, w, p.Uid[leader], 3f);
             Stats.BrothelCut += take;
             Earn(root, take);
         }
+        BrothelYear(root, unit, v, workers.Where(w => InGroup(w, unit)).ToList(), leader);
     }
 
     /// <summary>선동: 남의 세력의 마을에서 그 지배자를 보는 가장들의 눈을 깎는다. 하는 만큼 새어 나간다.</summary>

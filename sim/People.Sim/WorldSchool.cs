@@ -76,7 +76,7 @@ public sealed partial class World
         {
             Verb.Guard or Verb.Chase or Verb.Raid or Verb.Attack or Verb.Mercenary or Verb.Train or Verb.Escort => GroupKind.Watch,
             Verb.Worship or Verb.Preach or Verb.Charity => GroupKind.Brotherhood, Verb.Teach => GroupKind.School, Verb.Trade => GroupKind.Company,
-            Verb.Produce => GroupKind.Workshop, Verb.Survey => GroupKind.Inspectors, _ => t.Kind,
+            Verb.Produce => GroupKind.Workshop, Verb.Survey => GroupKind.Inspectors, Verb.Brothel => GroupKind.Brothel, _ => t.Kind,
         };
     }
 

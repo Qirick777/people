@@ -759,7 +759,9 @@ public sealed partial class World
         FactionYear();
         AuthorityYear();
         VisibilityYear();
+        BrothelBoostYear();
         WorkYear();
+        IntelYear();
         TeachYear();
         EducationYear();
         ReligionYear();

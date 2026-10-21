@@ -609,6 +609,11 @@ func _open_orgs() -> void:
 				fb2.tooltip_text = "헌금 회칙과 바치기. 믿음이 깊은 신도는 광신도가 되어 떠나지 않고 굶어도 낸다"
 				fb2.pressed.connect(func(): _open_faith(id, e["name"]))
 				r.add_child(_center(fb2))
+			if e.get("brothel", false):
+				var bb := UI.ghost("유곽")
+				bb.tooltip_text = "질, 일꾼 몫, 손님에게서 들은 소식"
+				bb.pressed.connect(func(): _open_brothel(id, e["name"]))
+				r.add_child(_center(bb))
 			if int(e.get("captives", 0)) > 0:
 				var cpb := UI.ghost("붙잡힌 사람 %d" % int(e["captives"]))
 				cpb.tooltip_text = "가둬 둠, 갈래에 둠, 몸값, 풀어 줌, 처형"
@@ -1516,6 +1521,58 @@ func _open_company(id: int, name: String) -> void:
 			for line in host.DrainChronicle(): _log(line)
 			_open_company(id, name))
 		org_box.add_child(cb)
+	_show_panel(org_panel)
+
+
+## 유곽: 질, 일꾼 몫, 들은 소식.
+func _open_brothel(id: int, name: String) -> void:
+	var info: Dictionary = host.BrothelInfo(id)
+	if info.is_empty():
+		_open_orgs()
+		return
+	org_title.text = name + " · 유곽"
+	for c in org_box.get_children(): c.queue_free()
+	var back := UI.ghost("← 조직으로")
+	back.pressed.connect(_open_orgs)
+	org_box.add_child(back)
+	org_box.add_child(UI.label("일꾼 %d · 경호 %d · 호객꾼 %d" % [int(info["workers"]), int(info["bouncers"]), int(info["touts"])], 13, UI.INK, true))
+	org_box.add_child(UI.label("질이 높을수록 손님이 늘고 몫이 커지지만 일꾼 한 사람에 한 해 은화 1.5 × 질이 든다. 일꾼 몫이 50%보다 낮으면 일꾼이 떠난다", 12, UI.MUTED))
+	var q := int(info["quality"])
+	var qrow := HBoxContainer.new()
+	qrow.add_theme_constant_override("separation", 0)
+	qrow.add_child(_center(UI.label("질 ", 12, UI.MUTED)))
+	var qnames := ["허름", "낮음", "보통", "좋음", "최고"]
+	for k in 5:
+		var b := Button.new()
+		b.text = qnames[k]
+		b.add_theme_font_size_override("font_size", 12)
+		UI.segment(b, k == q, k == 0, k == 4)
+		var kv := k
+		b.pressed.connect(func():
+			host.SetBrothel(id, kv, float(info["share"]))
+			_open_brothel(id, name))
+		qrow.add_child(b)
+	org_box.add_child(qrow)
+	var srow := HBoxContainer.new()
+	srow.add_theme_constant_override("separation", 0)
+	srow.add_child(_center(UI.label("일꾼 몫 ", 12, UI.MUTED)))
+	var shares := [0.2, 0.35, 0.5, 0.65, 0.8]
+	for k in shares.size():
+		var b := Button.new()
+		b.text = "%d%%" % int(shares[k] * 100)
+		b.add_theme_font_size_override("font_size", 12)
+		UI.segment(b, abs(float(info["share"]) - shares[k]) < 0.01, k == 0, k == shares.size() - 1)
+		var sv: float = shares[k]
+		b.pressed.connect(func():
+			host.SetBrothel(id, q, sv)
+			_open_brothel(id, name))
+		srow.add_child(b)
+	org_box.add_child(srow)
+	org_box.add_child(UI.label("들은 소식(두 해 지나면 낡는다. 비밀을 들으면 우두머리가 알게 되어 갈취를 쓸 수 있다)", 13, UI.MUTED, true))
+	if (info["intel"] as Array).is_empty():
+		org_box.add_child(UI.label("없음", 12, UI.INK))
+	for it in info["intel"]:
+		org_box.add_child(UI.label("%d년 · %s" % [int(it["year"]), it["text"]], 12, UI.INK))
 	_show_panel(org_panel)
 
 
@@ -2698,6 +2755,9 @@ func _run_autotest() -> void:
 				await _snap("live_budget.png")
 				org_panel.visible = false
 				print("autotest: 예산 갈래 ", (host.BudgetInfo(int(sorgs[0]["id"])).get("units", []) as Array).size())
+				_open_brothel(int(sorgs[0]["id"]), sorgs[0]["name"])
+				await _snap("live_brothel.png")
+				org_panel.visible = false
 				_open_captives(int(sorgs[0]["id"]), sorgs[0]["name"])
 				await _snap("live_captives.png")
 				org_panel.visible = false

@@ -38,7 +38,7 @@ public sealed partial class World
         if (t == null) return "모집단";
         return DestKind(t) switch
         {
-            GroupKind.Watch => "모병단", GroupKind.Brotherhood => "선교단", GroupKind.School => "학생 모집", GroupKind.Company or GroupKind.Workshop => "일꾼 모집", _ => "모집단",
+            GroupKind.Watch => "모병단", GroupKind.Brotherhood => "선교단", GroupKind.School => "학생 모집", GroupKind.Company or GroupKind.Workshop or GroupKind.Brothel => "일꾼 모집", _ => "모집단",
         };
     }
 
@@ -110,6 +110,15 @@ public sealed partial class World
                         }
                         continue;
                     }
+                case GroupKind.Brothel:
+                    // 스스로 드는 어른만: 붙잡힌 사람, 빚에 묶인 사람, 16세 아래는 들이지 않는다
+                    if (AgeYears(i) is < 16 or > 40 || IsCaptive(i) || DebtOf(h) > 0f) continue;
+                    pr = 0.03f + 0.3f * dest.WorkerShare + 0.75f * poor + (p.JobOf[i] == (byte)Job.SexWorker ? 0.3f : 0f)
+                         - 0.3f * DoctrineOn(i, Doctrine.Chastity) + 0.2f * DoctrineOn(i, Doctrine.Liberty);
+                    if (!_rng.Chance(Math.Clamp(pr * mult * JoinFactor(root, i), 0f, 0.9f)) || !JoinGroup(i, dest)) continue;
+                    if (p.JobOf[i] != (byte)Job.SexWorker) { p.JobOf[i] = (byte)Job.SexWorker; Stats.NewSexWorkers++; }
+                    Stats.Recruited++;
+                    continue;
                 default:
                     if (!Adult(i)) continue;
                     float sk = kind == GroupKind.Company ? p.GetSkill(i, Skill.Trade) : MathF.Max(p.GetSkill(i, Skill.Craft), p.GetSkill(i, Skill.Carpentry));

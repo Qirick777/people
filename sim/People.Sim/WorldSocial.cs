@@ -436,7 +436,7 @@ public sealed partial class World
                     float loose = (1f - p.Piety[i]) * (1f - 0.5f * p.Get(i, Trait.Caution));
                     float attract = Math.Clamp((MateScoreNoKin(i, target) - Config.AffairAttractFloor) * 2f, 0f, 1f);
                     wts[(int)InteractionId.Affair] = Config.AffairDrive * loose * cold * attract;
-                    wts[(int)InteractionId.SexTrade] = hh.Food[ih] > 40f ? Config.SexTradeDrive * loose * (sp >= 0 ? cold : 1f) * SexAppeal(i, target) : 0f;
+                    wts[(int)InteractionId.SexTrade] = hh.Food[ih] > 40f ? Config.SexTradeDrive * loose * (sp >= 0 ? cold : 1f) * SexAppeal(i, target) * BrothelBoost(hh.Village[ih]) : 0f;
                 }
                 float tot = 0;
                 for (int k = 0; k < wts.Length; k++) tot += wts[k];

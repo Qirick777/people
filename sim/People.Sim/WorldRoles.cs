@@ -1,7 +1,7 @@
 namespace People.Sim;
 
 /// <summary>세력 안 직책. 새 직책은 여기에 값을 더하고 아래 등록부에 정의를 더한다.</summary>
-public enum RoleKind : byte { Member, Commander, Treasurer, Liaison, Teacher, Student, Crafter, Priest }
+public enum RoleKind : byte { Member, Commander, Treasurer, Liaison, Teacher, Student, Crafter, Priest, Worker, Bouncer, Tout }
 
 /// <summary>임금 다섯 단계.</summary>
 public enum WageLevel : byte { None, Low, Normal, High, Lavish }
@@ -57,6 +57,7 @@ public sealed partial class World
         Roles.Add(new RoleDef { Kind = RoleKind.Crafter, Name = "장인", AppliesTo = (w, u) => u.Tasks.Any(t => t.Verb == Verb.Produce),
             Holds = (w, i, u) => u.Tasks.Any(t => t.Verb == Verb.Produce) && w.IsMaker(i) });
         Roles.Add(new RoleDef { Kind = RoleKind.Member, Name = "조직원", AppliesTo = (w, u) => true, Holds = (w, i, u) => true });
+        InitBrothelRoles();
         // 붙잡힌 사람은 몸이 닿는 상호작용(성관계, 혼인)을 걸지도 받지도 않는다
         OfferRules.Add((w, def, c) => !((def.Sexual || def.Intimate) && (w.IsCaptive(c.Actor) || w.IsCaptive(c.Target) || (c.Third >= 0 && w.IsCaptive(c.Third)))));
     }
