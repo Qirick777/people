@@ -531,6 +531,7 @@ switch (cmd)
                 var ten = Enumerable.Range(0, w.Households.HighWater).Where(h => w.Households.IsAlive(h) && w.ClassOf(h) == LandClass.Tenant).Select(h => w.IncomeOf(h)).ToList();
                 var gangs = w.Groups.Where(g => g.Alive && g.Kind == GroupKind.Bandits && World.IsTop(g)).ToList();
                 Console.WriteLine($"   소작 집 한 해 소출 {(ten.Count > 0 ? ten.Average(x => x.own + x.tenant - x.rent) : 0):0}(식구 {(ten.Count > 0 ? Enumerable.Range(0, w.Households.HighWater).Where(h => w.Households.IsAlive(h) && w.ClassOf(h) == LandClass.Tenant).Average(h => w.Households.Members[h]) : 0):0.0}), 도적 떼 {gangs.Count}: " + string.Join(" ", gangs.Select(g => $"{g.Total}명/{g.LastIncome:0}")));
+                Console.WriteLine($"   학교 {w.Groups.Count(World.IsSchool)}곳, 학생 {w.Stats.Students}, 올해 졸업 {w.Stats.Graduated}, 들어옴 {w.Stats.Enrolled}, 감시 세기 합 {w.Groups.Where(g => g.Alive).Sum(g => g.SurveyOwn):0.0}, 빈 지휘 {w.Stats.VacantUnits}, 장악도 평균 {w.Stats.MeanGrip:0.00}");
                 Console.WriteLine($"{y + 1}년: 사람 {w.People.AliveCount} 약탈 {raids}(성공 {won}, 떼 {gang}/{gt}번, 목표 없음 {gn}, 떼 약탈량 {loot:0}, 죽음 {rd}) 제안 {off} 받음 {taken} 바침 {pl} 떨어짐 {br} 누름 {sup}(이김 {supw}) | 공개 조직 {big.Count} 중 붙음 {att}, 8명 넘는 것 {big8} 중 붙음 {att8} | " +
                                   string.Join(" ", big.GroupBy(g => g.Kind).Select(k => $"{World.GroupKindName(k.Key)} {k.Count(World.IsAttached)}/{k.Count()}")));
             }

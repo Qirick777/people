@@ -569,6 +569,11 @@ func _open_orgs() -> void:
 			lb.tooltip_text = "무엇을 얼마나 가르칠지(가르치는 만큼 일이 준다)"
 			lb.pressed.connect(func(): _open_org_lessons(id, e["name"]))
 			r.add_child(_center(lb))
+			if e["school"]:
+				var sb2 := UI.ghost("학교")
+				sb2.tooltip_text = "누구를 얼마 동안 무엇을 가르치고, 끝나면 어디로 보낼지"
+				sb2.pressed.connect(func(): _open_school(id, e["name"]))
+				r.add_child(_center(sb2))
 			var wb := UI.ghost("일 비중")
 			wb.tooltip_text = "여러 일을 고르고 비중을 나눈다. 비중이 정체(이름)를 정한다"
 			wb.pressed.connect(func(): _open_org_weights(id, e["name"]))
@@ -1131,6 +1136,91 @@ func _open_org_weights(id: int, name: String) -> void:
 		for line in host.DrainChronicle(): _log(line)
 		_open_orgs())
 	org_box.add_child(apply)
+	_show_panel(org_panel)
+
+
+## 학교 설정: 받는 사람, 기간, 과목 비중, 수업료, 졸업 뒤 갈 곳.
+func _open_school(id: int, name: String) -> void:
+	var info: Dictionary = host.SchoolInfo(id)
+	if info.is_empty():
+		_open_orgs()
+		return
+	org_title.text = name + " · 학교"
+	for c in org_box.get_children(): c.queue_free()
+	var back := UI.ghost("← 조직으로")
+	back.pressed.connect(_open_orgs)
+	org_box.add_child(back)
+	org_box.add_child(UI.label("학생 %d / 받을 수 있는 수 %d · 교사 %d명 · 올해 들어옴 %d, 졸업 %d, 달아남 %d" % [int(info["students"]), int(info["capacity"]), int(info["teachers"]), int(info["enrolled"]), int(info["graduated"]), int(info["fled"])], 13, UI.INK, true))
+	var note := UI.label("교사 한 명이 4 + 6 × 말솜씨 명을 받는다. 과목 비중이 25% 아래면 0.4까지, 50% 넘으면 0.8까지 오른다. 교사 솜씨가 위를 막는다. 배우는 동안 일손은 절반이다.", 12, UI.MUTED)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note.custom_minimum_size = Vector2(600, 0)
+	org_box.add_child(note)
+	var st := info.duplicate(true)
+	var wmap := {}
+	for wv in info["weights"]: wmap[int(wv["lesson"])] = float(wv["weight"])
+	# 고르기 줄 하나: 이름, 보기, 고른 값을 st 에 넣는다
+	var seg := func(label: String, opts: Array, cur: int, on_pick: Callable) -> void:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 0)
+		var lab := UI.label(label + " ", 12, UI.MUTED)
+		lab.custom_minimum_size = Vector2(80, 0)
+		row.add_child(_center(lab))
+		var btns := []
+		for k in opts.size():
+			var b := Button.new()
+			b.text = str(opts[k])
+			b.add_theme_font_size_override("font_size", 12)
+			UI.segment(b, k == cur, k == 0, k == opts.size() - 1)
+			btns.append(b)
+			row.add_child(b)
+		for k in btns.size():
+			var bk: Button = btns[k]
+			bk.pressed.connect(func():
+				on_pick.call(k)
+				for j in btns.size(): UI.segment(btns[j], j == k, j == 0, j == btns.size() - 1))
+		org_box.add_child(row)
+	var ages := [[8, 14], [10, 18], [14, 25], [16, 40]]
+	var age_cur := 1
+	for k in ages.size():
+		if int(info["minAge"]) == ages[k][0] and int(info["maxAge"]) == ages[k][1]: age_cur = k
+	seg.call("나이", ["8~14세", "10~18세", "14~25세", "16~40세"], age_cur, func(k):
+		st["minAge"] = ages[k][0]
+		st["maxAge"] = ages[k][1])
+	seg.call("학력", ["아무나", "글 모르는 사람만"], 0 if float(info["maxLetters"]) >= 1.0 else 1, func(k): st["maxLetters"] = 1.0 if k == 0 else 0.2)
+	var tal := [0.0, 0.5, 0.7]
+	seg.call("재능", ["아무나", "0.5 이상", "0.7 이상"], tal.find(snappedf(float(info["talentMin"]), 0.1)) if tal.has(snappedf(float(info["talentMin"]), 0.1)) else 0, func(k): st["talentMin"] = tal[k])
+	seg.call("받는 곳", ["세력 안만", "바깥도"], 1 if info["outsiders"] else 0, func(k): st["outsiders"] = k == 1)
+	var yrs := [1, 2, 3, 4, 6]
+	seg.call("기간", ["1년", "2년", "3년", "4년", "6년"], max(0, yrs.find(int(info["years"]))), func(k): st["years"] = yrs[k])
+	var fees := [0.0, 2.0, 5.0, 10.0]
+	seg.call("수업료", ["없음", "2", "5", "10"], max(0, fees.find(float(info["fee"]))), func(k): st["fee"] = fees[k])
+	org_box.add_child(UI.label("과목 비중", 12, UI.MUTED, true))
+	var steps := [0, 25, 50, 75, 100]
+	for wv in info["weights"]:
+		var lsn := int(wv["lesson"])
+		var near: int = 0
+		for x in steps:
+			if abs(x - int(wv["weight"])) < abs(near - int(wv["weight"])): near = x
+		seg.call(wv["name"], ["0", "25", "50", "75", "100"], steps.find(near), func(k): wmap[lsn] = float(steps[k]))
+	var dests := ["세력원으로", "정한 조직으로", "성적대로", "의무 복무 3년", "교사로 남음"]
+	seg.call("졸업 뒤", dests, int(info["dest"]), func(k): st["dest"] = k)
+	var units: Array = info["units"]
+	if not units.is_empty():
+		var names := []
+		var cur_u := 0
+		for k in units.size():
+			names.append(units[k]["name"])
+			if int(units[k]["id"]) == int(info["destUnit"]): cur_u = k
+		seg.call("보낼 조직", names, cur_u, func(k): st["destUnit"] = int(units[k]["id"]))
+		if int(info["destUnit"]) < 0: st["destUnit"] = int(units[0]["id"])
+	var apply := UI.action("이대로 정한다", "", -1.0, false)
+	apply.pressed.connect(func():
+		st["weights"] = wmap
+		host.SetSchool(id, st)
+		for line in host.DrainChronicle(): _log(line)
+		_open_school(id, name))
+	org_box.add_child(apply)
+	_show_panel(org_panel)
 
 
 ## 직책에 앉히기: role 0 지휘자, 1 곳간지기, 2 연락책.
@@ -1159,6 +1249,7 @@ func _open_appoint(id: int, role: int, title: String) -> void:
 			for line in host.DrainChronicle(): _log(line)
 			_open_orgs())
 		org_box.add_child(b)
+	_show_panel(org_panel)
 
 
 ## '거사에 끌어들이기' 상호작용 번호(SimHost 가 이름으로 알려 준다).
@@ -1786,6 +1877,7 @@ func _run_autotest() -> void:
 			await _snap("live_orgs_roles.png")
 			var o2: Dictionary = host.OrgPanel().filter(func(o): return int(o["id"]) == oid)[0]
 			print("autotest: 일 비중 ", o2["tasks"], " · 곳간지기 ", o2["treasurer"])
+
 		org_panel.visible = false
 	# 재판: 주군이 없는 집이 당한 사건은 마을 자경단 우두머리가 맡는다. 방금 세운 자경단의 집으로 모든 사건을 직접 판결한다
 	host.JudgeAll = true
@@ -1934,6 +2026,21 @@ func _run_autotest() -> void:
 			_open_rise()
 			await _snap("live_gen_progress.png")
 			rise_panel.visible = false
+			break
+	# 자리 없는 배운 사람이 학교를 세운다
+	for e in gsc:
+		if e["what"] == "자리 없는 배운 사람의 집":
+			_take_house(int(e["id"]))
+			_on_player_changed()
+			_set_speed(0)
+			while not host.Ready: await get_tree().create_timer(0.2).timeout
+			print("autotest: ", host.DoSelf(actor, "found:7"))
+			var sorgs: Array = host.OrgPanel().filter(func(o): return o["command"] and int(o["depth"]) == 0 and o["school"])
+			if sorgs.size() > 0:
+				_open_school(int(sorgs[0]["id"]), sorgs[0]["name"])
+				await _snap("live_school.png")
+				org_panel.visible = false
+				print("autotest: 학교 설정 ", host.SchoolInfo(int(sorgs[0]["id"])).get("years", -1), "년")
 			break
 	get_tree().quit()
 

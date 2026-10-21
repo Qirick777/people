@@ -1,7 +1,7 @@
 namespace People.Sim;
 
 /// <summary>갈래가 가르치는 것.</summary>
-public enum Lesson : byte { None, Arms, Letters, Trade, Craft, Doctrine, Succession }
+public enum Lesson : byte { None, Arms, Letters, Trade, Craft, Doctrine, Succession, Loyalty }
 
 /// <summary>
 /// O3 교육.
@@ -20,7 +20,7 @@ public sealed partial class World
 
     public static string LessonName(Lesson l) => l switch
     {
-        Lesson.Arms => "무예", Lesson.Letters => "글", Lesson.Trade => "장사", Lesson.Craft => "공예", Lesson.Doctrine => "교리", Lesson.Succession => "이음", _ => "없음",
+        Lesson.Arms => "무예", Lesson.Letters => "글", Lesson.Trade => "장사", Lesson.Craft => "공예", Lesson.Doctrine => "교리", Lesson.Succession => "이음", Lesson.Loyalty => "충성", _ => "없음",
     };
 
     private static Skill? LessonSkill(Lesson l) => l switch
@@ -68,9 +68,8 @@ public sealed partial class World
             var root = RootOf(g);
             if (!g.TeachManual) AutoLesson(g, root);
             KeepHeir(g);
-            // 가르침 일(Teach)을 맡은 갈래는 그 무게만큼 가르친다(학교). 가르칠 것을 안 정했으면 글
-            float share = MathF.Max(g.TeachShare, TeachWeight(g));
-            if (share > g.TeachShare && g.Lesson == Lesson.None) g.Lesson = Lesson.Letters;
+            // 조직원끼리 모여 배우는 몫. 학생을 받는 학교 일은 EducationYear 가 따로 한다
+            float share = g.TeachShare;
             if (g.Lesson == Lesson.None || share <= 0f) { if (g.Home < 0 && root.Home < 0) g.Inherit = MathF.Max(0f, g.Inherit - 0.05f); continue; }
             var ms = MembersFast(g);
             if (ms.Count == 0) continue;
@@ -95,9 +94,10 @@ public sealed partial class World
                     Stats.Taught++;
                 }
             }
-            else if (g.Lesson == Lesson.Doctrine)
+            else if (g.Lesson is Lesson.Doctrine or Lesson.Loyalty)
             {
-                bool faith = root.Kind == GroupKind.Brotherhood || Subtree(root).Any(x => x.Tasks.Any(t => t.Verb == Verb.Preach));
+                // 충성은 신앙 없이 우두머리를 보는 눈만 올린다
+                bool faith = g.Lesson == Lesson.Doctrine && (root.Kind == GroupKind.Brotherhood || Subtree(root).Any(x => x.Tasks.Any(t => t.Verb == Verb.Preach)));
                 foreach (int m in ms.Take(40))
                 {
                     if (p.Uid[m] == root.LeaderUid) continue;

@@ -566,6 +566,7 @@ public partial class SimHost : Node
                     ["treasurer"] = depth == 0 && g.TreasurerUid >= 0 ? Names.Full(w.Lineage, g.TreasurerUid) : "",
                     ["liaison"] = depth == 0 && g.LiaisonUid >= 0 ? Names.Full(w.Lineage, g.LiaisonUid) : "",
                     ["survey"] = depth == 0 ? w.SurveyOf(g) : 0f,
+                    ["school"] = World.IsSchool(g),
                     ["lordAct"] = act?.name ?? "",
                     ["lordChance"] = act?.chance ?? 0f,
                     ["mineIn"] = mine.Any(i => w.InGroup(i, g)),
@@ -589,7 +590,7 @@ public partial class SimHost : Node
                     ["heir"] = "", ["inherit"] = 0f, ["joinRule"] = (int)root.JoinRule, ["shareRule"] = (int)root.ShareRule, ["treasury"] = 0f,
                     ["command"] = false, ["canSplit"] = false, ["mineIn"] = true, ["attached"] = false, ["lordAct"] = "", ["lordChance"] = 0f,
                     ["identity"] = World.GroupKindName(g.Kind), ["shares"] = "", ["vacant"] = false, ["cmdFactor"] = 1f, ["over"] = 0f, ["grip"] = 0f,
-                    ["treasurer"] = "", ["liaison"] = "", ["survey"] = 0f,
+                    ["treasurer"] = "", ["liaison"] = "", ["survey"] = 0f, ["school"] = false,
                 });
             }
         }
@@ -854,6 +855,56 @@ public partial class SimHost : Node
         }
         w.SetUnitWeights(g, list);
         w.Chronicle.Add((w.Day, $"{g.Name}의 일: {string.Join(", ", g.Tasks.Select(t => $"{World.VerbName(t.Verb)} {(int)MathF.Round(t.Weight * 100f)}%"))}"));
+        return true;
+    }
+
+    /// <summary>학교 설정과 지금(가르침 일이 있는 갈래만). 비면 학교가 아니다.</summary>
+    public Godot.Collections.Dictionary SchoolInfo(int id)
+    {
+        var e = new Godot.Collections.Dictionary();
+        var g = Commandable(id);
+        if (g == null || !World.IsSchool(g)) return e;
+        var w = _w!;
+        var plan = w.PlanOf(g);
+        var (st, te, cap) = w.SchoolCount(g);
+        var weights = new Godot.Collections.Array();
+        foreach (var l in World.SchoolSubjects)
+            weights.Add(new Godot.Collections.Dictionary { ["lesson"] = (int)l, ["name"] = World.LessonName(l), ["weight"] = (int)MathF.Round(plan.Weights[(int)l] * 100f), ["cap"] = World.DepthCap(plan.Weights[(int)l]) });
+        var units = new Godot.Collections.Array();
+        var root = w.RootOf(g);
+        foreach (var u in w.Groups.Where(x => x.Alive && x.Id != g.Id && w.RootOf(x).Id == root.Id))
+            units.Add(new Godot.Collections.Dictionary { ["id"] = u.Id, ["name"] = u.Name });
+        e["minAge"] = plan.MinAge; e["maxAge"] = plan.MaxAge; e["maxLetters"] = plan.MaxLetters; e["talentMin"] = plan.TalentMin;
+        e["outsiders"] = plan.Outsiders; e["years"] = plan.Years; e["fee"] = plan.Fee; e["dest"] = (int)plan.Dest; e["destUnit"] = plan.DestUnit;
+        e["meritLine"] = plan.MeritLine; e["serviceYears"] = plan.ServiceYears; e["weights"] = weights; e["units"] = units;
+        e["students"] = st; e["teachers"] = te; e["capacity"] = cap; e["graduated"] = plan.Graduated; e["enrolled"] = plan.Enrolled; e["fled"] = plan.Fled;
+        return e;
+    }
+
+    /// <summary>학교 설정을 바꾼다. d 의 열쇠는 SchoolInfo 와 같다(weights 는 lesson → 0~100).</summary>
+    public bool SetSchool(int id, Godot.Collections.Dictionary d)
+    {
+        var g = Commandable(id);
+        if (g == null || !World.IsSchool(g)) return false;
+        var w = _w!;
+        var plan = new SchoolPlan
+        {
+            MinAge = (int)d["minAge"], MaxAge = (int)d["maxAge"], MaxLetters = (float)d["maxLetters"], TalentMin = (float)d["talentMin"],
+            Outsiders = (bool)d["outsiders"], Years = (int)d["years"], Fee = (float)d["fee"], Dest = (SchoolDest)(int)d["dest"], DestUnit = (int)d["destUnit"],
+            MeritLine = (float)d["meritLine"], ServiceYears = (int)d["serviceYears"],
+        };
+        var ws = d["weights"].AsGodotDictionary();
+        foreach (var l in World.SchoolSubjects) if (ws.ContainsKey((int)l)) plan.Weights[(int)l] = (float)ws[(int)l];
+        w.SetPlan(g, plan);
+        var pl = w.PlanOf(g);
+        string dest = pl.Dest switch
+        {
+            SchoolDest.Unit => $"{w.GroupById(pl.DestUnit)?.Name ?? "정한 조직"}으로",
+            SchoolDest.Merit => $"성적이 {pl.MeritLine:0.0} 넘으면 {w.GroupById(pl.DestUnit)?.Name ?? "정한 조직"}으로",
+            SchoolDest.Service => $"{w.GroupById(pl.DestUnit)?.Name ?? "정한 조직"}에서 {pl.ServiceYears}년 복무",
+            SchoolDest.Teacher => "교사로 남음", _ => "세력원으로",
+        };
+        w.Chronicle.Add((w.Day, $"{g.Name}: {pl.MinAge}~{pl.MaxAge}세, {pl.Years}년, {string.Join("·", World.SchoolSubjects.Where(l => pl.Weights[(int)l] > 0f).Select(l => $"{World.LessonName(l)} {(int)MathF.Round(pl.Weights[(int)l] * 100f)}%"))}, 졸업 뒤 {dest}"));
         return true;
     }
 

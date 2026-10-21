@@ -756,6 +756,7 @@ public sealed partial class World
         VisibilityYear();
         WorkYear();
         TeachYear();
+        EducationYear();
         AuthorityStats();
         _memberIdx = null;
         IdentityYear();

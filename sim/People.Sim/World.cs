@@ -530,6 +530,7 @@ public sealed partial class World
             float dil = p.Get(i, Trait.Diligence), str = MathF.Min(1f, p.Get(i, Trait.Strength));
             hh.Need[h] += NeedByAge(age) * (0.8f + 0.2f * dil + 0.2f * str);
             float lab = LaborByAge(age) * (0.7f + 0.6f * dil) * (0.8f + 0.4f * str);
+            if (_students.ContainsKey(p.Uid[i])) lab *= 0.75f;   // 배우는 동안 일손은 3/4(농번기에는 쉬는 반나절 공부)
             if (p.JobOf[i] != 0) lab *= Config.JobFarmShare;
             hh.Labor[h] += lab;
         }
