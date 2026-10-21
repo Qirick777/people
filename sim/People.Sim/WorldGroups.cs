@@ -162,7 +162,7 @@ public sealed partial class World
         d[(int)InteractionId.Recruit] = new InteractionDef
         {
             Id = InteractionId.Recruit, Name = "조직에 들이기", Category = InteractionCategory.Rule,
-            Can = (w, c) => w.Adult(c.Target) && w.LedGroupFor(c.Actor, c.Target) != null && w.GroupsOf(c.Target).Count() < GroupSlots,
+            Can = (w, c) => w.Adult(c.Target) && w.LedGroupFor(c.Actor, c.Target) is { } lg && !w.CapFull(lg) && w.GroupsOf(c.Target).Count() < GroupSlots,
             // 그 모임을 바라는 마음 + 우두머리를 보는 눈
             Accept = (w, c) =>
             {

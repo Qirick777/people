@@ -350,6 +350,7 @@ public sealed partial class World
     /// <summary>스스로 찾아와 드는 사람에게 곱하는 값. 숨긴 조직은 0, 일부 은폐는 조직원 가족만.</summary>
     private float JoinFactor(Group g, int i)
     {
+        if (CapFull(g)) return 0f;   // 사람 수 제한을 받아들인 조직은 더 받지 않는다
         switch (g.Visibility)
         {
             case Visibility.Hidden: return 0f;

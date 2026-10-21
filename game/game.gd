@@ -538,6 +538,11 @@ func _open_orgs() -> void:
 			tv.add_child(UI.label("지휘자 없음: 일이 저절로 내려가지 않고 가장 큰 일 하나만 한다", 12, UI.RISK))
 		if float(e["over"]) > 0.0:
 			tv.add_child(UI.label("지휘 범위를 %d%% 넘음: 일과 싸움 힘 %d%%, 해마다 사람이 떠난다. 갈래를 나누고 지휘자를 앉힌다" % [int(float(e["over"]) * 100.0), int(float(e["cmdFactor"]) * 100.0)], 12, UI.RISK))
+		if depth == 0 and float(e["threat"]) >= 0.3:
+			var stage_names := ["", "경고", "조건 걸기", "끌어들이기나 누르기"]
+			var tt := float(e["threat"])
+			var stg := 1 if tt < 0.5 else (2 if tt < 0.8 else 3)
+			tv.add_child(UI.label("드러난 무력 %.1f · 지배자가 느끼는 위협 %.2f(%s 단계) · 걸린 조건 %s" % [float(e["visForce"]), tt, stage_names[stg], e["condition"]], 12, UI.RISK))
 		if float(e["arms"]) > 0.0 or e["fullTime"]:
 			tv.add_child(UI.label(("상근 · " if e["fullTime"] else "") + "무구 보급 %d%%" % int(float(e["arms"]) * 100.0), 12, UI.MUTED))
 		if depth > 0 and float(e["over"]) <= 0.0 and not e["vacant"]:
@@ -857,7 +862,7 @@ func _open_rise() -> void:
 			for o in lorgs:
 				var orow := HBoxContainer.new()
 				orow.add_theme_constant_override("separation", 6)
-				var on := UI.label("%s · %s %d명 · %s%s" % [o["name"], o["kind"], int(o["total"]), o["leader"], " · 내게 붙음" if o["attached"] else ""], 13)
+				var on := UI.label("%s · %s %d명 · %s%s · 위협 %.2f%s" % [o["name"], o["kind"], int(o["total"]), o["leader"], " · 내게 붙음" if o["attached"] else "", float(o["threat"]), "" if o["condition"] == "없음" else " · 조건 " + o["condition"]], 13)
 				on.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 				orow.add_child(on)
 				for m in o["moves"]:
@@ -869,6 +874,15 @@ func _open_rise() -> void:
 						for line in host.DrainChronicle(): _log(line)
 						_open_rise())
 					orow.add_child(b)
+				for cd in o["conds"]:
+					var cb := UI.action(cd["name"], "", float(cd["chance"]), true)
+					cb.custom_minimum_size = Vector2(130, 38)
+					var cgid := int(cd["gid"]); var ck := int(cd["cond"])
+					cb.pressed.connect(func():
+						_set_hint(host.ImposeCondition(cgid, ck))
+						for line in host.DrainChronicle(): _log(line)
+						_open_rise())
+					orow.add_child(cb)
 				rise_box.add_child(orow)
 		var wars: Array = lt["wars"]
 		if not wars.is_empty():
@@ -888,6 +902,17 @@ func _open_rise() -> void:
 					_open_rise())
 				wg.add_child(b)
 			rise_box.add_child(wg)
+		rise_box.add_child(HSeparator.new())
+	# 남의 세력: 심어 둔 사람의 자리만큼 보인다
+	var intel: Array = host.Intel()
+	if not intel.is_empty():
+		rise_box.add_child(UI.label("남의 세력(심어 둔 사람이 보는 것)", 13, UI.MUTED, true))
+		for it in intel:
+			rise_box.add_child(UI.label("%s · %s · %s" % [it["name"], it["kind"], it["agents"]], 13, UI.INK, true))
+			var sl := UI.label(it["seen"], 12, UI.MUTED)
+			sl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			sl.custom_minimum_size = Vector2(600, 0)
+			rise_box.add_child(sl)
 		rise_box.add_child(HSeparator.new())
 	var rows: Array = host.RiseRows()
 	var titles := {"lord": "내가 눈여겨보는 세력", "riser": "나를 눈여겨보는 지배자"}

@@ -570,6 +570,9 @@ public partial class SimHost : Node
                     ["producer"] = g.Tasks.Any(t => t.Verb == Verb.Produce),
                     ["fullTime"] = g.FullTime,
                     ["arms"] = w.ArmsCov(g),
+                    ["threat"] = depth == 0 ? w.ThreatTo(g, out _) : 0f,
+                    ["visForce"] = depth == 0 ? w.VisibleForce(g) : 0f,
+                    ["condition"] = depth == 0 ? World.ConditionName(w.ConditionOf(g)) : "없음",
                     ["lordAct"] = act?.name ?? "",
                     ["lordChance"] = act?.chance ?? 0f,
                     ["mineIn"] = mine.Any(i => w.InGroup(i, g)),
@@ -593,7 +596,7 @@ public partial class SimHost : Node
                     ["heir"] = "", ["inherit"] = 0f, ["joinRule"] = (int)root.JoinRule, ["shareRule"] = (int)root.ShareRule, ["treasury"] = 0f,
                     ["command"] = false, ["canSplit"] = false, ["mineIn"] = true, ["attached"] = false, ["lordAct"] = "", ["lordChance"] = 0f,
                     ["identity"] = World.GroupKindName(g.Kind), ["shares"] = "", ["vacant"] = false, ["cmdFactor"] = 1f, ["over"] = 0f, ["grip"] = 0f,
-                    ["treasurer"] = "", ["liaison"] = "", ["survey"] = 0f, ["school"] = false, ["producer"] = false, ["fullTime"] = false, ["arms"] = 0f,
+                    ["treasurer"] = "", ["liaison"] = "", ["survey"] = 0f, ["school"] = false, ["producer"] = false, ["fullTime"] = false, ["arms"] = 0f, ["threat"] = 0f, ["visForce"] = 0f, ["condition"] = "없음",
                 });
             }
         }
@@ -1138,7 +1141,7 @@ public partial class SimHost : Node
                 ["realm"] = w.RealmName(d.From),
                 ["text"] = w.DemandTextOf(d),
                 ["date"] = $"{d.Day / w.Config.DaysPerYear + 1}년",
-                ["yes"] = d.Kind switch { InteractionId.PlotPurge => "숙청한다", InteractionId.Declare or InteractionId.OrgBreak => "놓아준다", InteractionId.OrgOffer => "들어간다", _ => "받는다" },
+                ["yes"] = d.Kind switch { InteractionId.PlotPurge => "숙청한다", InteractionId.Declare or InteractionId.OrgBreak => "놓아준다", InteractionId.OrgOffer => "들어간다", InteractionId.OrgCondition => "따른다", _ => "받는다" },
                 ["no"] = d.Kind switch { InteractionId.PlotPurge => "눈감아 준다", InteractionId.Declare => "진압한다", InteractionId.OrgBreak => "누른다", _ => "거절한다" },
             });
         }
@@ -1184,8 +1187,17 @@ public partial class SimHost : Node
                 if (!def.Can(w, c)) continue;
                 moves.Add(new Godot.Collections.Dictionary { ["id"] = (int)id, ["name"] = def.Name, ["chance"] = def.Accept(w, c), ["harsh"] = def.Harsh, ["actor"] = me, ["target"] = leader });
             }
+            // 조건 걸기(홀로 선 조직, 걸린 조건이 없을 때)
+            var conds = new Godot.Collections.Array();
+            if (!World.IsAttached(g) && w.ConditionOf(g) == OrgCondition.None)
+                foreach (var cd in new[] { OrgCondition.Cap, OrgCondition.Disarm, OrgCondition.Reveal })
+                {
+                    if (cd == OrgCondition.Reveal && g.Visibility >= Visibility.Public) continue;
+                    conds.Add(new Godot.Collections.Dictionary { ["cond"] = (int)cd, ["name"] = World.ConditionName(cd), ["chance"] = w.ConditionOdds(g, h), ["gid"] = g.Id });
+                }
             orgs.Add(new Godot.Collections.Dictionary
             {
+                ["conds"] = conds, ["threat"] = w.ThreatTo(g, out _), ["condition"] = World.ConditionName(w.ConditionOf(g)),
                 ["name"] = g.Name, ["kind"] = World.GroupKindName(g.Kind), ["total"] = g.Total, ["attached"] = World.IsAttached(g),
                 ["leader"] = Names.Full(w.Lineage, g.LeaderUid), ["moves"] = moves,
             });
@@ -1205,12 +1217,71 @@ public partial class SimHost : Node
         return e;
     }
 
+    /// <summary>내 땅의 조직에 조건을 건다. 우두머리가 받아들일지 정한다. 결과 글.</summary>
+    public string ImposeCondition(int gid, int cond)
+    {
+        if (!Ready) return "";
+        var w = _w!; var hh = w.Households;
+        int h = w.PlayerHousehold;
+        var g = w.GroupById(gid);
+        if (g == null || !hh.IsAlive(h) || !w.People.IsValid(hh.Head[h])) return "";
+        int leader = FindAlive(g.LeaderUid);
+        if (leader < 0) return "";
+        w.ForceCondition(g, (OrgCondition)cond, h, Math.Max(3, (int)(g.Total * 0.8f)));
+        var r = w.Interact(InteractionId.OrgCondition, new InteractionContext { Actor = hh.Head[h].Index, Target = leader, Third = -1 });
+        return r.Accepted ? $"{g.Name}: 조건을 받아들였다" : $"{g.Name}: 조건을 거절했다";
+    }
+
     /// <summary>세율을 정한다(8~20%). 12%보다 무거우면 아래 집들이 해마다 나를 나쁘게 본다.</summary>
     public void SetTax(int pct)
     {
         if (!Ready || _w!.PlayerHousehold < 0) return;
         _w.SetTaxRate(_w.PlayerHousehold, pct / 100f);
         _w.Chronicle.Add((_w.Day, $"세율을 {pct}%로 정했다"));
+    }
+
+    /// <summary>
+    /// 남의 세력 정보: 내 세력이 심어 둔 사람의 자리만큼 보인다. 이중 첩자가 있으면 값이 비틀린다.
+    /// 줄마다 세력 이름, 심은 사람과 자리, 보이는 것.
+    /// </summary>
+    public Godot.Collections.Array Intel()
+    {
+        var a = new Godot.Collections.Array();
+        if (!Ready) return a;
+        var w = _w!; var p = w.People;
+        int h = w.PlayerHousehold;
+        if (!w.Households.IsAlive(h)) return a;
+        var roots = new List<Group>();
+        foreach (int m in w.MembersOf(h)) foreach (var g in w.GroupsOf(m)) { var r = w.RootOf(g); if (r.LeaderUid == p.Uid[m] && !roots.Contains(r)) roots.Add(r); }
+        if (w.LordOrg(h, false) is { } lo && !roots.Contains(w.RootOf(lo))) roots.Add(w.RootOf(lo));
+        string[] roleName = { "조직원", "지휘자", "곳간지기", "측근" };
+        foreach (var root in roots)
+            foreach (var grp in w.Agents(root).GroupBy(x => x.other.Id))
+            {
+                var other = grp.First().other;
+                int best = grp.Max(x => x.role);
+                bool bent = grp.Any(x => w.IsDoubleAgent(x.person));
+                // 이중 첩자가 흘리는 값: 해시로 0.5~1.5배 비튼다
+                float Bend(float v) => bent ? v * (0.5f + ((uint)(other.Id * 2654435761u) % 1000) / 1000f) : v;
+                var seen = new List<string>();
+                foreach (var x in grp) seen.Add($"{x.unit.Name} {(int)Bend(x.unit.Members)}명 · 일 {string.Join("/", x.unit.Tasks.Select(t => World.VerbName(t.Verb)))}");
+                if (best >= 1) foreach (var x in grp.Where(x => x.role == 1)) seen.Add($"{x.unit.Name} 장악도 {Bend(x.unit.Grip):0.00}, 지휘 몫 {x.unit.CmdFactor:0.00}");
+                if (best >= 2) seen.Add($"곳간 식량 {Bend(other.Treasury):0}, 지난해 번 것 {Bend(other.LastIncome):0}");
+                if (best >= 3)
+                {
+                    int ol = FindAlive(other.LeaderUid);
+                    var plot = ol >= 0 ? w.Plots.FirstOrDefault(x => x.PlotterHouse == p.Household[ol]) : null;
+                    seen.Add(bent ? "거사: 없음(이라고 한다)" : plot != null && p.IsValid(w.Households.Head[plot.Lord]) ? $"거사를 꾸민다: {Names.Full(w.Lineage, p.Uid[w.Households.Head[plot.Lord].Index])}에게" : "거사: 없음");
+                    seen.Add($"모두 {(int)Bend(other.Total)}명, 드러난 무력 {Bend(w.VisibleForce(other)):0.0}, 지배자 위협 {Bend(w.ThreatTo(other, out _)):0.00}");
+                }
+                a.Add(new Godot.Collections.Dictionary
+                {
+                    ["name"] = other.Name, ["kind"] = World.GroupKindName(other.Kind),
+                    ["agents"] = string.Join(", ", grp.Select(x => $"{Names.Full(w.Lineage, p.Uid[x.person])}({roleName[x.role]})")),
+                    ["seen"] = string.Join("\n", seen),
+                });
+            }
+        return a;
     }
 
     public Godot.Collections.Dictionary PlotInfo()

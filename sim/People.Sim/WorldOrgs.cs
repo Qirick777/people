@@ -759,6 +759,8 @@ public sealed partial class World
         TeachYear();
         EducationYear();
         FacilityYear();
+        EstablishmentYear();
+        SpyYear();
         AuthorityStats();
         _memberIdx = null;
         IdentityYear();

@@ -203,6 +203,7 @@ public sealed partial class World
         AddOfferDefs(d);
         AddCareerDefs(d);
         AddWarDefs(d);
+        AddThreatDefs(d);
         return d;
     }
 

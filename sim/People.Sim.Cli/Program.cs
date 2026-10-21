@@ -508,6 +508,7 @@ switch (cmd)
         w.GenerateSettled(new GenOptions { Rulers = Arg("--rulers", 4), VillagesPerRuler = Arg("--vpr", 7) });
         var trackAtt = new Dictionary<int, (string, int)>();
         long bl = 0, bs = 0, ret = 0;
+        long tsn = 0, twn = 0, tcd = 0, tcp = 0, tdf = 0, tco = 0, tsp = 0, spy = 0, dbl = 0;
         long off = 0, taken = 0, pl = 0, br = 0, sup = 0, supw = 0, raids = 0, won = 0, rd = 0, gang = 0, gt = 0, gn = 0; double loot = 0;
         for (int y = 0; y < years; y++)
         {
@@ -524,6 +525,7 @@ switch (cmd)
                 }
             }
             bl += st.BelongLeft; bs += st.BelongSwitched; ret += st.Retaliations;
+            tsn += st.ThreatSeen; twn += st.ThreatWarned; tcd += st.ThreatConditions; tcp += st.ThreatComplied; tdf += st.ThreatDefied; tco += st.ThreatCoopt; tsp += st.ThreatSuppress; spy += st.SpiesFound; dbl += st.DoubleAgents;
             raids += st.Raids; won += st.RaidsWon; rd += st.RaidDeaths; gang += st.BanditRaids; gt += st.GangTries; gn += st.GangNoTarget; loot += st.GangLoot;
             off += st.OrgOffers; taken += st.OrgOffersTaken; pl += st.OrgPledges; br += st.OrgBreaks; sup += st.OrgSuppressions; supw += st.OrgSuppressWins;
             if (y % 5 == 4)
@@ -535,6 +537,7 @@ switch (cmd)
                 Console.WriteLine($"   소작 집 한 해 소출 {(ten.Count > 0 ? ten.Average(x => x.own + x.tenant - x.rent) : 0):0}(식구 {(ten.Count > 0 ? Enumerable.Range(0, w.Households.HighWater).Where(h => w.Households.IsAlive(h) && w.ClassOf(h) == LandClass.Tenant).Average(h => w.Households.Members[h]) : 0):0.0}), 도적 떼 {gangs.Count}: " + string.Join(" ", gangs.Select(g => $"{g.Total}명/{g.LastIncome:0}")));
                 int clients = Enumerable.Range(0, w.Households.HighWater).Count(h => w.Households.IsAlive(h) && w.PatronOf(h) >= 0);
                 Console.WriteLine($"   섬기는 집 {clients}/{w.Households.AliveCount}, 떠남 누적 {bl}(옮김 {bs}, 보복 {ret})");
+                Console.WriteLine($"   기득권: 위협 본 해 {tsn}, 경고 {twn}, 조건 {tcd}(따름 {tcp}, 거역 {tdf}), 끌어들이기 {tco}, 누르기 {tsp} | 첩자 들킴 {spy}, 이중 첩자 {dbl}");
                 var bels = Enumerable.Range(0, w.Households.HighWater).Where(h => w.Households.IsAlive(h) && w.PatronOf(h) >= 0 && w.ClientCount(h) == 0).Select(h => w.BelongOf(h, w.PatronOf(h))).ToList();
                 if (bels.Count > 0) Console.WriteLine($"   저울 평균: 보호 {bels.Average(b => b.Protect):0.00} 생계 {bels.Average(b => b.Living):0.00} 공포 {bels.Average(b => b.Fear):0.00} 충성 {bels.Average(b => b.Loyal):0.00} 혜택 {bels.Average(b => b.Benefit):0.00} 관습 {bels.Average(b => b.Habit):0.00} 부담 {bels.Average(b => b.Burden):0.00} = {bels.Average(b => b.Total):0.00}, 0.1 아래 {bels.Count(b => b.Total < 0.1f)}");
                 Console.WriteLine($"   학교 {w.Groups.Count(World.IsSchool)}곳, 학생 {w.Stats.Students}, 올해 졸업 {w.Stats.Graduated}, 들어옴 {w.Stats.Enrolled}, 감시 세기 합 {w.Groups.Where(g => g.Alive).Sum(g => g.SurveyOwn):0.0}, 빈 지휘 {w.Stats.VacantUnits}, 장악도 평균 {w.Stats.MeanGrip:0.00}");

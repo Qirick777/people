@@ -146,3 +146,48 @@ public class BelongTests
         Assert.True(high >= low);
     }
 }
+
+public class ThreatTests
+{
+    private static (World w, Group g, int lord) WithWatch()
+    {
+        var (w, lord) = TestWorlds.WithLord(12);
+        var hh = w.Households; var p = w.People;
+        var heads = Enumerable.Range(0, hh.HighWater).Where(h => hh.IsAlive(h) && w.PatronOf(h) == lord && p.IsValid(hh.Head[h]))
+            .Select(h => hh.Head[h].Index).Where(i => w.GroupsOf(i).Count() < World.GroupSlots).ToList();
+        var g = w.FoundGroup(heads[0], GroupKind.Watch);
+        foreach (int i in heads.Skip(1).Take(10)) w.JoinGroup(i, g);
+        w.RecountOrgs();
+        return (w, g, lord);
+    }
+
+    [Fact]
+    public void HidingLowersVisibleForce()
+    {
+        var (w, g, _) = WithWatch();
+        w.SetVisibility(g, Visibility.Proclaimed);
+        float open = w.VisibleForce(g);
+        w.SetVisibility(g, Visibility.Hidden);
+        float hid = w.VisibleForce(g);
+        Assert.True(hid < open);
+        Assert.Equal(0.1f, World.VisFactor(Visibility.Hidden));
+    }
+
+    [Fact]
+    public void AcceptedCapStopsRecruiting()
+    {
+        var (w, g, lord) = WithWatch();
+        int leader = w.Members(g).First(m => w.IsLeader(m, g));
+        // 조건을 걸고 받아들이게 한다
+        var def = w.Def(InteractionId.OrgCondition);
+        var c = new InteractionContext { Actor = w.Households.Head[lord].Index, Target = leader, Third = -1 };
+        w.ForceCondition(g, OrgCondition.Cap, lord, g.Total);
+        Assert.True(def.Can(w, c));
+        def.Success!(w, c, new InteractionResult { Accepted = true });
+        w.RecountOrgs();
+        Assert.Equal(OrgCondition.Cap, w.ConditionOf(g));
+        Assert.True(w.CapFull(g));
+        var outsider = Enumerable.Range(0, w.People.HighWater).First(i => w.People.IsAliveIndex(i) && (w.Day - w.People.BirthDay[i]) / w.Config.DaysPerYear >= 20 && !w.InGroup(i, g) && w.GroupsOf(i).Count() < World.GroupSlots);
+        Assert.False(w.Def(InteractionId.Recruit).Can(w, new InteractionContext { Actor = leader, Target = outsider, Third = -1 }));
+    }
+}

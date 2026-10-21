@@ -5,7 +5,7 @@ public enum InteractionId : byte { Chat, Compliment, Gossip, Gift, Affair, SexTr
     RiseCoopt, RiseWarn, RiseSway, RiseOath, RiseSlander, RiseSuppress, RiseInvest, RiseSwear, RiseOverHead,
     PlotCoup, PlotRecruit, PlotPurge, Declare,
     OrgOffer, OrgPledge, OrgBreak, OrgSuppress,
-    BuyLand, Apprentice, ServeSoldier, ServeCollector, AskInner, PetitionFief, War, Count }
+    BuyLand, Apprentice, ServeSoldier, ServeCollector, AskInner, PetitionFief, War, OrgCondition, Count }
 
 public enum InteractionCategory : byte { Talk, Courtship, Family, Trade, Rule, Scheme }
 

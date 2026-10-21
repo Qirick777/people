@@ -176,7 +176,7 @@ public sealed partial class World
             }
             // 받기
             int room = capacity - students.Count;
-            if (room > 0) Enroll(u, plan, root, room);
+            if (room > 0 && !CapFull(root)) Enroll(u, plan, root, room);
         }
         // 2) 의무 복무가 끝난 사람, 열여섯이 되어 갈 곳에 가는 사람
         foreach (var (uid, sv) in _service.ToList())

@@ -631,10 +631,16 @@ public sealed partial class World
         InteractionId.OrgOffer => "우리 조직을 제 아래에 거두겠다고 제안한다",
         InteractionId.OrgPledge => "제 조직을 바치겠다고 청한다",
         InteractionId.OrgBreak => "조직을 이끌고 떨어져 나가겠다고 한다. 놓아줄지 누를지 정한다",
+        InteractionId.OrgCondition => "우리 조직의 드러난 무력을 문제 삼아 조건을 건다",
         _ => "자기 주군을 건너뛰고 직접 서약하겠다고 한다",
     };
 
-    public string DemandTextOf(Demand d) => DemandText(d.Kind);
+    public string DemandTextOf(Demand d)
+    {
+        if (d.Kind == InteractionId.OrgCondition && HeadIdx(d.To) is int th && th >= 0 && LedFreeOrgAny(th) is { } g && _conditions.TryGetValue(g.Id, out var c))
+            return $"{DemandText(d.Kind)}: {ConditionName(c.cond)}" + (c.cond == OrgCondition.Cap ? $"({c.cap}명까지)" : "") + ". 따르면 다섯 해 지켜야 한다";
+        return DemandText(d.Kind);
+    }
 
     /// <summary>요구에 답한다. accept 가 null 이면 NPC처럼 확률로 정한다(한 해 안에 답하지 않은 요구). 집이 바뀌었으면 사라진다.</summary>
     public bool AnswerDemand(int id, bool? accept)

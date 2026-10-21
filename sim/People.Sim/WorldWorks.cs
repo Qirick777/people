@@ -447,6 +447,7 @@ public sealed partial class World
     private void RecruitOne(Group root, Group unit)
     {
         var p = People;
+        if (CapFull(root)) return;
         var ms = MembersFast(unit);
         if (ms.Count == 0) return;
         int r = ms[_rng.NextInt(ms.Count)];
