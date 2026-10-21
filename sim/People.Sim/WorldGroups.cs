@@ -67,6 +67,9 @@ public sealed class Group
     public int PendingNameYears;
     // 예산(plan_faction 10장): 비중(필요에 곱한다), 올해 필요·받은 몫·채운 비율, 쓰고 남은 은화
     public float BudgetWeight = 1f, Need, Alloc, Fill = 1f, Purse;
+    // 신앙(8단계): 헌금 회칙, 마지막으로 바치기를 청한 날
+    public TitheRule Tithe;
+    public int LastOffering = -1;
 }
 
 /// <summary>
@@ -382,7 +385,7 @@ public sealed partial class World
                     // 스스로 드는 사람은 그 조직이 센 줄 알수록 잘 든다(아는 권위)
                     if (!inIt && here.Members < cap && GroupOfKind(i, kind) == null && want > 0.35f && RuleAllows(RootOf(here), i)
                         && _rng.Chance((want - 0.35f) * 0.5f * JoinFactor(RootOf(here), i) * (0.75f + 0.5f * AuthorityPull(i, here)))) JoinGroup(i, here);
-                    else if (inIt && !IsLeader(i, here) && !_students.ContainsKey(p.Uid[i]) && want + Social.Opinion(p, i, here.LeaderUid) / 200f < 0.15f && _rng.Chance(0.3f)) LeaveGroup(i, here);   // 우두머리를 좋게 보면 남는다
+                    else if (inIt && !IsLeader(i, here) && !_students.ContainsKey(p.Uid[i]) && !IsZealot(p.Uid[i], here) && want + Social.Opinion(p, i, here.LeaderUid) / 200f < 0.15f && _rng.Chance(0.3f)) LeaveGroup(i, here);   // 우두머리를 좋게 보면 남는다
                 }
                 if (kind == GroupKind.Watch && danger < 0.1f && here.Sanction < 0 && _rng.Chance(0.1f)) CloseGroup(here);
             }

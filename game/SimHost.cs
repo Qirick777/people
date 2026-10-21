@@ -569,6 +569,7 @@ public partial class SimHost : Node
                     ["liaison"] = depth == 0 && g.LiaisonUid >= 0 ? Names.Full(w.Lineage, g.LiaisonUid) : "",
                     ["survey"] = depth == 0 ? w.SurveyOf(g) : 0f,
                     ["school"] = World.IsSchool(g),
+                    ["faith"] = World.IsTop(g) && w.IsFaith(g),
                     ["producer"] = g.Tasks.Any(t => t.Verb == Verb.Produce),
                     ["fullTime"] = g.FullTime,
                     ["arms"] = w.ArmsCov(g),
@@ -598,7 +599,7 @@ public partial class SimHost : Node
                     ["heir"] = "", ["inherit"] = 0f, ["joinRule"] = (int)root.JoinRule, ["shareRule"] = (int)root.ShareRule, ["treasury"] = 0f,
                     ["command"] = false, ["canSplit"] = false, ["mineIn"] = true, ["attached"] = false, ["lordAct"] = "", ["lordChance"] = 0f,
                     ["identity"] = World.GroupKindName(g.Kind), ["shares"] = "", ["vacant"] = false, ["cmdFactor"] = 1f, ["over"] = 0f, ["grip"] = 0f,
-                    ["treasurer"] = "", ["liaison"] = "", ["survey"] = 0f, ["school"] = false, ["producer"] = false, ["fullTime"] = false, ["arms"] = 0f, ["threat"] = 0f, ["visForce"] = 0f, ["condition"] = "없음",
+                    ["treasurer"] = "", ["liaison"] = "", ["survey"] = 0f, ["school"] = false, ["faith"] = false, ["producer"] = false, ["fullTime"] = false, ["arms"] = 0f, ["threat"] = 0f, ["visForce"] = 0f, ["condition"] = "없음",
                 });
             }
         }
@@ -1036,6 +1037,46 @@ public partial class SimHost : Node
             }
         e["units"] = units; e["factions"] = facs; e["eye"] = eye; e["treasury"] = root.Treasury;
         return e;
+    }
+
+    /// <summary>신앙 창: 회칙, 신도와 광신도, 믿음 평균, 바치기를 청할 수 있나.</summary>
+    public Godot.Collections.Dictionary FaithInfo(int id)
+    {
+        var e = new Godot.Collections.Dictionary();
+        var g = Commandable(id);
+        if (g == null) return e;
+        var w = _w!; var p = w.People;
+        var root = w.RootOf(g);
+        if (!w.IsFaith(root)) return e;
+        int n = 0, z = 0; float sum = 0f;
+        var seen = new HashSet<int>();
+        foreach (var u in w.Groups.Where(x => x.Alive && (x.Id == root.Id || w.RootOf(x).Id == root.Id)))
+            foreach (int m in w.Members(u))
+            {
+                if (p.Uid[m] == root.LeaderUid || !seen.Add(p.Uid[m])) continue;
+                n++; sum += w.FaithOf(p.Uid[m], root);
+                if (w.IsZealot(p.Uid[m], root)) z++;
+            }
+        e["tithe"] = (int)root.Tithe; e["titheName"] = World.TitheName(root.Tithe);
+        e["believers"] = n; e["zealots"] = z; e["faith"] = n > 0 ? sum / n : 0f;
+        e["canOffer"] = w.CanCallOffering(root); e["treasury"] = root.Treasury;
+        return e;
+    }
+
+    public bool SetTithe(int id, int rule)
+    {
+        var g = Commandable(id);
+        if (g == null) return false;
+        _w!.SetTithe(g, (TitheRule)rule);
+        return true;
+    }
+
+    public string CallOffering(int id)
+    {
+        var g = Commandable(id);
+        if (g == null) return "";
+        float got = _w!.CallOffering(g);
+        return got < 0f ? "바치기는 세 해에 한 번만 청할 수 있다" : $"바치기로 은화 {got:0}을 거두었다";
     }
 
     public bool SetBudgetWeight(int id, int unit, float weight)

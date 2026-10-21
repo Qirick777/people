@@ -760,6 +760,7 @@ public sealed partial class World
         WorkYear();
         TeachYear();
         EducationYear();
+        DevotionYear();
         FacilityYear();
         EstablishmentYear();
         SpyYear();

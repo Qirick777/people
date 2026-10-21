@@ -8,7 +8,7 @@ public class SchoolTests
         var (w, lord) = TestWorlds.WithLord(12);
         var hh = w.Households; var p = w.People;
         var heads = Enumerable.Range(0, hh.HighWater).Where(h => hh.IsAlive(h) && w.PatronOf(h) == lord && p.IsValid(hh.Head[h]))
-            .Select(h => hh.Head[h].Index).Where(i => w.GroupsOf(i).Count() < World.GroupSlots).ToList();
+            .Select(h => TestWorlds.Free(w, hh.Head[h].Index)).ToList();
         int leader = heads[0];
         p.SetSkill(leader, Skill.Letters, 0.9f);
         p.SetSkill(leader, Skill.Arms, 0.9f);

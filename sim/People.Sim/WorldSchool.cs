@@ -249,6 +249,7 @@ public sealed partial class World
         var p = People;
         _students.Remove(p.Uid[st]);
         plan.Graduated++; Stats.Graduated++;
+        FaithFromSchool(st, plan, root);
         if (plan.Dest == SchoolDest.Teacher) return;   // 갈래에 남아 가르친다
         LeaveGroup(st, u);
         if (plan.Dest == SchoolDest.Faction) return;

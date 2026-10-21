@@ -87,6 +87,7 @@ public sealed partial class World
         if (p.Fanatic[c] != 0 && p.LoyalUid[c] == p.Uid[lh]) return 0f;
         var po = PlotterOrg(plotter);
         var lo = LordOrg(lord, false);
+        if (lo != null && IsZealot(p.Uid[c], lo)) return 0f;   // 지배자의 신앙 세력 광신도
         float pullP = po != null ? AuthorityPull(c, po) : 0.2f, pullL = lo != null ? AuthorityPull(c, lo) : 0.5f;
         float s = 0.5f + (Social.Opinion(p, c, p.Uid[plotter]) - Social.Opinion(p, c, p.Uid[lh])) / 200f
                   + 0.15f * (pullP - pullL) + 0.2f * (p.Get(c, Trait.Ambition) - 0.5f);

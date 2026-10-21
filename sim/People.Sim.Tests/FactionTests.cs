@@ -9,7 +9,7 @@ public class FactionTests
         var (w, lord) = TestWorlds.WithLord(12);
         var hh = w.Households; var p = w.People;
         var heads = Enumerable.Range(0, hh.HighWater).Where(h => hh.IsAlive(h) && w.PatronOf(h) == lord && p.IsValid(hh.Head[h]))
-            .Select(h => hh.Head[h].Index).Where(i => w.GroupsOf(i).Count() < World.GroupSlots).ToList();
+            .Select(h => TestWorlds.Free(w, hh.Head[h].Index)).ToList();
         var g = w.FoundGroup(heads[0], GroupKind.Watch);
         foreach (int i in heads.Skip(1).Take(11)) w.JoinGroup(i, g);
         g.ShareRule = ShareRule.Treasury;

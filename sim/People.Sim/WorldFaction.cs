@@ -196,7 +196,7 @@ public sealed partial class World
         foreach (var root in _groups)
         {
             if (!root.Alive || !IsTop(root)) continue;
-            var roles = RoleHolders(root).Where(x => GrievanceOf(root, x.uid) > 0.3f).ToList();
+            var roles = RoleHolders(root).Where(x => GrievanceOf(root, x.uid) > 0.3f && !IsZealot(x.uid, root)).ToList();   // 광신도는 파벌에 끼지 않는다
             if (roles.Count == 0) continue;
             int n = roles.Count;
             var par = Enumerable.Range(0, n).ToArray();

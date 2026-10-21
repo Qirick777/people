@@ -9,12 +9,15 @@ public class CareerTests
         var (w, lord) = TestWorlds.WithLord(12);
         var hh = w.Households;
         int lh = hh.Head[lord].Index;
-        int buyer = Enumerable.Range(0, hh.HighWater).First(h => hh.IsAlive(h) && w.PatronOf(h) == lord && w.People.IsValid(hh.Head[h]));
-        hh.Food[buyer] = 1000f;
-        hh.Coin[buyer] = 1000f;
-        var c = new InteractionContext { Actor = hh.Head[buyer].Index, Target = lh, Third = -1 };
         var def = w.Def(InteractionId.BuyLand);
-        Assert.True(def.Can(w, c));
+        // 지배자 땅을 살 수 있는 아래 집(살 땅이 남는 마을인지는 역사에 따라 다르다)
+        var clients = Enumerable.Range(0, hh.HighWater).Where(h => hh.IsAlive(h) && w.PatronOf(h) == lord && w.People.IsValid(hh.Head[h])).ToList();
+        foreach (int h in clients) { hh.Food[h] = 1000f; hh.Coin[h] = 1000f; }
+        var sellers = new[] { lord }.Concat(clients).ToList();
+        var (buyer, seller) = clients.SelectMany(b => sellers.Select(s => (b, s)))
+            .First(x => x.b != x.s && def.Can(w, new InteractionContext { Actor = hh.Head[x.b].Index, Target = hh.Head[x.s].Index, Third = -1 }));
+        lord = seller; lh = hh.Head[seller].Index;
+        var c = new InteractionContext { Actor = hh.Head[buyer].Index, Target = lh, Third = -1 };
         int p0 = hh.PlotCount[buyer], s0 = hh.PlotCount[lord];
         float price = w.LandPrice(lord, buyer);
         float sellerCoin = hh.Coin[lord];

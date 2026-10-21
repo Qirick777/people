@@ -21,4 +21,11 @@ public static class TestWorlds
         Assert.Fail($"따르는 집 {minClients}곳이 넘는 지배자가 어느 시드에서도 생기지 않았다");
         return default;
     }
+
+    /// <summary>시험에 쓸 사람의 조직 칸을 비운다(역사에 따라 칸이 차 있으면 새 조직에 못 든다).</summary>
+    public static int Free(World w, int i)
+    {
+        foreach (var g in w.GroupsOf(i).ToList()) w.LeaveGroup(i, g);
+        return i;
+    }
 }

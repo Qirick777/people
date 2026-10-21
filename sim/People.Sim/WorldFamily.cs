@@ -323,8 +323,9 @@ public sealed partial class World
             int maxWorkers = VillageList.Households[v] >= Config.TradeVillage ? VillageList.Households[v] / 25 : 0;
             foreach (int i in folk)
             {
-                if (IsPlayer(i)) continue;
+                if (IsPlayer(i) || !p.IsAliveIndex(i)) continue;
                 int h = p.Household[i];
+                if (!hh.IsAlive(h)) continue;   // 앞사람 일로 집이 바뀌거나 사라졌다
                 bool head = hh.Head[h].Index == i;
                 // 첩: 잘살고 욕심 많고 신앙심 옅은 남자
                 if (p.Male[i] && p.WifeCount[i] > 0 && Rich(h) && p.Get(i, Trait.Ambition) > 0.5f && p.Piety[i] < 0.5f && _rng.Chance(0.25f))

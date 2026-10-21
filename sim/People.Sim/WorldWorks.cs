@@ -309,7 +309,8 @@ public sealed partial class World
     {
         var p = People; var hh = Households;
         float cha = p.Get(leader, Trait.Charisma);
-        int n = Math.Min(30, (int)(3 * effort) + 2);
+        int zeal = MembersFast(unit).Count(m => IsZealot(p.Uid[m], root));   // 광신도는 설교에 나선다
+        int n = Math.Min(30, (int)(3 * effort) + 2 + zeal);
         for (int k = 0; k < n; k++)
         {
             int i = RandomVillager(v);
@@ -319,16 +320,10 @@ public sealed partial class World
                 if (JoinGroup(i, root)) Stats.Converts++;
         }
         // 헌금은 이 갈래에 바로 딸린 신도에게서만 받는다(갈래마다 같은 신도에게 거두지 않게)
+        // 회칙대로 곡식으로 걷는다. 예배당이 있으면 더 걷힌다
         float gift = 0f;
-        foreach (int m in MembersFast(unit).Take(40))
-        {
-            int h = p.Household[m];
-            if (!hh.IsAlive(h) || Surplus(h) < 1f) continue;
-            float g = MathF.Min(10f, hh.Food[h] * 0.02f);
-            hh.Food[h] -= g; gift += g;
-            PayDues(h, g);
-        }
-        if (FacilityOf(root, FacilityKind.Chapel, v) != null) gift *= 1.3f;   // 예배당
+        foreach (int m in MembersFast(unit).Take(40).ToList()) gift += CollectTithe(root, m);
+        if (FacilityOf(root, FacilityKind.Chapel, v) != null) gift *= 1.3f;
         Earn(root, gift);
     }
 

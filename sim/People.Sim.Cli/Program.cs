@@ -540,6 +540,8 @@ switch (cmd)
                 int clients = Enumerable.Range(0, w.Households.HighWater).Count(h => w.Households.IsAlive(h) && w.PatronOf(h) >= 0);
                 Console.WriteLine($"   섬기는 집 {clients}/{w.Households.AliveCount}, 떠남 누적 {bl}(옮김 {bs}, 보복 {ret})");
                 Console.WriteLine($"   예산: 모자란 갈래 {st.BudgetShort}, 녹봉 {st.Stipends:0} | 파벌 {st.Factions}, 불만 평균 {st.MeanGrievance:0.00}, 요구 {fdm}(들어줌 {fmet}), 헐뜯기 {fsl}, 거사 {fic}(이김 {ficw}), 떨어져 나감 {fsp}, 갈라치기 {fpl}, 지휘자 교대 {frot}, 쫓아냄 {fex}");
+                Console.WriteLine($"   신앙: 신도 {st.Believers}, 광신도 {st.Zealots}(올해 새로 {st.NewZealots}, 깨짐 {st.ZealotsBroken}), 믿음 평균 {st.MeanFaith:0.00}, 헌금 {st.TithePaid:0}(거절 {st.TitheRefused}), 바치기 {st.Offerings}번 {st.OfferingTotal:0} | 회칙 " +
+                                  string.Join(" ", w.Groups.Where(g => g.Alive && World.IsTop(g) && w.IsFaith(g)).GroupBy(g => g.Tithe).Select(k => $"{World.TitheName(k.Key)} {k.Count()}")));
                 Console.WriteLine($"   기득권: 위협 본 해 {tsn}, 경고 {twn}, 조건 {tcd}(따름 {tcp}, 거역 {tdf}), 끌어들이기 {tco}, 누르기 {tsp} | 첩자 들킴 {spy}, 이중 첩자 {dbl}");
                 var bels = Enumerable.Range(0, w.Households.HighWater).Where(h => w.Households.IsAlive(h) && w.PatronOf(h) >= 0 && w.ClientCount(h) == 0).Select(h => w.BelongOf(h, w.PatronOf(h))).ToList();
                 if (bels.Count > 0) Console.WriteLine($"   저울 평균: 보호 {bels.Average(b => b.Protect):0.00} 생계 {bels.Average(b => b.Living):0.00} 공포 {bels.Average(b => b.Fear):0.00} 충성 {bels.Average(b => b.Loyal):0.00} 혜택 {bels.Average(b => b.Benefit):0.00} 관습 {bels.Average(b => b.Habit):0.00} 부담 {bels.Average(b => b.Burden):0.00} = {bels.Average(b => b.Total):0.00}, 0.1 아래 {bels.Count(b => b.Total < 0.1f)}");

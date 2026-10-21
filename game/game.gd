@@ -601,6 +601,11 @@ func _open_orgs() -> void:
 				fb.tooltip_text = "세력이 짓고 갈래에 배정하는 시설(학당, 공방, 방앗간, 여관, 예배당, 창고, 병영, 요새 집)"
 				fb.pressed.connect(func(): _open_facilities(id, e["name"]))
 				r.add_child(_center(fb))
+			if depth == 0 and e.get("faith", false):
+				var fb2 := UI.ghost("신앙")
+				fb2.tooltip_text = "헌금 회칙과 바치기. 믿음이 깊은 신도는 광신도가 되어 떠나지 않고 굶어도 낸다"
+				fb2.pressed.connect(func(): _open_faith(id, e["name"]))
+				r.add_child(_center(fb2))
 			if depth == 0:
 				var bb := UI.ghost("예산")
 				bb.tooltip_text = "곳간을 갈래마다 나눈다. 몫이 모자란 갈래는 일을 덜 하고 지휘자의 불만이 쌓인다. 감시가 있으면 파벌이 보인다"
@@ -1409,6 +1414,38 @@ func _open_facilities(id: int, name: String) -> void:
 			for line in host.DrainChronicle(): _log(line)
 			_open_facilities(id, name))
 		org_box.add_child(btn)
+	_show_panel(org_panel)
+
+
+## 신앙: 헌금 회칙을 고르고 바치기를 청한다.
+func _open_faith(id: int, name: String) -> void:
+	var info: Dictionary = host.FaithInfo(id)
+	if info.is_empty():
+		_open_orgs()
+		return
+	org_title.text = name + " · 신앙"
+	for c in org_box.get_children(): c.queue_free()
+	var back := UI.ghost("← 조직으로")
+	back.pressed.connect(_open_orgs)
+	org_box.add_child(back)
+	org_box.add_child(UI.label("신도 %d명 · 광신도 %d명 · 믿음 평균 %.2f · 곳간 은화 %d" % [int(info["believers"]), int(info["zealots"]), float(info["faith"]), int(float(info["treasury"]))], 12, UI.INK))
+	org_box.add_child(UI.label("헌금 회칙: " + String(info["titheName"]), 13, UI.MUTED, true))
+	var names := ["자율 헌금", "십일조", "다섯에 하나"]
+	var tips := ["넉넉한 신도 집만 재산의 2%(10까지)를 낸다", "소출의 1/10. 믿음 0.4에 못 미치는 신도는 거절하기도 하고 떠나기도 한다", "소출의 1/5. 믿음 0.7에 못 미치는 신도는 거절하기도 하고 떠나기도 한다. 광신도도 의심이 쌓인다"]
+	for k in 3:
+		var tb := UI.action(names[k] + (" (지금)" if int(info["tithe"]) == k else ""), tips[k], -1.0, k == 2)
+		var kk := k
+		tb.pressed.connect(func():
+			host.SetTithe(id, kk)
+			_open_faith(id, name))
+		org_box.add_child(tb)
+	var ob := UI.action("바치기를 청한다", "세 해에 한 번. 광신도는 재산의 0.3, 믿음 깊은 신도는 0.1을 낸다. 나머지는 조금 내고 믿음이 깎인다", -1.0, false)
+	ob.disabled = not info["canOffer"]
+	ob.pressed.connect(func():
+		_set_hint(host.CallOffering(id))
+		for line in host.DrainChronicle(): _log(line)
+		_open_faith(id, name))
+	org_box.add_child(ob)
 	_show_panel(org_panel)
 
 
@@ -2297,6 +2334,13 @@ func _run_autotest() -> void:
 				await _snap("live_school.png")
 				org_panel.visible = false
 				print("autotest: 학교 설정 ", host.SchoolInfo(int(sorgs[0]["id"])).get("years", -1), "년")
+				print("autotest: ", host.DoSelf(actor, "found:2"))
+				var bro: Array = host.OrgPanel().filter(func(o): return o["command"] and int(o["depth"]) == 0 and o.get("faith", false))
+				print("autotest: 신앙 조직 ", bro.size())
+				if bro.size() > 0:
+					_open_faith(int(bro[0]["id"]), bro[0]["name"])
+					await _snap("live_faith.png")
+					org_panel.visible = false
 				_open_budget(int(sorgs[0]["id"]), sorgs[0]["name"])
 				await _snap("live_budget.png")
 				org_panel.visible = false
