@@ -1463,7 +1463,9 @@ func _open_wages(id: int, name: String) -> void:
 	_show_panel(org_panel)
 
 
-## 신앙: 헌금 회칙을 고르고 바치기를 청한다.
+## 신앙: 종교와 교리(신분별 강도), 권장 헌금, 바치기.
+var _found_picks: Array = []
+
 func _open_faith(id: int, name: String) -> void:
 	var info: Dictionary = host.FaithInfo(id)
 	if info.is_empty():
@@ -1474,18 +1476,84 @@ func _open_faith(id: int, name: String) -> void:
 	var back := UI.ghost("← 조직으로")
 	back.pressed.connect(_open_orgs)
 	org_box.add_child(back)
+	org_box.add_child(UI.label("종교 %s%s · 이 마을에 알려진 정도 %.2f" % [info["religion"], " (내가 열었다)" if info["founder"] else "", float(info["known"])], 13, UI.INK, true))
 	org_box.add_child(UI.label("신도 %d명 · 광신도 %d명 · 믿음 평균 %.2f · 곳간 은화 %d" % [int(info["believers"]), int(info["zealots"]), float(info["faith"]), int(float(info["treasury"]))], 12, UI.INK))
-	org_box.add_child(UI.label("헌금 회칙: " + String(info["titheName"]), 13, UI.MUTED, true))
-	var names := ["자율 헌금", "십일조", "다섯에 하나"]
-	var tips := ["넉넉한 신도 집만 재산의 2%(10까지)를 낸다", "소출의 1/10. 믿음 0.4에 못 미치는 신도는 거절하기도 하고 떠나기도 한다", "소출의 1/5. 믿음 0.7에 못 미치는 신도는 거절하기도 하고 떠나기도 한다. 광신도도 의심이 쌓인다"]
+	var snames := ["면제", "약", "중", "강"]
+	for dv in info["doctrines"]:
+		org_box.add_child(UI.label("%s (%s) · %s" % [dv["name"], snames[int(dv["strength"])], dv["effect"]], 12, UI.INK))
+		if info["founder"]:
+			var row := HBoxContainer.new()
+			row.add_theme_constant_override("separation", 4)
+			for rk in dv["ranks"]:
+				var mb := MenuButton.new()
+				mb.add_theme_color_override("font_color", UI.INK)
+				var cur := int(rk["strength"])
+				mb.text = "%s: %s" % [rk["name"], "기본" if cur < 0 else snames[cur]]
+				mb.get_popup().add_item("기본", 0)
+				for k in 4: mb.get_popup().add_item(snames[k], k + 1)
+				var rank := int(rk["rank"])
+				var dd := int(dv["d"])
+				mb.get_popup().id_pressed.connect(func(k):
+					if not host.SetRankStrength(id, rank, dd, k - 1): _set_hint("반대 교리가 이미 세게 걸려 있다")
+					_open_faith(id, name))
+				row.add_child(mb)
+			org_box.add_child(row)
+			var sb := MenuButton.new()
+			sb.add_theme_color_override("font_color", UI.INK)
+			sb.text = "기본 강도·바꾸기" + ("" if info["canRevise"] else " (교리 바꾸기는 10년에 한 번)")
+			for k in 4: sb.get_popup().add_item("강도 " + snames[k], k)
+			if info["canRevise"]:
+				for a in info["all"]: sb.get_popup().add_item("→ " + String(a["name"]), 100 + int(a["d"]))
+			var slot := int(dv["slot"])
+			var d0 := int(dv["d"])
+			var s0 := int(dv["strength"])
+			sb.get_popup().id_pressed.connect(func(k):
+				if k < 100: host.ReviseDoctrine(id, slot, d0, k)
+				elif not host.ReviseDoctrine(id, slot, k - 100, s0): _set_hint("바꿀 수 없다")
+				_open_faith(id, name))
+			org_box.add_child(sb)
+	if not info["founder"]:
+		org_box.add_child(UI.label("다른 종교로 입교하거나, 새 종교를 연다(새 종교는 알려지지 않아 선교가 어렵다)", 12, UI.MUTED))
+		for r in info["religions"]:
+			var rid := int(r["id"])
+			var jb := UI.action("%s 입교 · 알려진 정도 %.2f" % [r["name"], float(r["known"])], String(r["doctrines"]), -1.0, false)
+			jb.pressed.connect(func():
+				host.JoinReligion(id, rid)
+				_open_faith(id, name))
+			org_box.add_child(jb)
+		var pick_row := HBoxContainer.new()
+		var pmb := MenuButton.new()
+		pmb.add_theme_color_override("font_color", UI.INK)
+		pmb.text = "교리 고르기 (%d/3)" % _found_picks.size()
+		for a in info["all"]:
+			for k in [1, 2, 3]: pmb.get_popup().add_item("%s %s" % [a["name"], snames[k]], int(a["d"]) * 10 + k)
+		pmb.get_popup().id_pressed.connect(func(k):
+			if _found_picks.size() < 3: _found_picks.append([int(k / 10), k % 10])
+			_open_faith(id, name))
+		pick_row.add_child(pmb)
+		var picked := []
+		for pk in _found_picks: picked.append("%s %s" % [info["all"][int(pk[0])]["name"], snames[int(pk[1])]])
+		pick_row.add_child(UI.label(", ".join(picked), 12, UI.INK))
+		org_box.add_child(pick_row)
+		var fb := UI.action("새 종교를 연다", "고른 교리로 연다. 신도의 믿음은 절반이 된다", -1.0, true)
+		fb.disabled = _found_picks.is_empty()
+		fb.pressed.connect(func():
+			_set_hint(host.FoundReligion(id, "", _found_picks))
+			_found_picks = []
+			for line in host.DrainChronicle(): _log(line)
+			_open_faith(id, name))
+		org_box.add_child(fb)
+	org_box.add_child(UI.label("권장 헌금: " + String(info["titheName"]) + " (내는 것은 신도 마음. 믿음·충성·봉헌 교리만큼 낸다)", 13, UI.MUTED, true))
+	var names := ["형편껏", "십일조", "다섯에 하나"]
+	var tips := ["넉넉한 신도 집만 재산의 2%(10까지)", "소출의 1/10. 부담만큼 낼 확률이 준다", "소출의 1/5. 부담이 커서 믿음 깊은 신도와 광신도가 주로 낸다"]
 	for k in 3:
-		var tb := UI.action(names[k] + (" (지금)" if int(info["tithe"]) == k else ""), tips[k], -1.0, k == 2)
+		var tb := UI.action(names[k] + (" (지금)" if int(info["tithe"]) == k else ""), tips[k], -1.0, false)
 		var kk := k
 		tb.pressed.connect(func():
 			host.SetTithe(id, kk)
 			_open_faith(id, name))
 		org_box.add_child(tb)
-	var ob := UI.action("바치기를 청한다", "세 해에 한 번. 광신도는 재산의 0.3, 믿음 깊은 신도는 0.1을 낸다. 나머지는 조금 내고 믿음이 깎인다", -1.0, false)
+	var ob := UI.action("바치기를 청한다", "세 해에 한 번. 광신도는 재산의 0.3, 믿음 깊은 신도는 0.1을 낸다. 나머지는 조금 내고 믿음이 조금 깎인다", -1.0, false)
 	ob.disabled = not info["canOffer"]
 	ob.pressed.connect(func():
 		_set_hint(host.CallOffering(id))
@@ -2384,6 +2452,7 @@ func _run_autotest() -> void:
 				var bro: Array = host.OrgPanel().filter(func(o): return o["command"] and int(o["depth"]) == 0 and o.get("faith", false))
 				print("autotest: 신앙 조직 ", bro.size())
 				if bro.size() > 0:
+					print("autotest: ", host.FoundReligion(int(bro[0]["id"]), "", [[12, 3], [0, 2], [15, 1]]))
 					_open_faith(int(bro[0]["id"]), bro[0]["name"])
 					await _snap("live_faith.png")
 					org_panel.visible = false

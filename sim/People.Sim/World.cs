@@ -38,6 +38,7 @@ public sealed partial class World
         map.EnsureAround(SpawnX, SpawnY, WorldMap.CS * 2);
         InitRoles();
         InitRep();
+        InitDoctrineMods();
     }
 
     public int SpawnX { get; private set; }
@@ -1292,7 +1293,8 @@ public sealed partial class World
         int mage = AgeYears(m);
         float maleK = (0.75f + 0.5f * p.Get(m, Trait.Fertility)) * (mage >= 60 ? 0.5f : mage >= 50 ? 0.7f : 1f);
         float contraK = p.ContraUntil[w] >= Day ? 1f - Config.ContraEffect : 1f;   // 약초꾼의 피임 약
-        return (0.5f + p.Get(w, Trait.Fertility)) * ageK * foodK * crowdK * maleK * contraK;
+        float docK = (1f + 0.1f * DoctrineOn(w, Doctrine.Fertility)) * (1f - 0.2f * DoctrineOn(w, Doctrine.Celibacy));   // 다산·금욕 교리
+        return (0.5f + p.Get(w, Trait.Fertility)) * ageK * foodK * crowdK * maleK * contraK * docK;
     }
 
     /// <summary>행위 한 번(부부 밖): 임신 판정. 되면 true. legalFather 는 족보에 적힐 아버지(-1 = 사생아).</summary>

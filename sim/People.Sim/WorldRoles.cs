@@ -1,7 +1,7 @@
 namespace People.Sim;
 
 /// <summary>세력 안 직책. 새 직책은 여기에 값을 더하고 아래 등록부에 정의를 더한다.</summary>
-public enum RoleKind : byte { Member, Commander, Treasurer, Liaison, Teacher, Student, Crafter }
+public enum RoleKind : byte { Member, Commander, Treasurer, Liaison, Teacher, Student, Crafter, Priest }
 
 /// <summary>임금 다섯 단계.</summary>
 public enum WageLevel : byte { None, Low, Normal, High, Lavish }
@@ -52,6 +52,8 @@ public sealed partial class World
             Holds = (w, i, u) => w._students.TryGetValue(w.People.Uid[i], out var s) && s.unit == u.Id });
         Roles.Add(new RoleDef { Kind = RoleKind.Teacher, Name = "교사", WageWeight = 1.5f, AppliesTo = (w, u) => IsSchool(u),
             Holds = (w, i, u) => IsSchool(u) && w.Adult(i) && !w._students.ContainsKey(w.People.Uid[i]) && w.CanTeach(i, w.PlanOf(u), w.RootOf(u)) });
+        Roles.Add(new RoleDef { Kind = RoleKind.Priest, Name = "사제", WageWeight = 1.5f, AppliesTo = (w, u) => u.Tasks.Any(t => t.Verb == Verb.Worship),
+            Holds = (w, i, u) => u.Tasks.Any(t => t.Verb == Verb.Worship) && w.Adult(i) && w.People.Piety[i] >= 0.6f });
         Roles.Add(new RoleDef { Kind = RoleKind.Crafter, Name = "장인", AppliesTo = (w, u) => u.Tasks.Any(t => t.Verb == Verb.Produce),
             Holds = (w, i, u) => u.Tasks.Any(t => t.Verb == Verb.Produce) && w.IsMaker(i) });
         Roles.Add(new RoleDef { Kind = RoleKind.Member, Name = "조직원", AppliesTo = (w, u) => true, Holds = (w, i, u) => true });

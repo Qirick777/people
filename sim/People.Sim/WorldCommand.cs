@@ -20,7 +20,7 @@ public sealed partial class World
     {
         Verb.Guard or Verb.Chase => GroupKind.Watch,
         Verb.Raid or Verb.Kidnap or Verb.Agitate => GroupKind.Bandits,
-        Verb.Preach or Verb.Charity => GroupKind.Brotherhood,
+        Verb.Preach or Verb.Charity or Verb.Worship => GroupKind.Brotherhood,
         Verb.Trade or Verb.Escort => GroupKind.Company,
         Verb.Mercenary => GroupKind.Sellswords,
         Verb.Brothel => GroupKind.Brothel,
@@ -50,12 +50,12 @@ public sealed partial class World
     public static string ComboName(GroupKind a, GroupKind b)
     {
         bool Has(GroupKind x, GroupKind y) => (a == x && b == y) || (a == y && b == x);
-        if (Has(GroupKind.Brotherhood, GroupKind.Drill) || Has(GroupKind.Brotherhood, GroupKind.Watch) || Has(GroupKind.Brotherhood, GroupKind.Sellswords)) return "무장 신도회";
+        if (Has(GroupKind.Brotherhood, GroupKind.Drill) || Has(GroupKind.Brotherhood, GroupKind.Watch) || Has(GroupKind.Brotherhood, GroupKind.Sellswords)) return "무장 교단";
         if (Has(GroupKind.Watch, GroupKind.Drill)) return "무사단";
         if (Has(GroupKind.School, GroupKind.Brotherhood)) return "신학원";
         if (Has(GroupKind.School, GroupKind.Drill)) return "무예 학당";
         if (Has(GroupKind.Company, GroupKind.Sellswords) || Has(GroupKind.Company, GroupKind.Watch)) return "무장 상단";
-        if (Has(GroupKind.Bandits, GroupKind.Brotherhood)) return "광신 도적 떼";
+        if (Has(GroupKind.Bandits, GroupKind.Brotherhood)) return "무장 교단";
         if (Has(GroupKind.Watch, GroupKind.Inspectors)) return "치안대";
         return $"{GroupKindName(a)}·{GroupKindName(b)}";
     }

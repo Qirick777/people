@@ -85,7 +85,7 @@ public sealed partial class World
             {
                 LoyalKind.Lord => 2f + 2f * MathF.Min(2f, DangerAt(hh.Village[p.Household[i]])),
                 LoyalKind.Employer => 4f,
-                _ => 2f,
+                _ => 2f + 2f * DoctrineOn(i, Doctrine.Ancestors),   // 조상 숭배 교리: 집안을 더 섬긴다
             };
             gain += 6f * (p.Get(hi, Trait.Charisma) - 0.5f) + 6f * p.Honor[hi];
             if (Surplus(p.Household[i]) < 0.6f) gain -= kind == LoyalKind.Lord ? 6f : 3f;
@@ -148,7 +148,7 @@ public sealed partial class World
     {
         var head = Households.Head[h];
         if (!People.IsValid(head) || People.LoyalUid[head.Index] < 0) return false;
-        float l = People.Loyalty[head.Index];
+        float l = People.Loyalty[head.Index] - 0.1f * DoctrineOn(head.Index, Doctrine.Equality);   // 평등 교리: 공납을 끊기 쉽다
         return l < 0.25f && _rng.Chance((0.25f - l) * 1.2f);
     }
 

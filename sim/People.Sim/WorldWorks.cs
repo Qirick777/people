@@ -31,7 +31,7 @@ public sealed partial class World
         int size = root.Home >= 0 ? BelowOf(root.Home) + root.Total : root.Total;
         switch (v)
         {
-            case Verb.Guard: case Verb.Raid: case Verb.Charity: case Verb.Recruit: case Verb.Train: return true;
+            case Verb.Guard: case Verb.Raid: case Verb.Charity: case Verb.Recruit: case Verb.Train: case Verb.Worship: return true;
             case Verb.Produce:
                 if (Subtree(root).SelectMany(MembersFast).Any(IsMaker)) return true;
                 why = "만들 줄 아는 사람(공예·목공 0.2)이 있어야"; return false;
@@ -304,7 +304,7 @@ public sealed partial class World
         }
     }
 
-    /// <summary>설교: 마을 사람의 신앙을 올리고, 깊어진 사람을 신도로 들인다. 넉넉한 신도 집은 헌금을 낸다.</summary>
+    /// <summary>설교(선교): 마을 사람의 신앙을 올리고, 깊어진 사람을 신도로 들인다. 넘어올 확률은 그 마을에 종교가 알려진 만큼이다.</summary>
     private void Preach(Group root, Group unit, int v, float effort, int leader)
     {
         var p = People; var hh = Households;
@@ -316,15 +316,12 @@ public sealed partial class World
             int i = RandomVillager(v);
             if (i < 0) continue;
             p.Piety[i] = MathF.Min(1f, p.Piety[i] + 0.01f * (0.5f + cha));
-            if (p.Piety[i] > 0.6f && !InGroup(i, root) && GroupsOf(i).Count() < GroupSlots && RuleAllows(root, i) && JoinFactor(root, i) > 0f && _rng.Chance((0.15f + 0.1f * AuthorityPull(i, root)) * RecruitMult(root)))
-                if (JoinGroup(i, root)) Stats.Converts++;
+            if (p.Piety[i] > 0.6f && !InGroup(i, root) && GroupsOf(i).Count() < GroupSlots && RuleAllows(root, i) && JoinFactor(root, i) > 0f
+                && _rng.Chance((0.15f + 0.1f * AuthorityPull(i, root)) * RecruitMult(root) * ConvertMult(root, i, v)))
+                if (JoinGroup(i, root)) { Stats.Converts++; Converted(root, i); }
         }
         // 헌금은 이 갈래에 바로 딸린 신도에게서만 받는다(갈래마다 같은 신도에게 거두지 않게)
-        // 회칙대로 곡식으로 걷는다. 예배당이 있으면 더 걷힌다
-        float gift = 0f;
-        foreach (int m in MembersFast(unit).Take(40).ToList()) gift += CollectTithe(root, m);
-        if (FacilityOf(root, FacilityKind.Chapel, v) != null) gift *= 1.3f;
-        Earn(root, gift);
+        // 헌금은 예배 쪽에서 해마다 스스로 낸다(R3). 설교는 사람을 데려오는 일만 한다
     }
 
     /// <summary>교역: 장사꾼 조직원마다 차익을 낸다. 길이 위험하면 털릴 수 있고, 호송이 막아 준다. 장사 솜씨가 는다.</summary>
@@ -570,7 +567,8 @@ public sealed partial class World
                 Add(Verb.Collect, amb > 0.5f ? amb : 0f);   // 야심가 두목은 보호세로 터를 잡는다
                 break;
             case GroupKind.Brotherhood:
-                Add(Verb.Charity, 0.5f + piety);
+                Add(Verb.Worship, 0.5f + piety);
+                Add(Verb.Charity, 0.3f + 0.5f * piety);
                 Add(Verb.Preach, piety);
                 // 숨긴 신도회(이단)는 지배자를 깎아내린다
                 if (root.Visibility <= Visibility.Covert && OthersRealm(v, leader)) Add(Verb.Agitate, 0.4f * amb);

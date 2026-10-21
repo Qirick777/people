@@ -1042,7 +1042,7 @@ public partial class SimHost : Node
         return e;
     }
 
-    /// <summary>신앙 창: 회칙, 신도와 광신도, 믿음 평균, 바치기를 청할 수 있나.</summary>
+    /// <summary>신앙 창: 종교와 교리(신분별 강도), 권장 헌금, 신도와 광신도, 믿음 평균, 바치기, 입교할 수 있는 종교.</summary>
     public Godot.Collections.Dictionary FaithInfo(int id)
     {
         var e = new Godot.Collections.Dictionary();
@@ -1063,7 +1063,63 @@ public partial class SimHost : Node
         e["tithe"] = (int)root.Tithe; e["titheName"] = World.TitheName(root.Tithe);
         e["believers"] = n; e["zealots"] = z; e["faith"] = n > 0 ? sum / n : 0f;
         e["canOffer"] = w.CanCallOffering(root); e["treasury"] = root.Treasury;
+        var rel = root.ReligionId >= 0 && root.ReligionId < w.Religions.Count ? w.Religions[root.ReligionId] : null;
+        e["religion"] = rel?.Name ?? "아직 없음";
+        e["founder"] = rel != null && rel.FounderUid == root.LeaderUid;
+        e["known"] = rel != null ? w.KnownAt(rel, root.Village) : 0f;
+        e["canRevise"] = w.CanRevise(root);
+        var ranks = new (int rank, string name)[] { ((int)Rank.Leader, "우두머리"), (100 + (int)RoleKind.Priest, "사제"), (100 + (int)RoleKind.Commander, "지휘자"), (100 + (int)RoleKind.Student, "학생"), ((int)Rank.Believer, "신도"), ((int)Rank.Lay, "바깥 신자") };
+        var docs = new Godot.Collections.Array();
+        if (rel != null)
+            for (int k = 0; k < rel.Doctrines.Count; k++)
+            {
+                var (d, st) = rel.Doctrines[k];
+                var per = new Godot.Collections.Array();
+                foreach (var (rk, rn) in ranks)
+                    per.Add(new Godot.Collections.Dictionary { ["rank"] = rk, ["name"] = rn, ["strength"] = rel.Overrides.TryGetValue((rk, d), out var o) ? (int)o : -1 });
+                docs.Add(new Godot.Collections.Dictionary { ["slot"] = k, ["d"] = (int)d, ["name"] = World.DoctrineName(d), ["strength"] = (int)st, ["effect"] = World.DoctrineEffect(d), ["ranks"] = per });
+            }
+        e["doctrines"] = docs;
+        var all = new Godot.Collections.Array();
+        for (int d = 0; d < (int)Doctrine.Count; d++) all.Add(new Godot.Collections.Dictionary { ["d"] = d, ["name"] = World.DoctrineName((Doctrine)d), ["effect"] = World.DoctrineEffect((Doctrine)d) });
+        e["all"] = all;
+        var rels = new Godot.Collections.Array();
+        foreach (var r in w.Religions)
+            rels.Add(new Godot.Collections.Dictionary { ["id"] = r.Id, ["name"] = r.Name, ["known"] = w.KnownAt(r, root.Village), ["doctrines"] = string.Join("·", r.Doctrines.Select(x => $"{World.DoctrineName(x.d)} {World.StrengthName(x.s)}")) });
+        e["religions"] = rels;
         return e;
+    }
+
+    public string FoundReligion(int id, string name, Godot.Collections.Array picks)
+    {
+        var g = Commandable(id);
+        if (g == null) return "";
+        var list = new List<(Doctrine, Strength)>();
+        foreach (var x in picks) { var a = x.AsGodotArray(); list.Add(((Doctrine)(int)a[0], (Strength)(int)a[1])); }
+        for (int i = 0; i < list.Count; i++) for (int j = i + 1; j < list.Count; j++)
+            if (list[i].Item1 == list[j].Item1) return "같은 교리를 두 번 고를 수 없다";
+        var r = _w!.FoundReligion(g, name, list);
+        return r == null ? "교리를 하나에서 셋까지 고른다" : $"새 가르침 {World.Obj(r.Name)} 열었다";
+    }
+
+    public bool JoinReligion(int id, int rel)
+    {
+        var g = Commandable(id);
+        if (g == null) return false;
+        _w!.JoinReligion(g, rel);
+        return true;
+    }
+
+    public bool ReviseDoctrine(int id, int slot, int d, int strength)
+    {
+        var g = Commandable(id);
+        return g != null && _w!.ReviseDoctrine(g, slot, (Doctrine)d, (Strength)strength);
+    }
+
+    public bool SetRankStrength(int id, int rank, int d, int strength)
+    {
+        var g = Commandable(id);
+        return g != null && _w!.SetRankStrength(g, rank, (Doctrine)d, strength < 0 ? null : (Strength)strength);
     }
 
     public bool SetTithe(int id, int rule)

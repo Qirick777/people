@@ -68,7 +68,15 @@ public sealed partial class World
     public float AlarmMult(Group root)
     {
         var (f, s, _) = RepOfRoot(root);
-        return (1f + 2f * MathF.Max(0f, -s) * f) * (1f - 0.5f * MathF.Max(0f, s) * f);
+        float m = (1f + 2f * MathF.Max(0f, -s) * f) * (1f - 0.5f * MathF.Max(0f, s) * f);
+        // 교단의 교리: 성전·평등은 경계를 키우고 신분 질서는 줄인다
+        root = RootOf(root);
+        if (root.ReligionId > 0 && root.ReligionId < _religions.Count)
+        {
+            var r = _religions[root.ReligionId];
+            m *= 1f + 0.3f * RelStrength(r, Doctrine.HolyWar) + 0.3f * RelStrength(r, Doctrine.Equality) - 0.2f * RelStrength(r, Doctrine.Order);
+        }
+        return MathF.Max(0.1f, m);
     }
 
     /// <summary>사람 i 가 우두머리인 세력(지배자 집 가장이면 그 집, 홀로 선 조직 우두머리면 그 조직). 없으면 null.</summary>

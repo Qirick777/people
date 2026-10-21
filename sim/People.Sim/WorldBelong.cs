@@ -70,6 +70,8 @@ public sealed partial class World
         if (head >= 0 && lh >= 0)
             b.Loyal = p.Fanatic[head] != 0 && p.LoyalUid[head] == p.Uid[lh] ? 1f
                     : p.LoyalUid[head] == p.Uid[lh] ? 0.6f * p.Loyalty[head] : Math.Clamp(Social.Opinion(p, head, p.Uid[lh]) / 200f, 0f, 0.3f);
+        // 신분 질서 교리: 같은 종교를 믿는 지배자를 더 섬긴다
+        if (head >= 0 && lh >= 0 && ReligionOf(head) is { } hr && ReligionOf(lh)?.Id == hr.Id) b.Loyal = MathF.Min(1f, b.Loyal + 0.1f * DoctrineOn(head, Doctrine.Order));
         // 지배자가 이끄는 신앙 세력의 광신도인 가장은 떠나지 않는다
         if (head >= 0 && lh >= 0 && _devote.TryGetValue(p.Uid[head], out var dv) && dv.Zealot && GroupById(dv.Root) is { } fr && fr.LeaderUid == p.Uid[lh]) b.Loyal = 1f;
         int perks = 0;

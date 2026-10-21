@@ -363,8 +363,9 @@ public sealed partial class World
             Social.Add(p, victim, s.A, -50f);
             if (s.B != p.Uid[victim]) { Social.Add(p, victim, s.B, -40f); Social.Remember(p, victim, MemoryType.Betrayed, s.B, Day, -50); }
         }
-        if (aAlive) { p.Honor[a] -= 0.2f; Social.Remember(p, a, MemoryType.Exposed, s.B, Day, -30); }
-        if (bAlive) { p.Honor[b] -= s.Type == SecretType.SexTrade ? 0.05f : 0.2f; Social.Remember(p, b, MemoryType.Exposed, s.A, Day, -30); }
+        // 들킨 쪽의 명예는 그가 받는 순결·분방 교리만큼 더 깎이거나 덜 깎인다
+        if (aAlive) { p.Honor[a] -= 0.2f * BlameMult(a); Social.Remember(p, a, MemoryType.Exposed, s.B, Day, -30); }
+        if (bAlive) { p.Honor[b] -= (s.Type == SecretType.SexTrade ? 0.05f : 0.2f) * BlameMult(b); Social.Remember(p, b, MemoryType.Exposed, s.A, Day, -30); }
         // 몸을 판 쪽(B)은 낙인, 낙태한 여자(A)도 낙인
         if (s.Type == SecretType.SexTrade && bAlive) p.Stigma[b] = MathF.Min(1f, p.Stigma[b] + 0.3f);
         if (s.Type == SecretType.Abortion && aAlive) p.Stigma[a] = MathF.Min(1f, p.Stigma[a] + 0.25f);

@@ -388,6 +388,7 @@ public sealed partial class World
         float v = p.GetSkill(i, s);
         float ageK = Skills.AgeLearn(age);
         float mult = ageK * (0.5f + talent) * (1f + 0.3f * p.GetSkill(i, Skill.Letters)) * (1.1f - 0.2f * p.Get(i, Trait.Caution)) * time;
+        if (s == Skill.Letters) mult *= 1f + 0.3f * DoctrineOn(i, Doctrine.Learning);   // 학문 교리
         float ts = teacher >= 0 ? p.GetSkill(teacher, s) : -1f;
         p.SetSkill(i, s, Skills.LearnStep(v, cap, mult, ageK * time, ts, Config.LearnRate, Config.TeachRate));
     }

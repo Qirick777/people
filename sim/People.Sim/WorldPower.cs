@@ -122,6 +122,8 @@ public sealed partial class World
             if (!_rng.Chance((aggr - Config.RaidAggression) / (1f - Config.RaidAggression) * 0.8f)) return;
         }
         float power = HouseholdPower(h) + (gang != null ? 0.8f * gang.OwnStrength * gang.CmdFactor : 0f);   // 떼는 함께 턴다(이 갈래의 힘)
+        int raider = HeadIdx(h);
+        if (raider >= 0) power *= 1f + 0.2f * DoctrineOn(raider, Doctrine.HolyWar);   // 성전 교리
         if (gang != null) Stats.GangTries++;
         if (power < 0.3f) return;
         int days = DaysToHarvest();
@@ -165,7 +167,7 @@ public sealed partial class World
             LootGoods(best, h);
             if (p.IsValid(hh.Head[h]) && p.IsValid(hh.Head[best])) CommitCrime(CrimeType.Raid, hh.Head[h].Index, hh.Head[best].Index, take, false);
             int deadBefore = Stats.RaidDeaths;
-            Casualty(best, defense);
+            if (raider < 0 || DoctrineOn(raider, Doctrine.NonViolence) <= 0f) Casualty(best, defense);   // 불살 교리: 죽이지 않는다
             // 떼의 평판: 털기 −0.05, 사람이 죽으면 −0.1 더. 이름과 공포는 오른다
             if (gang != null) AddRepRoot(gang, 0.02f, Stats.RaidDeaths > deadBefore ? -0.15f : -0.05f, 0.03f);
             // 지켜 주지 못한 지배자를 원망하고, 반쯤은 떠난다(충성할수록 덜)

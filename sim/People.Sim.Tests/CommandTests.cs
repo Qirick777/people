@@ -35,7 +35,7 @@ public class CommandTests
         var (w, g, _) = WithOrg(GroupKind.Brotherhood, 4);
         w.SetUnitWeights(g, new[] { (Verb.Preach, 0.5f), (Verb.Train, 0.5f) });
         w.RecountIdentity(); w.RecountIdentity();
-        Assert.EndsWith("무장 신도회", g.Name);
+        Assert.EndsWith("무장 교단", g.Name);
     }
 
     [Fact]
