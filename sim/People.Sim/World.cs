@@ -37,6 +37,7 @@ public sealed partial class World
         else (SpawnX, SpawnY) = ChooseSpawn();
         map.EnsureAround(SpawnX, SpawnY, WorldMap.CS * 2);
         InitRoles();
+        InitRep();
     }
 
     public int SpawnX { get; private set; }

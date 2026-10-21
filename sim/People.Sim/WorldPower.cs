@@ -140,6 +140,8 @@ public sealed partial class World
             if (spare <= 10f) continue;
             float guard = DefensePower(t);
             float sc = spare / (1f + guard);
+            int prot = PatronOf(t);
+            if (prot >= 0) sc *= Math.Clamp(1f - 0.6f * RenownOfLord(prot), 0.4f, 1.6f);   // 이름난 지배자의 집은 덜 노린다
             if (sc > bestScore) { bestScore = sc; best = t; }
         }
         if (best < 0) { if (gang != null) Stats.GangNoTarget++; return; }
@@ -162,7 +164,10 @@ public sealed partial class World
             HeadsRelate(best, h, -40f, 20f, 0f, MemoryType.Raided, -60);
             LootGoods(best, h);
             if (p.IsValid(hh.Head[h]) && p.IsValid(hh.Head[best])) CommitCrime(CrimeType.Raid, hh.Head[h].Index, hh.Head[best].Index, take, false);
+            int deadBefore = Stats.RaidDeaths;
             Casualty(best, defense);
+            // 떼의 평판: 털기 −0.05, 사람이 죽으면 −0.1 더. 이름과 공포는 오른다
+            if (gang != null) AddRepRoot(gang, 0.02f, Stats.RaidDeaths > deadBefore ? -0.15f : -0.05f, 0.03f);
             // 지켜 주지 못한 지배자를 원망하고, 반쯤은 떠난다(충성할수록 덜)
             int lordOf = PatronOf(best);
             if (lordOf >= 0)
@@ -172,8 +177,14 @@ public sealed partial class World
                 if (_rng.Chance(0.5f * LeaveFactor(best))) _patron[best] = -1;
             }
         }
-        else if (gang != null) GangCasualty(gang);
-        else Casualty(h, power);
+        else
+        {
+            // 털린 마을을 지켜 낸 지킴 갈래는 평판이 오른다
+            foreach (var g in _groups)
+                if (g.Alive && g.Tasks.Any(t => t.Verb == Verb.Guard && t.Village == tv)) AddRepRoot(g, 0.01f, 0.01f, 0f);
+            if (gang != null) GangCasualty(gang);
+            else Casualty(h, power);
+        }
     }
 
     /// <summary>진 떼에서 한 명이 죽을 수 있다. 앞장선 사람(힘센 조직원)일수록 잘 맞는다. 두목은 뒤에 있어 덜 맞는다.</summary>

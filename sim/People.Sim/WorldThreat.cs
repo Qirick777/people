@@ -55,7 +55,7 @@ public sealed partial class World
         if (lord < 0 || !Households.IsAlive(lord)) return 0f;
         float t = VisibleForce(root) / MathF.Max(1f, RealmPower(lord));   // 봉신까지 센 세력 힘에 견준다
         t += 0.1f * _facilities.Count(f => f.Alive && f.Owner == root.Id && f.Kind is FacilityKind.Barracks or FacilityKind.Fort);
-        return t;
+        return t * AlarmMult(root);   // 악평은 경계를 키우고 좋은 평판은 줄인다
     }
 
     /// <summary>사람 수 제한이 걸려 꽉 찼는가(맨 위 조직 기준).</summary>

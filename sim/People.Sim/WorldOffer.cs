@@ -127,6 +127,7 @@ public sealed partial class World
         g.Sanction = -1; g.SanctionFounded = -1;
         g.Parent = -1;
         Stats.OrgBreaks++;
+        AddRepRoot(g, 0.03f, -0.1f, 0f);   // 붙었던 지배자를 저버렸다
     }
 
     /// <summary>제안을 거절당했다: 지배자가 의심하고 언짢아한다. 거듭 거절당한 거친 지배자는 누른다.</summary>

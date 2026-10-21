@@ -316,7 +316,7 @@ public sealed partial class World
             int i = RandomVillager(v);
             if (i < 0) continue;
             p.Piety[i] = MathF.Min(1f, p.Piety[i] + 0.01f * (0.5f + cha));
-            if (p.Piety[i] > 0.6f && !InGroup(i, root) && GroupsOf(i).Count() < GroupSlots && RuleAllows(root, i) && JoinFactor(root, i) > 0f && _rng.Chance(0.15f + 0.1f * AuthorityPull(i, root)))
+            if (p.Piety[i] > 0.6f && !InGroup(i, root) && GroupsOf(i).Count() < GroupSlots && RuleAllows(root, i) && JoinFactor(root, i) > 0f && _rng.Chance((0.15f + 0.1f * AuthorityPull(i, root)) * RecruitMult(root)))
                 if (JoinGroup(i, root)) Stats.Converts++;
         }
         // 헌금은 이 갈래에 바로 딸린 신도에게서만 받는다(갈래마다 같은 신도에게 거두지 않게)

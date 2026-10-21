@@ -17,7 +17,6 @@ public struct Belonging
 /// </summary>
 public sealed partial class World
 {
-    private readonly Dictionary<int, (int founded, float fear, float credit)> _rep = new();   // 지배자 집 → 공포, 신용
     private float[] _dues = new float[256];          // 집마다 올해 낸 것(공납, 헌금, 수업료)
     private float[] _lastDues = new float[256];      // 지난해 낸 것
     private Dictionary<int, (int fromLord, int all)>? _leaseFrom;   // 해마다: 집 → (그 집 주군 나무에게서 빌린 필지, 빌린 필지)
@@ -34,19 +33,6 @@ public sealed partial class World
         if (h < 0 || amount <= 0f) return;
         EnsureDues();
         _dues[h] += amount;
-    }
-
-    public (float fear, float credit) RepOf(int lord)
-    {
-        if (_rep.TryGetValue(lord, out var r) && Households.IsAlive(lord) && Households.FoundedDay[lord] == r.founded) return (r.fear, r.credit);
-        return (0.1f, 0.3f);
-    }
-
-    private void AddRep(int lord, float fear, float credit)
-    {
-        if (!Households.IsAlive(lord)) return;
-        var (f, c) = RepOf(lord);
-        _rep[lord] = (Households.FoundedDay[lord], Math.Clamp(f + fear, 0f, 1f), Math.Clamp(c + credit, 0f, 1f));
     }
 
     private void BuildLeaseFrom()
@@ -172,13 +158,13 @@ public sealed partial class World
         EnsureDues();
         (_lastDues, _dues) = (_dues, _lastDues);
         Array.Clear(_dues);
-        foreach (var k in _rep.Keys.ToList())
+        foreach (var k in _lordRep.Keys.ToList())
         {
-            var r = _rep[k];
-            if (!Households.IsAlive(k) || Households.FoundedDay[k] != r.founded) { _rep.Remove(k); continue; }
-            // 공포는 식고, 세금을 무겁게 매기지 않은 지배자는 신용이 조금씩 쌓인다
-            float c = r.credit * 0.95f + (TaxRate(k) <= Config.TributeRate + 0.001f ? 0.02f : 0f);
-            _rep[k] = (r.founded, r.fear * 0.9f, Math.Clamp(c, 0f, 1f));
+            var r = _lordRep[k];
+            if (!Households.IsAlive(k) || Households.FoundedDay[k] != r.founded) { _lordRep.Remove(k); continue; }
+            // 공포는 식고, 세금을 무겁게 매기지 않은 지배자는 평판이 조금씩 쌓인다(신용 = 0.3 + 평판)
+            float c = (0.3f + r.standing) * 0.95f + (TaxRate(k) <= Config.TributeRate + 0.001f ? 0.02f : 0f);
+            _lordRep[k] = (r.founded, r.fame, Math.Clamp(c - 0.3f, -1f, 1f), r.dread * 0.9f);
         }
         BuildLeaseFrom();
     }

@@ -763,6 +763,7 @@ public sealed partial class World
         DevotionYear();
         FacilityYear();
         EstablishmentYear();
+        RepYear();
         SpyYear();
         AuthorityStats();
         _memberIdx = null;

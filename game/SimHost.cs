@@ -574,6 +574,7 @@ public partial class SimHost : Node
                     ["fullTime"] = g.FullTime,
                     ["arms"] = w.ArmsCov(g),
                     ["threat"] = depth == 0 ? w.ThreatTo(g, out _) : 0f,
+                    ["rep"] = depth == 0 ? RepText(w.RepOfRoot(g)) : "",
                     ["visForce"] = depth == 0 ? w.VisibleForce(g) : 0f,
                     ["condition"] = depth == 0 ? World.ConditionName(w.ConditionOf(g)) : "없음",
                     ["lordAct"] = act?.name ?? "",
@@ -599,7 +600,7 @@ public partial class SimHost : Node
                     ["heir"] = "", ["inherit"] = 0f, ["joinRule"] = (int)root.JoinRule, ["shareRule"] = (int)root.ShareRule, ["treasury"] = 0f,
                     ["command"] = false, ["canSplit"] = false, ["mineIn"] = true, ["attached"] = false, ["lordAct"] = "", ["lordChance"] = 0f,
                     ["identity"] = World.GroupKindName(g.Kind), ["shares"] = "", ["vacant"] = false, ["cmdFactor"] = 1f, ["over"] = 0f, ["grip"] = 0f,
-                    ["treasurer"] = "", ["liaison"] = "", ["survey"] = 0f, ["school"] = false, ["faith"] = false, ["producer"] = false, ["fullTime"] = false, ["arms"] = 0f, ["threat"] = 0f, ["visForce"] = 0f, ["condition"] = "없음",
+                    ["treasurer"] = "", ["liaison"] = "", ["survey"] = 0f, ["school"] = false, ["faith"] = false, ["producer"] = false, ["fullTime"] = false, ["arms"] = 0f, ["threat"] = 0f, ["rep"] = "", ["visForce"] = 0f, ["condition"] = "없음",
                 });
             }
         }
@@ -786,6 +787,8 @@ public partial class SimHost : Node
     }
 
     /// <summary>앉힐 수 있는 사람: 그 조직 나무의 어른. (번호, 이름, 한 줄 설명)</summary>
+    private static string RepText((float fame, float standing, float dread) r) => $"인지도 {r.fame:0.00} · 평판 {r.standing:+0.00;-0.00} · 공포 {r.dread:0.00}";
+
     public Godot.Collections.Array OrgPeople(int id)
     {
         var a = new Godot.Collections.Array();
@@ -1306,6 +1309,8 @@ public partial class SimHost : Node
         e["belongAvg"] = subs.Count > 0 ? $"보호 {subs.Average(b => b.Protect):0.00} · 생계 {subs.Average(b => b.Living):0.00} · 공포 {subs.Average(b => b.Fear):0.00} · 충성 {subs.Average(b => b.Loyal):0.00} · 혜택 {subs.Average(b => b.Benefit):0.00} · 관습 {subs.Average(b => b.Habit):0.00} − 부담 {subs.Average(b => b.Burden):0.00}" : "";
         var (fearR, creditR) = w.RepOf(h);
         e["fear"] = fearR; e["credit"] = creditR;
+        var (fameR, standR, _) = w.RepOfLord(h);
+        e["fame"] = fameR; e["standing"] = standR;
         var orgs = new Godot.Collections.Array();
         foreach (var g in w.Groups)
         {

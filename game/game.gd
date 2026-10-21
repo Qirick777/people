@@ -534,6 +534,8 @@ func _open_orgs() -> void:
 		if depth == 0: info += " · 권위 %s(%.0f) · %s" % [_authority_word(float(e["authority"])), float(e["authority"]), e["visibilityName"]]
 		tv.add_child(UI.label(info, 12, UI.MUTED))
 		tv.add_child(UI.label(("정한 일: " if e["manual"] else "맡은 일: ") + e["tasks"], 12, UI.INK))
+		if depth == 0 and String(e.get("rep", "")) != "":
+			tv.add_child(UI.label(String(e["rep"]), 12, UI.MUTED))
 		if depth == 0 and e["shares"] != "":
 			tv.add_child(UI.label("정체: %s · 일 비중 %s" % [e["identity"], e["shares"]], 12, UI.MUTED))
 		if e["vacant"]:
@@ -876,7 +878,7 @@ func _open_rise() -> void:
 		trow.add_child(_center(cbtn))
 		rise_box.add_child(trow)
 		if int(lt["subjects"]) > 0:
-			var bl := UI.label("세력원 %d집 · 떠날 듯한 집 %d · 공포 %.2f · 신용 %.2f\n섬기는 까닭 평균: %s" % [int(lt["subjects"]), int(lt["wavering"]), float(lt["fear"]), float(lt["credit"]), lt["belongAvg"]], 12, UI.MUTED)
+			var bl := UI.label("세력원 %d집 · 떠날 듯한 집 %d · 인지도 %.2f · 평판 %+.2f · 공포 %.2f\n섬기는 까닭 평균: %s" % [int(lt["subjects"]), int(lt["wavering"]), float(lt.get("fame", 0.0)), float(lt.get("standing", 0.0)), float(lt["fear"]), lt["belongAvg"]], 12, UI.MUTED)
 			bl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			bl.custom_minimum_size = Vector2(600, 0)
 			bl.tooltip_text = "집마다 남을 까닭(보호, 생계, 공포, 충성, 혜택, 관습)에서 부담을 뺀 값이 다른 길보다 0.1 넘게 모자라면 해마다 30% 확률로 떠난다"

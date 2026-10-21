@@ -20,11 +20,12 @@ public class TeachTests
     {
         var (w, g, folk) = Group(GroupKind.Brotherhood);
         var p = w.People;
-        int m = folk[1];
-        float before = Social.Opinion(p, m, g.LeaderUid);
+        var before = folk.Skip(1).ToDictionary(i => i, i => Social.Opinion(p, i, g.LeaderUid));
         g.Lesson = Lesson.Doctrine; g.TeachShare = 0.3f; g.TeachManual = true;
         for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
-        if (w.InGroup(m, g)) Assert.True(Social.Opinion(p, m, g.LeaderUid) > before);
+        // 남은 조직원의 평균이 오른다(한 사람은 그해 다른 일로 깎일 수 있다)
+        var stay = folk.Skip(1).Where(i => p.IsAliveIndex(i) && w.InGroup(i, g)).ToList();
+        if (stay.Count > 0) Assert.True(stay.Average(i => Social.Opinion(p, i, g.LeaderUid)) > stay.Average(i => before[i]));
         // 이음을 마친 후계자가 있으면 우두머리가 떠나도 그가 잇는다
         int heir = folk.Skip(1).First(i => w.InGroup(i, g));
         g.HeirUid = p.Uid[heir]; g.Inherit = 1f;

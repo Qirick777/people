@@ -45,6 +45,7 @@ public sealed partial class World
         if (won)
         {
             Stats.WarWins++;
+            AddRepLord(a, 0.05f, 0f, 0.05f); AddRepLord(t, 0.02f, 0f, 0f);
             if (!WouldLoop(t, a)) { _patron[t] = a; _patronFounded[t] = hh.FoundedDay[a]; EnsureRealmArrays(); _legit[t] = 0; Resnap(t); }
             if (p.IsAliveIndex(th)) { Social.Add(p, th, p.Uid[ah], -40f, 40f); p.Honor[th] -= 0.2f; }
             RecountClients(); RecountTree();

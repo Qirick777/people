@@ -635,6 +635,7 @@ public sealed partial class World
             Success = (w, c, _) =>
             {
                 int a = H(w, c.Actor), t = H(w, c.Target);
+                w.AddRepLord(a, 0.05f, -0.15f, 0f);   // 서약을 깼다
                 if (w.IsPlayer(c.Target)) { w.Stats.IndepLetGo++; w.GoFree(c.Actor, c.Target, "주군이 놓아주어"); return; }
                 var (sup, neg, let, win, hold) = w.DeclareOdds(a, t);
                 float r = w._rng.NextFloat() * (let + sup * win + neg * (1f - hold));
@@ -645,6 +646,7 @@ public sealed partial class World
             Fail = (w, c) =>
             {
                 int a = H(w, c.Actor), t = H(w, c.Target);
+                w.AddRepLord(a, 0.05f, -0.15f, 0f);   // 서약을 깼다
                 if (w.IsPlayer(c.Target))
                 {
                     // 플레이어 주군이 진압을 골랐다

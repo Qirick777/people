@@ -72,6 +72,8 @@ public sealed class Group
     // 임금(plan_reform R1): 직책별 단계, 플레이어가 정했는지, 우두머리 집에서 주는지
     public readonly Dictionary<RoleKind, WageLevel> Wages = new();
     public bool WagesManual, WageFromLeader;
+    // 인지도·평판·공포(plan_reform R2, 홀로 선 맨 위 조직만. 지배자 세력은 지배자 집에 적는다)
+    public float Fame, Standing, Dread = 0.1f;
     public int LastOffering = -1;
 }
 
@@ -387,7 +389,7 @@ public sealed partial class World
                     // 숨긴 조직은 스스로 찾아오지 않는다(포섭으로만), 공개할수록 잘 모인다
                     // 스스로 드는 사람은 그 조직이 센 줄 알수록 잘 든다(아는 권위)
                     if (!inIt && here.Members < cap && GroupOfKind(i, kind) == null && want > 0.35f && RuleAllows(RootOf(here), i)
-                        && _rng.Chance((want - 0.35f) * 0.5f * JoinFactor(RootOf(here), i) * (0.75f + 0.5f * AuthorityPull(i, here)))) JoinGroup(i, here);
+                        && _rng.Chance((want - 0.35f) * 0.5f * JoinFactor(RootOf(here), i) * (0.75f + 0.5f * AuthorityPull(i, here)) * RecruitMult(here))) JoinGroup(i, here);
                     else if (inIt && !IsLeader(i, here) && !_students.ContainsKey(p.Uid[i]) && !IsZealot(p.Uid[i], here) && want + Social.Opinion(p, i, here.LeaderUid) / 200f + 0.3f * (OrgLoyalty(here, p.Uid[i]) - 0.3f) < 0.15f && _rng.Chance(0.3f)) LeaveGroup(i, here);   // 우두머리를 좋게 보면 남는다
                 }
                 if (kind == GroupKind.Watch && danger < 0.1f && here.Sanction < 0 && _rng.Chance(0.1f)) CloseGroup(here);
@@ -405,7 +407,12 @@ public sealed partial class World
                 Social.Add(p, a, p.Uid[b], 3f);
                 Social.Add(p, b, p.Uid[a], 3f);
             }
-            if (g.Tasks.Any(t => t.Verb == Verb.Charity)) Charity(members);
+            if (g.Tasks.Any(t => t.Verb == Verb.Charity))
+            {
+                float before = Stats.CharityFood;
+                Charity(members);
+                if (Stats.CharityFood > before) AddRepRoot(g, 0.005f, 0.02f, 0f);   // 구휼은 평판을 쌓는다
+            }
         }
         // 4) 지배자의 태도, 지배자의 군대, 일 나누기와 갈래 짜기
         OfferYear();
