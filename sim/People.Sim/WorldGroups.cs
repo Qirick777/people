@@ -76,6 +76,10 @@ public sealed class Group
     public float Fame, Standing, Dread = 0.1f;
     // 종교(plan_reform R3): 속한 종교(-1 없음), 지난해 우두머리(개인숭배 교단은 우두머리가 바뀌면 무너진다)
     public int ReligionId = -1, FaithLeaderUid = -1;
+    // 생산과 세력 땅(R5): 식량을 짓는 갈래인가, 세력 땅(필지 id)과 그 땅을 맡은 집
+    public bool FarmFood;
+    public readonly HashSet<int> FactionPlots = new();
+    public int LandHome = -1;
     public int LastOffering = -1;
 }
 
@@ -92,7 +96,7 @@ public sealed partial class World
     public static string GroupKindName(GroupKind k) => k switch
     {
         GroupKind.Watch => "자경단", GroupKind.Bandits => "도적 떼", GroupKind.Army => "군대", GroupKind.Company => "상단",
-        GroupKind.Sellswords => "용병단", GroupKind.Brothel => "유곽", GroupKind.School => "학교", GroupKind.Drill => "수련단", GroupKind.Inspectors => "감찰대", GroupKind.Workshop => "공방", _ => "교단",
+        GroupKind.Sellswords => "용병단", GroupKind.Brothel => "유곽", GroupKind.School => "학교", GroupKind.Drill => "수련단", GroupKind.Inspectors => "감찰대", GroupKind.Workshop => "생산", _ => "교단",
     };
 
     public Group? GroupById(int id) => id >= 0 && id < _groups.Count && _groups[id].Alive ? _groups[id] : null;

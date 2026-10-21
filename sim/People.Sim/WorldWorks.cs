@@ -33,8 +33,9 @@ public sealed partial class World
         {
             case Verb.Guard: case Verb.Raid: case Verb.Charity: case Verb.Recruit: case Verb.Train: case Verb.Worship: return true;
             case Verb.Produce:
-                if (Subtree(root).SelectMany(MembersFast).Any(IsMaker)) return true;
-                why = "만들 줄 아는 사람(공예·목공 0.2)이 있어야"; return false;
+                // 농사와 채집은 아무나, 물건을 만들려면 솜씨 있는 사람이 있어야
+                if (Subtree(root).Any(u => u.FarmFood || u.Product == Good.Basic) || Subtree(root).SelectMany(MembersFast).Any(IsMaker)) return true;
+                why = "만들 줄 아는 사람(공예·목공 0.2)이 있어야(농사·채집은 아무나)"; return false;
             case Verb.Survey:
                 if (size >= 3) return true;
                 why = "조직원 3명부터"; return false;

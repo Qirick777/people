@@ -82,15 +82,29 @@ public sealed partial class World
         if (good == Good.Arms && !shop) good = Good.Tools;   // 무구는 공방이 있어야
         if (!g.ProductManual && g.Village >= 0)
         {
-            // NPC 갈래: 마을에서 값이 가장 잘 쳐지는 것
+            // NPC 갈래: 마을에서 값이 가장 잘 쳐지는 것. 세력 땅에 일손이 모자라고 곡식 값이 높으면 농사를 짓는다
             float best = 0f;
-            foreach (var x in new[] { Good.Tools, Good.Cloth, Good.Fine, Good.Build, Good.Arms })
+            g.FarmFood = false;
+            foreach (var x in new[] { Good.Tools, Good.Cloth, Good.Fine, Good.Build, Good.Arms, Good.Basic })
             {
                 if (x == Good.Arms && !shop) continue;
                 float r = PriceAt(g.Village, x) / BasePrice[(int)x];
                 if (r > best) { best = r; good = x; }
             }
+            if (SpareFarmPlots(root) >= 2f && FoodPrice(g.Village) > best) g.FarmFood = true;
             g.Product = good;
+        }
+        if (g.FarmFood) { FarmLabor(root, g, w); return; }
+        if (good == Good.Basic)
+        {
+            // 채집: 조직원이 나무·섬유·돌을 모은다(집 채집과 같은 셈의 절반 시간)
+            float got = 0f;
+            foreach (int m in MembersFast(g)) { int h = p.Household[m]; if (hh.IsAlive(h) && Adult(m)) got += 1.5f * (0.6f + 0.4f * ToolCov(h)) * (g.FullTime ? 2f : 1f); }
+            got *= w;
+            if (got <= 0.01f) return;
+            Stats.OrgProduced += got;
+            Deliver(root, g, Good.Basic, got);
+            return;
         }
         var makers = MembersFast(g).Where(IsMaker).ToList();
         if (makers.Count == 0) return;
@@ -119,6 +133,88 @@ public sealed partial class World
         if (made <= 0.01f) return;
         Stats.OrgProduced += made;
         Deliver(root, g, good, made);
+    }
+
+    // ------------------------------------------------------------------ 세력 땅(R5)
+
+    /// <summary>세력 땅을 맡은 집: 지배자 세력이면 지배자 집, 아니면 우두머리 집.</summary>
+    public int LandHomeOf(Group root)
+    {
+        root = RootOf(root);
+        if (root.Home >= 0) return root.Home;
+        int l = FindAlive(root.LeaderUid);
+        return l >= 0 ? People.Household[l] : -1;
+    }
+
+    /// <summary>세력 땅 집에서 일손이 모자라 놀고 있는 필지 수(어림).</summary>
+    public float SpareFarmPlots(Group root)
+    {
+        int home = LandHomeOf(root);
+        if (!Households.IsAlive(home)) return 0f;
+        float labor = MathF.Max(0f, Households.Labor[home] + _hiredIn[home] - _hiredOut[home]);
+        return MathF.Max(0f, WorkPlots(home).Count - labor * Config.PlotsPerWorker);
+    }
+
+    /// <summary>
+    /// 농장 갈래: 조직원이 세력 땅에서 일한다(지금 품삯 셈에 일손으로 들어간다). 한 사람 몫 = 일 비중 × 지휘 몫 × (상근이면 1, 아니면 0.5).
+    /// 그 사람 집의 일손은 그만큼 준다. 놀고 있는 필지보다 많이 보내지는 않는다. 거둔 곡식은 세력 땅 집에 들어온다.
+    /// </summary>
+    private void FarmLabor(Group root, Group g, float w)
+    {
+        var p = People; var hh = Households;
+        int home = LandHomeOf(root);
+        if (!hh.IsAlive(home)) return;
+        EnsureLandArrays();
+        float room = SpareFarmPlots(root) / MathF.Max(0.1f, Config.PlotsPerWorker);
+        foreach (int m in MembersFast(g))
+        {
+            if (room <= 0.01f) break;
+            int h = p.Household[m];
+            if (!hh.IsAlive(h) || !Adult(m)) continue;
+            float u = MathF.Min(room, w * (g.FullTime ? 1f : 0.5f));
+            _hiredIn[home] += u;
+            if (h != home) _hiredOut[h] += u;
+            room -= u;
+            Stats.OrgFarmLabor += u;
+        }
+    }
+
+    /// <summary>세력 곳간으로 seller 집의 필지 하나를 산다(값은 은화, 땅은 세력 땅 집에). 산 필지 id(-1: 못 샀다).</summary>
+    public int BuyFactionLand(Group root, int seller)
+    {
+        root = RootOf(root);
+        int home = LandHomeOf(root);
+        var hh = Households;
+        if (!hh.IsAlive(home) || !hh.IsAlive(seller) || seller == home || hh.PlotCount[seller] <= 1) return -1;
+        int id = PlotForSale(seller, home);
+        if (id < 0) return -1;
+        float price = Map.PlotValue(id) * BuyPremium;
+        if (root.Treasury < price) return -1;
+        root.Treasury -= price;
+        hh.Coin[seller] += price;
+        _tiller.Remove(id);
+        Map.GivePlot(id, home, hh);
+        root.FactionPlots.Add(id);
+        root.LandHome = home;
+        Stats.LandBought++;
+        return id;
+    }
+
+    /// <summary>해마다: 우두머리가 바뀌었으면 세력 땅을 새 우두머리 집으로 넘기고, 남의 손에 넘어간 필지는 목록에서 뺀다.</summary>
+    private void FactionLandYear()
+    {
+        var hh = Households;
+        foreach (var root in _groups)
+        {
+            if (!root.Alive || !IsTop(root) || root.FactionPlots.Count == 0) continue;
+            int home = LandHomeOf(root);
+            if (!hh.IsAlive(home)) continue;
+            if (root.LandHome >= 0 && root.LandHome != home && hh.IsAlive(root.LandHome))
+                foreach (int id in root.FactionPlots.ToList())
+                    if (Map.Owner(id) == root.LandHome) { _tiller.Remove(id); Map.GivePlot(id, home, hh); }
+            root.LandHome = home;
+            root.FactionPlots.RemoveWhere(id => Map.Owner(id) != home);
+        }
     }
 
     /// <summary>만든 것을 공급 선의 비중대로 보낸다. 선이 없으면 시장에 판다.</summary>

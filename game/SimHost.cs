@@ -930,8 +930,19 @@ public partial class SimHost : Node
         var root = w.RootOf(g);
         bool shop = w.Facilities.Any(f => f.Owner == root.Id && f.Kind == FacilityKind.Workshop && f.Assigned == g.Id && f.Built >= World.FacilityCost(f.Kind).years);
         var goods = new Godot.Collections.Array();
-        foreach (var x in new[] { Good.Tools, Good.Cloth, Good.Fine, Good.Build, Good.Arms })
+        foreach (var x in new[] { Good.Tools, Good.Cloth, Good.Fine, Good.Build, Good.Arms, Good.Basic })
             goods.Add(new Godot.Collections.Dictionary { ["good"] = (int)x, ["name"] = World.GoodName(x), ["locked"] = x == Good.Arms && !shop ? "공방 시설을 이 갈래에 배정해야" : "" });
+        float spare = w.SpareFarmPlots(root);
+        goods.Add(new Godot.Collections.Dictionary { ["good"] = 100, ["name"] = $"식량(세력 땅, 놀고 있는 필지 {spare:0})", ["locked"] = spare < 1f ? "세력 땅에 놀고 있는 필지가 없다. 땅을 사거나 늘려야" : "" });
+        // 세력 땅: 가진 필지와 살 수 있는 필지(세력 곳간 은화로)
+        var hh = w.Households;
+        int home = w.LandHomeOf(root);
+        var sellers = new Godot.Collections.Array();
+        if (hh.IsAlive(home) && hh.Village[home] >= 0)
+            foreach (int h in Enumerable.Range(0, hh.HighWater).Where(h => hh.IsAlive(h) && h != home && hh.Village[h] == hh.Village[home] && hh.PlotCount[h] > 1 && w.LandPrice(h, home) > 0f)
+                         .OrderBy(h => w.LandPrice(h, home)).Take(5))
+                sellers.Add(new Godot.Collections.Dictionary { ["house"] = h, ["name"] = w.People.IsValid(hh.Head[h]) ? Names.Full(w.Lineage, w.People.Uid[hh.Head[h].Index]) : "", ["price"] = w.LandPrice(h, home) });
+        e["landPlots"] = root.FactionPlots.Count; e["homePlots"] = hh.IsAlive(home) ? hh.PlotCount[home] : 0; e["sellers"] = sellers; e["treasury"] = root.Treasury;
         var targets = new Godot.Collections.Array();
         void T(int tid, string name, string what) => targets.Add(new Godot.Collections.Dictionary
         {
@@ -941,7 +952,7 @@ public partial class SimHost : Node
         T(-1, "세력 곳간", "비축");
         foreach (var u in w.Groups.Where(x => x.Alive && x.Id != g.Id && w.RootOf(x).Id == root.Id))
             T(u.Id, u.Name, u.Tasks.Any(t => t.Verb == Verb.Trade) ? "납품: 장사 갈래가 판다" : World.IsSchool(u) ? "비품: 배우는 속도 +10%" : "보급: 무구는 갈래가, 다른 것은 조직원 집이");
-        e["product"] = (int)g.Product; e["manual"] = g.ProductManual; e["goods"] = goods; e["targets"] = targets;
+        e["product"] = g.FarmFood ? 100 : (int)g.Product; e["manual"] = g.ProductManual; e["goods"] = goods; e["targets"] = targets;
         e["store"] = string.Join(", ", Enumerable.Range(0, World.GoodCount).Where(k => root.Store[k] >= 0.5f).Select(k => $"{World.GoodName((Good)k)} {root.Store[k]:0}"));
         return e;
     }
@@ -951,7 +962,8 @@ public partial class SimHost : Node
     {
         var g = Commandable(id);
         if (g == null) return false;
-        g.Product = (Good)Math.Clamp(product, 0, World.GoodCount - 1);
+        g.FarmFood = product == 100;
+        if (!g.FarmFood) g.Product = (Good)Math.Clamp(product, 0, World.GoodCount - 1);
         g.ProductManual = true;
         g.Supply.Clear();
         foreach (var o in lines)
@@ -960,8 +972,15 @@ public partial class SimHost : Node
             float wt = (float)a[1];
             if (wt > 0f) g.Supply.Add(((int)a[0], wt));
         }
-        _w!.Chronicle.Add((_w.Day, $"{g.Name}: {World.Obj(World.GoodName(g.Product))} 만든다"));
+        _w!.Chronicle.Add((_w.Day, g.FarmFood ? $"{g.Name}: 세력 땅에서 농사를 짓는다" : $"{g.Name}: {World.Obj(World.GoodName(g.Product))} 만든다"));
         return true;
+    }
+
+    public string BuyFactionLand(int id, int seller)
+    {
+        var g = Commandable(id);
+        if (g == null) return "";
+        return _w!.BuyFactionLand(g, seller) >= 0 ? "세력 곳간으로 땅 한 필지를 샀다" : "살 수 없다(곳간 은화가 모자라거나 팔 땅이 없다)";
     }
 
     /// <summary>상근을 켜고 끈다.</summary>

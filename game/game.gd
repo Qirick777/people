@@ -1317,10 +1317,18 @@ func _open_production(id: int, name: String) -> void:
 	var back := UI.ghost("← 조직으로")
 	back.pressed.connect(_open_orgs)
 	org_box.add_child(back)
-	var note := UI.label("장인(공예·목공 0.2)이 만든다. 재료는 세력 곳간, 모자라면 장인 집에서 쓴다. 무구는 공방을 이 갈래에 배정해야 만든다. 세력 곳간: " + (info["store"] if info["store"] != "" else "비어 있음"), 12, UI.MUTED)
+	var note := UI.label("장인(공예·목공 0.2)이 만든다. 재료는 세력 곳간, 모자라면 장인 집에서 쓴다. 무구는 공방을 이 갈래에 배정해야 만든다. 채집(기초 재료)과 농사(식량)는 아무나 한다. 농사는 세력 땅에서 짓고 거둔 곡식은 우두머리 집에 든다. 세력 곳간: " + (info["store"] if info["store"] != "" else "비어 있음"), 12, UI.MUTED)
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	note.custom_minimum_size = Vector2(600, 0)
 	org_box.add_child(note)
+	org_box.add_child(UI.label("세력 땅: 산 필지 %d · 우두머리 집 필지 %d · 곳간 은화 %d" % [int(info.get("landPlots", 0)), int(info.get("homePlots", 0)), int(float(info.get("treasury", 0.0)))], 12, UI.INK))
+	for sl in info.get("sellers", []):
+		var sh := int(sl["house"])
+		var lb := UI.action("%s의 필지 사기 · 은화 %d" % [sl["name"], int(float(sl["price"]))], "세력 곳간 은화로 산다. 땅은 우두머리 집에 들고, 우두머리가 바뀌면 새 우두머리 집으로 넘어간다", -1.0, false)
+		lb.pressed.connect(func():
+			_set_hint(host.BuyFactionLand(id, sh))
+			_open_production(id, name))
+		org_box.add_child(lb)
 	var st := {"product": int(info["product"])}
 	var prow := HBoxContainer.new()
 	prow.add_theme_constant_override("separation", 0)
