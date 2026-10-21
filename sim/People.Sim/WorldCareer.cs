@@ -57,7 +57,13 @@ public sealed partial class World
         int id = PlotForSale(seller, buyer);
         if (id < 0) return;
         float price = Map.PlotValue(id) * BuyPremium;
-        PayCoin(buyer, seller, price);   // 땅값은 은화
+        float paid = PayCoin(buyer, seller, price);   // 땅값은 은화
+        if (paid < price)
+        {
+            // 곳간에 은화가 모자라 식량을 다 못 팔았으면 나머지는 식량으로 바로 치른다
+            float food = MathF.Min(MathF.Max(0f, hh.Food[buyer]), (price - paid) / MathF.Max(0.1f, FoodPrice(hh.Village[buyer])));
+            hh.Food[buyer] -= food; hh.Food[seller] += food;
+        }
         _tiller.Remove(id);
         Map.GivePlot(id, buyer, hh);
         Stats.LandBought++;

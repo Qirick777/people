@@ -11,6 +11,7 @@ public class CareerTests
         int lh = hh.Head[lord].Index;
         int buyer = Enumerable.Range(0, hh.HighWater).First(h => hh.IsAlive(h) && w.PatronOf(h) == lord && w.People.IsValid(hh.Head[h]));
         hh.Food[buyer] = 1000f;
+        hh.Coin[buyer] = 1000f;
         var c = new InteractionContext { Actor = hh.Head[buyer].Index, Target = lh, Third = -1 };
         var def = w.Def(InteractionId.BuyLand);
         Assert.True(def.Can(w, c));
