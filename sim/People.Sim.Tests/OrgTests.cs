@@ -32,7 +32,7 @@ public class OrgTests
         var hh = w.Households;
         var mine = Enumerable.Range(0, hh.HighWater).Where(h => hh.IsAlive(h) && w.PatronOf(h) == lord).ToList();
         int vassal = mine.First(h => w.ClientCount(h) == 0);
-        int before = w.ClientCount(lord);
+        int before = Enumerable.Range(0, hh.HighWater).Count(h => hh.IsAlive(h) && w.PatronOf(h) == lord);   // 셈해 둔 수는 해마다 다시 세니 실제 수로 본다
         int n = w.Enfeoff(lord, vassal, -1, 4);
         Assert.True(n >= 1);
         Assert.Equal(lord, w.PatronOf(vassal));

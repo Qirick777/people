@@ -355,6 +355,7 @@ func _take_house(id: int) -> void:
 	actor = -1
 	for m in _members():
 		if m["head"]: actor = int(m["i"])
+	if actor < 0 and not _members().is_empty(): actor = int(_members()[0]["i"])   # 가장이 없으면 첫 식구
 	_set_speed(1)
 	_set_hint("")
 	_redraw()
@@ -877,6 +878,24 @@ func _open_rise() -> void:
 			_open_rise())
 		trow.add_child(_center(cbtn))
 		rise_box.add_child(trow)
+		var nrow := HBoxContainer.new()
+		nrow.add_theme_constant_override("separation", 0)
+		var nl := UI.label("안 낸 집 ", 13, UI.MUTED, true)
+		nl.tooltip_text = "징수관이나 걷는 갈래가 맡은 집이 안 냈을 때 할 일. 무거울수록 잘 걷히지만 충성이 깎인다. 맡는 사람이 없는 집에는 아무것도 못 한다"
+		nrow.add_child(_center(nl))
+		var npn := ["용서", "빚으로", "압류", "구금", "해치기", "내쫓기"]
+		for k in npn.size():
+			var nb := Button.new()
+			nb.text = npn[k]
+			nb.add_theme_font_size_override("font_size", 12)
+			UI.segment(nb, int(lt.get("nonPay", 0)) == k, k == 0, k == npn.size() - 1)
+			var kk: int = k
+			nb.pressed.connect(func():
+				host.SetNonPay(kk)
+				for line in host.DrainChronicle(): _log(line)
+				_open_rise())
+			nrow.add_child(nb)
+		rise_box.add_child(nrow)
 		if int(lt["subjects"]) > 0:
 			var bl := UI.label("세력원 %d집 · 떠날 듯한 집 %d · 인지도 %.2f · 평판 %+.2f · 공포 %.2f\n섬기는 까닭 평균: %s" % [int(lt["subjects"]), int(lt["wavering"]), float(lt.get("fame", 0.0)), float(lt.get("standing", 0.0)), float(lt["fear"]), lt["belongAvg"]], 12, UI.MUTED)
 			bl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -2454,6 +2473,8 @@ func _run_autotest() -> void:
 			_on_player_changed()
 			_set_speed(0)
 			while not host.Ready: await get_tree().create_timer(0.2).timeout
+			for m in _members():
+				if m["head"]: actor = int(m["i"])
 			print("autotest: ", host.DoSelf(actor, "found:7"))
 			var sorgs: Array = host.OrgPanel().filter(func(o): return o["command"] and int(o["depth"]) == 0 and o["school"])
 			if sorgs.size() > 0:

@@ -667,12 +667,14 @@ public sealed partial class World
             float got = 0;
             bool coin = TributeInCoin(lord);   // 공납을 은화로 받는가(아니면 현물)
             void Give(int x, float a) { if (coin) hh.Coin[x] += a; else hh.Food[x] += a; }
-            for (; idx < list.Count && idx < direct; idx++) got += TakeTribute(list[idx], lord, 1f);
-            foreach (int c in collectors)
+            float Owed(int x) => MathF.Max(0f, _incOwn[x] + 0.5f * _incTenant[x]) * TaxRate(lord);
+            for (; idx < list.Count && idx < direct; idx++) if (WillPay(list[idx], lord, true, Owed(list[idx]))) got += TakeTribute(list[idx], lord, 1f);
+            // 징수관과 걷기 일을 맡은 갈래 조직원(R6)
+            var staff = collectors.Select(c => (c, CollectorSpan(c))).Concat(OrgCollectors(lord)).ToList();
+            foreach (var (c, span) in staff)
             {
-                int span = CollectorSpan(c);
                 float collected = 0;
-                for (int k = 0; k < span && idx < list.Count; k++, idx++) collected += TakeTribute(list[idx], lord, 0f);
+                for (int k = 0; k < span && idx < list.Count; k++, idx++) if (WillPay(list[idx], lord, true, Owed(list[idx]))) collected += TakeTribute(list[idx], lord, 0f);
                 float skim = collected * (Config.CollectorCut + 0.15f * p.Get(c, Trait.Ambition)) * SkimFactor(c);
                 int ch = p.Household[c];
                 if (hh.IsAlive(ch)) { Give(ch, skim); _incWage[ch] += skim; }
@@ -687,6 +689,8 @@ public sealed partial class World
                     CommitCrime(CrimeType.Embezzle, c, lh.Index, excess, false);
             }
             Stats.Uncollected += list.Count - idx;
+            // 맡는 사람이 없는 집은 스스로 낼 때만 낸다(헌금처럼)
+            for (; idx < list.Count; idx++) if (WillPay(list[idx], lord, false, Owed(list[idx]))) { got += TakeTribute(list[idx], lord, 1f); Stats.TaxVoluntary++; }
             _incTribute[lord] += got;
             Stats.Tribute += got;
             // 군인 품삯(은화. 모자라면 지배자가 곳간 식량을 장터에 판다)
@@ -702,6 +706,7 @@ public sealed partial class World
             if (TierOf(lord) >= 2) { float mint = 0.05f * got; hh.Coin[lord] += mint; Stats.Minted += mint; }
         }
         PassTributeUp();
+        CollectYearEnd();
     }
 
     private float Dist2(int a, int b)

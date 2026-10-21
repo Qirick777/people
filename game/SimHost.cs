@@ -322,6 +322,7 @@ public partial class SimHost : Node
     {
         if (_w == null) return "";
         var w = _w;
+        if (actor < 0 || !w.People.IsAliveIndex(actor)) return "행동할 사람이 없다";
         var parts = key.Split(':');
         if (parts[0] == "found")
         {
@@ -1384,6 +1385,7 @@ public partial class SimHost : Node
         e["belongAvg"] = subs.Count > 0 ? $"보호 {subs.Average(b => b.Protect):0.00} · 생계 {subs.Average(b => b.Living):0.00} · 공포 {subs.Average(b => b.Fear):0.00} · 충성 {subs.Average(b => b.Loyal):0.00} · 혜택 {subs.Average(b => b.Benefit):0.00} · 관습 {subs.Average(b => b.Habit):0.00} − 부담 {subs.Average(b => b.Burden):0.00}" : "";
         var (fearR, creditR) = w.RepOf(h);
         e["fear"] = fearR; e["credit"] = creditR;
+        e["nonPay"] = (int)w.NonPayOf(h);
         var (fameR, standR, _) = w.RepOfLord(h);
         e["fame"] = fameR; e["standing"] = standR;
         var orgs = new Godot.Collections.Array();
@@ -1456,6 +1458,14 @@ public partial class SimHost : Node
     }
 
     /// <summary>세율을 정한다(8~20%). 12%보다 무거우면 아래 집들이 해마다 나를 나쁘게 본다.</summary>
+    /// <summary>안 낸 집에게 할 일(0 용서, 1 빚, 2 압류, 3 구금, 4 해치기, 5 내쫓기).</summary>
+    public void SetNonPay(int n)
+    {
+        if (!Ready || _w!.PlayerHousehold < 0) return;
+        _w.SetNonPay(_w.PlayerHousehold, (NonPay)Math.Clamp(n, 0, 5));
+        _w.Chronicle.Add((_w.Day, $"안 낸 집에게는 이제 {World.NonPayName((NonPay)n)}"));
+    }
+
     public void SetTax(int pct)
     {
         if (!Ready || _w!.PlayerHousehold < 0) return;
