@@ -81,6 +81,8 @@ public sealed class Group
     public readonly HashSet<int> FactionPlots = new();
     public int LandHome = -1;
     public float LendRate = 0.2f;   // 대부 이자(R7)
+    public int RecruitTarget = -2;   // 모집이 데려갈 곳(R8): -2 자기 갈래(포섭), -1 세력원 집, 그 밖은 같은 세력 갈래 Id
+    public bool Conscript;           // 강제 징집(R8)
     public int LastOffering = -1;
 }
 
@@ -397,7 +399,7 @@ public sealed partial class World
                     // 숨긴 조직은 스스로 찾아오지 않는다(포섭으로만), 공개할수록 잘 모인다
                     // 스스로 드는 사람은 그 조직이 센 줄 알수록 잘 든다(아는 권위)
                     if (!inIt && here.Members < cap && GroupOfKind(i, kind) == null && want > 0.35f && RuleAllows(RootOf(here), i)
-                        && _rng.Chance((want - 0.35f) * 0.5f * JoinFactor(RootOf(here), i) * (0.75f + 0.5f * AuthorityPull(i, here)) * RecruitMult(here))) JoinGroup(i, here);
+                        && _rng.Chance((want - 0.35f) * 0.5f * JoinFactor(RootOf(here), i) * (0.75f + 0.5f * AuthorityPull(i, here)) * RecruitMult(here) * 0.5f)) JoinGroup(i, here);   // 스스로 드는 세기는 모집 조직이 생기며 절반으로(R8)
                     else if (inIt && !IsLeader(i, here) && !_students.ContainsKey(p.Uid[i]) && !IsZealot(p.Uid[i], here) && want + Social.Opinion(p, i, here.LeaderUid) / 200f + 0.3f * (OrgLoyalty(here, p.Uid[i]) - 0.3f) < 0.15f && _rng.Chance(0.3f)) LeaveGroup(i, here);   // 우두머리를 좋게 보면 남는다
                 }
                 if (kind == GroupKind.Watch && danger < 0.1f && here.Sanction < 0 && _rng.Chance(0.1f)) CloseGroup(here);

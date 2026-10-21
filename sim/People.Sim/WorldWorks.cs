@@ -90,7 +90,7 @@ public sealed partial class World
         return list;
     }
 
-    private IEnumerable<Group> Subtree(Group root)
+    public IEnumerable<Group> Subtree(Group root)
     {
         var stack = new Stack<Group>();
         stack.Push(root);
@@ -214,7 +214,7 @@ public sealed partial class World
                     case Verb.Mercenary: Hireout(root, g, effort, strength, leader); break;
                     case Verb.Brothel: BrothelCut(root, g, t.Village, t.Weight, leader); break;
                     case Verb.Agitate: Agitate(root, t.Village, effort); break;
-                    case Verb.Recruit: for (int k = 0; k < Math.Min(6, (int)MathF.Ceiling(effort / 2f)); k++) RecruitOne(root, g); break;
+                    case Verb.Recruit: RecruitWork(root, g, t.Village, effort); break;
                     case Verb.Train: Drill(g, t.Weight * cf * TrainBoost(g)); break;
                     case Verb.Produce: Produce(root, g, t.Weight * cf); break;
                 }

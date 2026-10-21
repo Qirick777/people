@@ -36,7 +36,7 @@ public sealed partial class World
             Verb.Guard => g.Paid || g.Parent >= 0 || g.Sanction >= 0 ? "경비대" : "자경단",
             Verb.Raid => "도적 떼", Verb.Chase => "치안대", Verb.Attack => "군대", Verb.Collect => g.Home >= 0 || RootOf(g).Home >= 0 ? "징수대" : NonPayOf(LandHomeOf(RootOf(g))) switch { NonPay.Harm or NonPay.Detain => "보호세 패", NonPay.Forgive => "모금꾼", _ => "징수대" },
             Verb.Charity => "구휼회", Verb.Preach => "선교단", Verb.Worship => "교단", Verb.Lease => "상회", Verb.Lend => "전당", Verb.Trade => "상단", Verb.Escort => "호송대", Verb.Mercenary => "용병단",
-            Verb.Brothel => "유곽", Verb.Agitate => "선동대", Verb.Kidnap => "납치단", Verb.Recruit => "포섭조", Verb.Survey => "감찰대", Verb.Train => "수련단", Verb.Produce => g.FarmFood ? "농장" : g.Product == Good.Basic ? "채집단" : g.Product == Good.Build ? "목공소" : "공방", _ => SchoolLabel(g),
+            Verb.Brothel => "유곽", Verb.Agitate => "선동대", Verb.Kidnap => "납치단", Verb.Recruit => RecruitLabel(g), Verb.Survey => "감찰대", Verb.Train => "수련단", Verb.Produce => g.FarmFood ? "농장" : g.Product == Good.Basic ? "채집단" : g.Product == Good.Build ? "목공소" : "공방", _ => SchoolLabel(g),
         };
     }
 
@@ -752,6 +752,7 @@ public sealed partial class World
         BuildMemberIndex();
         foreach (var g in _groups) if (g.Alive && IsTop(g)) PickInner(g);
         BudgetYear();
+        ConscriptYear();
         CommandYear();
         SupplyYear();
         FactionYear();

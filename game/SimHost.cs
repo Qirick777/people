@@ -573,6 +573,7 @@ public partial class SimHost : Node
                     ["kind"] = World.GroupKindName(g.Kind),
                     ["faith"] = World.IsTop(g) && w.IsFaith(g),
                     ["producer"] = g.Tasks.Any(t => t.Verb == Verb.Produce),
+                    ["recruiter"] = g.Tasks.Any(t => t.Verb == Verb.Recruit),
                     ["fullTime"] = g.FullTime,
                     ["arms"] = w.ArmsCov(g),
                     ["threat"] = depth == 0 ? w.ThreatTo(g, out _) : 0f,
@@ -1222,6 +1223,33 @@ public partial class SimHost : Node
             lords.Add(new Godot.Collections.Dictionary { ["house"] = l, ["name"] = w.RealmName(l), ["odds"] = w.ContractOdds(root, l, Good.Arms, World.BasePrice[(int)Good.Arms]) });
         e["lords"] = lords;
         return e;
+    }
+
+    /// <summary>모집 창: 데려갈 곳 후보(자기 갈래, 세력, 같은 세력 갈래)와 징집.</summary>
+    public Godot.Collections.Dictionary RecruitInfo(int id)
+    {
+        var e = new Godot.Collections.Dictionary();
+        var g = Commandable(id);
+        if (g == null) return e;
+        var w = _w!;
+        var ts = new Godot.Collections.Array
+        {
+            new Godot.Collections.Dictionary { ["id"] = -2, ["name"] = "이 갈래(포섭)" },
+            new Godot.Collections.Dictionary { ["id"] = -1, ["name"] = "세력(따르는 집)" },
+        };
+        foreach (var u in w.Subtree(w.RootOf(g)).Where(u => u.Alive && u.Id != g.Id))
+            ts.Add(new Godot.Collections.Dictionary { ["id"] = u.Id, ["name"] = $"{u.Name} · {w.UnitLabel(u)}" });
+        e["targets"] = ts; e["target"] = g.RecruitTarget; e["conscript"] = g.Conscript;
+        e["canConscript"] = w.CanConscript(g); e["label"] = w.RecruitLabel(g);
+        return e;
+    }
+
+    public bool SetRecruit(int id, int target, bool conscript)
+    {
+        var g = Commandable(id);
+        if (g == null) return false;
+        _w!.SetRecruit(g, target, conscript);
+        return true;
     }
 
     public bool SetLendRate(int id, float rate)

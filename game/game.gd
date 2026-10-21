@@ -609,6 +609,11 @@ func _open_orgs() -> void:
 				fb2.tooltip_text = "헌금 회칙과 바치기. 믿음이 깊은 신도는 광신도가 되어 떠나지 않고 굶어도 낸다"
 				fb2.pressed.connect(func(): _open_faith(id, e["name"]))
 				r.add_child(_center(fb2))
+			if e.get("recruiter", false):
+				var rcb := UI.ghost("모집")
+				rcb.tooltip_text = "모집해서 데려갈 곳을 고른다. 데려갈 곳에 따라 모병단·선교단·학생 모집·일꾼 모집이 된다"
+				rcb.pressed.connect(func(): _open_recruit(id, e["name"]))
+				r.add_child(_center(rcb))
 			if depth == 0 and String(e.get("kind", "")) == "상단":
 				var cmb := UI.ghost("상단")
 				cmb.tooltip_text = "대부 이자, 납품 계약, 세력 땅"
@@ -1500,6 +1505,36 @@ func _open_company(id: int, name: String) -> void:
 			_set_hint(host.OfferContract(id, lh, 5, 2.0, 8.0, 5))
 			for line in host.DrainChronicle(): _log(line)
 			_open_company(id, name))
+		org_box.add_child(cb)
+	_show_panel(org_panel)
+
+
+## 모집: 데려갈 곳과 강제 징집.
+func _open_recruit(id: int, name: String) -> void:
+	var info: Dictionary = host.RecruitInfo(id)
+	if info.is_empty():
+		_open_orgs()
+		return
+	org_title.text = name + " · " + String(info["label"])
+	for c in org_box.get_children(): c.queue_free()
+	var back := UI.ghost("← 조직으로")
+	back.pressed.connect(_open_orgs)
+	org_box.add_child(back)
+	org_box.add_child(UI.label("데려갈 곳", 13, UI.MUTED, true))
+	var cons: bool = info["conscript"]
+	for t in info["targets"]:
+		var tid := int(t["id"])
+		var b := UI.action(("● " if tid == int(info["target"]) else "") + String(t["name"]))
+		b.pressed.connect(func():
+			host.SetRecruit(id, tid, cons)
+			_open_recruit(id, name))
+		org_box.add_child(b)
+	if info["canConscript"]:
+		var cb := UI.ghost("강제 징집 " + ("끄기" if cons else "켜기"))
+		cb.tooltip_text = "지배자 아래 집의 16~40세 남자를 억지로 들인다. 조직 충성 0.2에서 시작하고 충성이 낮을수록 달아난다"
+		cb.pressed.connect(func():
+			host.SetRecruit(id, int(info["target"]), not cons)
+			_open_recruit(id, name))
 		org_box.add_child(cb)
 	_show_panel(org_panel)
 
@@ -2546,6 +2581,10 @@ func _run_autotest() -> void:
 				await _snap("live_budget.png")
 				org_panel.visible = false
 				print("autotest: 예산 갈래 ", (host.BudgetInfo(int(sorgs[0]["id"])).get("units", []) as Array).size())
+				_open_recruit(int(sorgs[0]["id"]), sorgs[0]["name"])
+				await _snap("live_recruit.png")
+				org_panel.visible = false
+				print("autotest: 모집 후보 ", (host.RecruitInfo(int(sorgs[0]["id"])).get("targets", []) as Array).size())
 			break
 	get_tree().quit()
 

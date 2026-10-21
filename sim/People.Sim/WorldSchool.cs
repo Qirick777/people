@@ -88,6 +88,7 @@ public sealed partial class World
     };
 
     public bool IsStudent(int i) => _students.ContainsKey(People.Uid[i]);
+    private readonly HashSet<(int school, int uid)> _alumni = new();   // 졸업한 학교에는 다시 들지 않는다
 
     /// <summary>갈래가 학교인가(가르침 일이 있다).</summary>
     public static bool IsSchool(Group g) => g.Alive && g.Tasks.Any(t => t.Verb == Verb.Teach && t.Weight > 0f);
@@ -157,6 +158,7 @@ public sealed partial class World
             int i = FindAlive(uid);
             if (i < 0 || GroupById(s0.unit) is not { } su || !InGroup(i, su) || !IsSchool(su)) _students.Remove(uid);   // 학교 일을 그만둔 갈래의 학생도
         }
+        _alumni.RemoveWhere(a => FindAlive(a.uid) < 0 || GroupById(a.school) is not { Alive: true });
         // 1) 학교마다
         foreach (var u in _groups.ToList())
         {
@@ -282,7 +284,7 @@ public sealed partial class World
             for (int k = hh.FirstMember[h]; k >= 0; k = p.HhNext[k])
             {
                 int age = AgeYears(k);
-                if (age < plan.MinAge || age > plan.MaxAge || _students.ContainsKey(p.Uid[k]) || GroupsOf(k).Count() >= GroupSlots || InGroup(k, u)) continue;
+                if (age < plan.MinAge || age > plan.MaxAge || _students.ContainsKey(p.Uid[k]) || _alumni.Contains((u.Id, p.Uid[k])) || GroupsOf(k).Count() >= GroupSlots || InGroup(k, u)) continue;
                 if (p.GetSkill(k, Skill.Letters) > plan.MaxLetters || Skills.Talent(p, k, mainSkill) < plan.TalentMin) continue;
                 // 집이 보낼지: 배움을 아는 집(가장의 글, 야심, 넉넉함), 재능, 학교 우두머리를 보는 눈, 수업료와 일손
                 float pr = 0.05f + 0.2f * Skills.Talent(p, k, mainSkill);
@@ -314,6 +316,7 @@ public sealed partial class World
     {
         var p = People;
         _students.Remove(p.Uid[st]);
+        _alumni.Add((u.Id, p.Uid[st]));
         plan.Graduated++; Stats.Graduated++;
         FaithFromSchool(st, plan, root);
         if (plan.Dest == SchoolDest.Teacher) return;   // 갈래에 남아 가르친다

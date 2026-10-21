@@ -33,6 +33,7 @@ public class SchoolTests
         for (int y = 0; y < 2; y++) for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
         // 한 해 과정이니 두 해 뒤 그때 학생은 모두 졸업했다(살아 있다면)
         var p = w.People;
+        var alive = studs.Select(uid => Enumerable.Range(0, p.HighWater).FirstOrDefault(k => p.IsAliveIndex(k) && p.Uid[k] == uid, -1)).Where(k => k >= 0).ToList();
         Assert.True(studs.Any(uid => Enumerable.Range(0, p.HighWater).Any(k => p.IsAliveIndex(k) && p.Uid[k] == uid && !w.IsStudent(k))), "아무도 졸업하지 않았다");
     }
 
