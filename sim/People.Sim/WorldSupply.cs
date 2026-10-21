@@ -210,10 +210,10 @@ public sealed partial class World
             {
                 int h = p.Household[m];
                 if (!hh.IsAlive(h)) continue;
-                // 군량: 세력 곳간이 그 마을 값으로 은화를 대고, 그 집이 장터에서 산다. 못 대면 제 집이 대고, 제 집도 어려우면 떠난다
+                // 군량: 갈래가 받은 예산에서 그 마을 값으로 은화를 대고, 그 집이 장터에서 산다. 못 대면 제 집이 대고, 제 집도 어려우면 떠난다
                 float cost = ration * FoodPrice(hh.Village[h]);
-                float fromT = MathF.Min(cost, root.Treasury);
-                root.Treasury -= fromT;
+                float fromT = MathF.Min(cost, g.Purse);
+                g.Purse -= fromT;
                 hh.Coin[h] += fromT;
                 if (fromT < cost && Surplus(h) < 0.5f) { LeaveGroup(m, g); Stats.RationLeft++; continue; }
                 BuyFood(h, ration);

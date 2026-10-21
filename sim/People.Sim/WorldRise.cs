@@ -632,6 +632,7 @@ public sealed partial class World
         InteractionId.OrgPledge => "제 조직을 바치겠다고 청한다",
         InteractionId.OrgBreak => "조직을 이끌고 떨어져 나가겠다고 한다. 놓아줄지 누를지 정한다",
         InteractionId.OrgCondition => "우리 조직의 드러난 무력을 문제 삼아 조건을 건다",
+        InteractionId.FactionDemand => "파벌을 이끌고 갈래의 몫을 늘려 달라고 요구한다",
         _ => "자기 주군을 건너뛰고 직접 서약하겠다고 한다",
     };
 

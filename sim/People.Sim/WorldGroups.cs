@@ -65,6 +65,8 @@ public sealed class Group
     public readonly List<(int target, float weight)> Supply = new();   // 보낼 곳: 갈래 id, -1 곳간(비축), -2 시장(직판)
     public bool FullTime;                             // 상근: 집 농사를 하지 않고 세력이 먹인다
     public int PendingNameYears;
+    // 예산(plan_faction 10장): 비중(필요에 곱한다), 올해 필요·받은 몫·채운 비율, 쓰고 남은 은화
+    public float BudgetWeight = 1f, Need, Alloc, Fill = 1f, Purse;
 }
 
 /// <summary>

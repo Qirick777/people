@@ -994,7 +994,7 @@ public partial class SimHost : Node
         var build = new Godot.Collections.Array();
         int leader = FindAlive(root.LeaderUid);
         int home = root.Home >= 0 ? root.Home : leader >= 0 ? w.People.Household[leader] : -1;
-        float money = root.Treasury + (hh.IsAlive(home) ? MathF.Max(0f, hh.Food[home] - hh.Need[home] * w.DaysToHarvestPublic) : 0f);
+        float money = root.Treasury + (hh.IsAlive(home) ? hh.Coin[home] + MathF.Max(0f, hh.Food[home] - hh.Need[home] * w.DaysToHarvestPublic) * w.FoodPrice(hh.Village[home]) : 0f);
         foreach (FacilityKind k in Enum.GetValues<FacilityKind>())
         {
             var (cost, years, upkeep) = World.FacilityCost(k);
@@ -1004,6 +1004,55 @@ public partial class SimHost : Node
         foreach (var u in w.Groups.Where(x => x.Alive && w.RootOf(x).Id == root.Id)) units.Add(new Godot.Collections.Dictionary { ["id"] = u.Id, ["name"] = u.Name });
         e["have"] = have; e["build"] = build; e["units"] = units; e["money"] = money; e["village"] = root.Village;
         return e;
+    }
+
+    /// <summary>예산 창: 갈래마다 필요·받은 몫·비중, 지휘자 불만. 감시가 있으면 파벌까지 보인다(없으면 불만이 큰 사람만 낌새로).</summary>
+    public Godot.Collections.Dictionary BudgetInfo(int id)
+    {
+        var e = new Godot.Collections.Dictionary();
+        var g = Commandable(id);
+        if (g == null) return e;
+        var w = _w!;
+        var root = w.RootOf(g);
+        bool eye = w.SurveyOf(root) > 0f;
+        string Mood(int uid) { float v = w.GrievanceOf(root, uid); return eye ? $"불만 {v:0.00}" : v > 0.5f ? "불평이 들린다" : ""; }
+        var units = new Godot.Collections.Array();
+        foreach (var u in w.Groups.Where(x => x.Alive && (x.Id == root.Id || w.RootOf(x).Id == root.Id && !World.IsTop(x))))
+        {
+            int cmd = FindAlive(u.LeaderUid);
+            units.Add(new Godot.Collections.Dictionary
+            {
+                ["id"] = u.Id, ["name"] = u.Name, ["need"] = u.Need, ["alloc"] = u.Alloc, ["fill"] = u.Fill, ["weight"] = u.BudgetWeight,
+                ["cmd"] = u.Id != root.Id && cmd >= 0 ? Names.Full(w.Lineage, u.LeaderUid) : "", ["mood"] = u.Id != root.Id && cmd >= 0 ? Mood(u.LeaderUid) : "",
+            });
+        }
+        var facs = new Godot.Collections.Array();
+        if (eye)
+            foreach (var f in w.FactionsOf(root))
+            {
+                var ms = new Godot.Collections.Array();
+                foreach (int uid in f.Members) ms.Add(new Godot.Collections.Dictionary { ["uid"] = uid, ["name"] = Names.Full(w.Lineage, uid), ["mood"] = Mood(uid), ["lead"] = uid == f.Leader });
+                facs.Add(new Godot.Collections.Dictionary { ["power"] = f.Power, ["share"] = f.Power / MathF.Max(1f, root.Strength), ["grievance"] = f.Grievance, ["members"] = ms });
+            }
+        e["units"] = units; e["factions"] = facs; e["eye"] = eye; e["treasury"] = root.Treasury;
+        return e;
+    }
+
+    public bool SetBudgetWeight(int id, int unit, float weight)
+    {
+        var g = Commandable(id);
+        var u = _w?.GroupById(unit);
+        if (g == null || u == null || _w!.RootOf(u).Id != _w.RootOf(g).Id) return false;
+        _w.SetBudgetWeight(u, weight);
+        return true;
+    }
+
+    /// <summary>파벌 사람 하나에게 측근 자리를 주어 떼어 낸다(0) 또는 세력에서 내쫓는다(1).</summary>
+    public bool FactionMove(int id, int uid, int move)
+    {
+        var g = Commandable(id);
+        if (g == null) return false;
+        return move == 0 ? _w!.Placate(g, uid) : _w!.Expel(g, uid);
     }
 
     public string BuildFacility(int id, int kind)

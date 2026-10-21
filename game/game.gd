@@ -601,6 +601,11 @@ func _open_orgs() -> void:
 				fb.tooltip_text = "세력이 짓고 갈래에 배정하는 시설(학당, 공방, 방앗간, 여관, 예배당, 창고, 병영, 요새 집)"
 				fb.pressed.connect(func(): _open_facilities(id, e["name"]))
 				r.add_child(_center(fb))
+			if depth == 0:
+				var bb := UI.ghost("예산")
+				bb.tooltip_text = "곳간을 갈래마다 나눈다. 몫이 모자란 갈래는 일을 덜 하고 지휘자의 불만이 쌓인다. 감시가 있으면 파벌이 보인다"
+				bb.pressed.connect(func(): _open_budget(id, e["name"]))
+				r.add_child(_center(bb))
 			var wb := UI.ghost("일 비중")
 			wb.tooltip_text = "여러 일을 고르고 비중을 나눈다. 비중이 정체(이름)를 정한다"
 			wb.pressed.connect(func(): _open_org_weights(id, e["name"]))
@@ -1373,7 +1378,7 @@ func _open_facilities(id: int, name: String) -> void:
 	var back := UI.ghost("← 조직으로")
 	back.pressed.connect(_open_orgs)
 	org_box.add_child(back)
-	org_box.add_child(UI.label("쓸 수 있는 식량 %d(곳간과 우두머리 집의 남는 몫) · 짓는 곳 %d번 마을" % [int(float(info["money"])), int(info["village"])], 12, UI.MUTED))
+	org_box.add_child(UI.label("쓸 수 있는 은화 %d(곳간과 우두머리 집의 남는 몫) · 짓는 곳 %d번 마을" % [int(float(info["money"])), int(info["village"])], 12, UI.MUTED))
 	var have: Array = info["have"]
 	if not have.is_empty():
 		org_box.add_child(UI.label("가진 시설", 13, UI.MUTED, true))
@@ -1396,7 +1401,7 @@ func _open_facilities(id: int, name: String) -> void:
 			org_box.add_child(row)
 	org_box.add_child(UI.label("지을 것", 13, UI.MUTED, true))
 	for b in info["build"]:
-		var btn := UI.action("%s 짓기 · 식량 %d, %d년, 유지 %d/해" % [b["name"], int(float(b["cost"])), int(b["years"]), int(float(b["upkeep"]))], b["effect"], -1.0, false)
+		var btn := UI.action("%s 짓기 · 은화 %d, %d년, 유지 %d/해" % [b["name"], int(float(b["cost"])), int(b["years"]), int(float(b["upkeep"]))], b["effect"], -1.0, false)
 		btn.disabled = not b["can"]
 		var kk := int(b["kind"])
 		btn.pressed.connect(func():
@@ -1404,6 +1409,67 @@ func _open_facilities(id: int, name: String) -> void:
 			for line in host.DrainChronicle(): _log(line)
 			_open_facilities(id, name))
 		org_box.add_child(btn)
+	_show_panel(org_panel)
+
+
+## 예산과 파벌: 갈래마다 몫의 비중을 정하고, 보이는 파벌에 수를 쓴다.
+func _open_budget(id: int, name: String) -> void:
+	var info: Dictionary = host.BudgetInfo(id)
+	if info.is_empty():
+		_open_orgs()
+		return
+	org_title.text = name + " · 예산"
+	for c in org_box.get_children(): c.queue_free()
+	var back := UI.ghost("← 조직으로")
+	back.pressed.connect(_open_orgs)
+	org_box.add_child(back)
+	org_box.add_child(UI.label("곳간 은화 %d · 필요는 녹봉과 상근 군량. 비중은 필요에 곱한다" % int(float(info["treasury"])), 12, UI.MUTED))
+	for u in info["units"]:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		var cmd: String = u["cmd"]
+		var lab := UI.label("%s · 필요 %d, 받음 %d(%d%%) · 비중 %.2f%s%s" % [u["name"], int(float(u["need"])), int(float(u["alloc"])), int(100.0 * float(u["fill"])), float(u["weight"]),
+			(" · 지휘 " + cmd) if cmd != "" else "", (" · " + u["mood"]) if u["mood"] != "" else ""], 12, UI.INK)
+		lab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(lab)
+		var uid := int(u["id"])
+		var mb := MenuButton.new()
+		mb.text = "비중"
+		var ws := [0.5, 1.0, 1.5, 2.0, 3.0]
+		for k in ws.size(): mb.get_popup().add_item("%.1f" % ws[k], k)
+		mb.get_popup().id_pressed.connect(func(k):
+			host.SetBudgetWeight(id, uid, ws[k])
+			_open_budget(id, name))
+		row.add_child(_center(mb))
+		org_box.add_child(row)
+	org_box.add_child(UI.label("파벌", 13, UI.MUTED, true))
+	if not info["eye"]:
+		org_box.add_child(UI.label("감시하는 갈래가 없어 파벌이 보이지 않는다. 불평만 들린다", 12, UI.MUTED))
+	elif (info["factions"] as Array).is_empty():
+		org_box.add_child(UI.label("뭉친 파벌이 없다", 12, UI.MUTED))
+	for f in info["factions"]:
+		org_box.add_child(UI.label("힘 %d(세력의 %d%%) · 불만 %.2f" % [int(float(f["power"])), int(100.0 * float(f["share"])), float(f["grievance"])], 12, UI.INK))
+		for m in f["members"]:
+			var row := HBoxContainer.new()
+			row.add_theme_constant_override("separation", 6)
+			var lab := UI.label("  %s%s · %s" % [m["name"], " (장)" if m["lead"] else "", m["mood"]], 12, UI.INK)
+			lab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.add_child(lab)
+			var muid := int(m["uid"])
+			var pb := UI.ghost("자리 주기")
+			pb.tooltip_text = "측근 자리를 주어 파벌에서 떼어 낸다(불만 −0.3)"
+			pb.pressed.connect(func():
+				host.FactionMove(id, muid, 0)
+				_open_budget(id, name))
+			row.add_child(_center(pb))
+			var xb := UI.ghost("내쫓기")
+			xb.tooltip_text = "세력에서 내쫓는다. 같은 파벌 사람의 불만이 오른다"
+			xb.pressed.connect(func():
+				host.FactionMove(id, muid, 1)
+				for line in host.DrainChronicle(): _log(line)
+				_open_budget(id, name))
+			row.add_child(_center(xb))
+			org_box.add_child(row)
 	_show_panel(org_panel)
 
 
@@ -2231,6 +2297,10 @@ func _run_autotest() -> void:
 				await _snap("live_school.png")
 				org_panel.visible = false
 				print("autotest: 학교 설정 ", host.SchoolInfo(int(sorgs[0]["id"])).get("years", -1), "년")
+				_open_budget(int(sorgs[0]["id"]), sorgs[0]["name"])
+				await _snap("live_budget.png")
+				org_panel.visible = false
+				print("autotest: 예산 갈래 ", (host.BudgetInfo(int(sorgs[0]["id"])).get("units", []) as Array).size())
 			break
 	get_tree().quit()
 

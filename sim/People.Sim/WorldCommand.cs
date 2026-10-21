@@ -140,6 +140,7 @@ public sealed partial class World
                 if (u.CmdUid != cuid) { u.CmdSince = u.CmdUid == -2 ? u.Founded : Day; u.CmdUid = cuid; }
                 // 교대한 해는 손발이 안 맞는다(세운 해는 빼고)
                 if (cuid >= 0 && u.CmdSince != u.Founded && Day - u.CmdSince < Config.DaysPerYear) u.CmdFactor *= 0.8f;
+                u.CmdFactor *= BudgetFactor(u);   // 예산이 모자라면 덜 한다
                 if (cuid < 0) u.Grip = 0f;
                 else
                 {

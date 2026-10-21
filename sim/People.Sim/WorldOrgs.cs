@@ -751,8 +751,10 @@ public sealed partial class World
         DelegationYear();
         BuildMemberIndex();
         foreach (var g in _groups) if (g.Alive && IsTop(g)) PickInner(g);
+        BudgetYear();
         CommandYear();
         SupplyYear();
+        FactionYear();
         AuthorityYear();
         VisibilityYear();
         WorkYear();

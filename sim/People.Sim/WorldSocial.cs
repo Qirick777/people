@@ -204,6 +204,7 @@ public sealed partial class World
         AddCareerDefs(d);
         AddWarDefs(d);
         AddThreatDefs(d);
+        AddFactionDefs(d);
         return d;
     }
 
