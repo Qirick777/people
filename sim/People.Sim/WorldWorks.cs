@@ -42,9 +42,10 @@ public sealed partial class World
             case Verb.Teach:
                 if (Subtree(root).SelectMany(MembersFast).Any(m => p.GetSkill(m, Skill.Letters) >= 0.4f || p.GetSkill(m, Skill.Arms) >= 0.4f || p.GetSkill(m, Skill.Trade) >= 0.4f || p.GetSkill(m, Skill.Craft) >= 0.4f)) return true;
                 why = "가르칠 만한 사람(글·무예·장사·공예 0.4)이 있어야"; return false;
-            case Verb.Chase:
-                if (root.Home >= 0 || root.Kind == GroupKind.Watch) return true;
-                why = "자경단이나 지배자 조직만"; return false;
+            case Verb.Chase: return true;
+            case Verb.Attack:
+                if (HostilesOf(root).Count > 0) return true;
+                why = "적대 세력이 있어야(전쟁 상대, 크게 의심하는 상대, 지정한 집)"; return false;
             case Verb.Preach:
                 if (leader >= 0 && People.Piety[leader] >= 0.6f) return true;
                 why = "우두머리의 신앙이 깊어야(0.6)"; return false;

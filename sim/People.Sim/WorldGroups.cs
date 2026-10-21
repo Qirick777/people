@@ -83,6 +83,8 @@ public sealed class Group
     public float LendRate = 0.2f;   // 대부 이자(R7)
     public int RecruitTarget = -2;   // 모집이 데려갈 곳(R8): -2 자기 갈래(포섭), -1 세력원 집, 그 밖은 같은 세력 갈래 Id
     public bool Conscript;           // 강제 징집(R8)
+    public bool Kill;                // 공격 뒤 사살(아니면 포획, R9)
+    public readonly HashSet<int> Hostile = new();   // 지정한 적대 집(R9)
     public int LastOffering = -1;
 }
 
@@ -159,6 +161,7 @@ public sealed partial class World
             if (kind == GroupKind.Bandits) g.ShareRule = ShareRule.Even;   // 떼는 턴 것을 나눠 갖는다
             else if (kind == GroupKind.Company) g.ShareRule = ShareRule.Treasury;   // 상단은 밑천을 곳간에 모은다(임대·대부의 밑천)
             else if (kind == GroupKind.Brotherhood && People.Get(leader, Trait.Stubbornness) > 0.75f) g.Visibility = Visibility.Covert;
+            g.Kill = People.Get(leader, Trait.Aggression) > 0.6f;      // 거친 우두머리는 사살을 고른다
         }
         _groups.Add(g);
         DefaultTask(g);

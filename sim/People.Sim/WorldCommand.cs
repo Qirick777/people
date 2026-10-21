@@ -18,7 +18,7 @@ public sealed partial class World
     /// <summary>일이 정체에 던지는 표. 보호세와 포섭은 어느 쪽도 아니다.</summary>
     private static GroupKind? VerbKind(Verb v) => v switch
     {
-        Verb.Guard or Verb.Chase => GroupKind.Watch,
+        Verb.Guard or Verb.Chase or Verb.Attack => GroupKind.Watch,
         Verb.Raid or Verb.Kidnap or Verb.Agitate => GroupKind.Bandits,
         Verb.Preach or Verb.Charity or Verb.Worship => GroupKind.Brotherhood,
         Verb.Trade or Verb.Escort or Verb.Lease or Verb.Lend => GroupKind.Company,

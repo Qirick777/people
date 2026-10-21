@@ -21,7 +21,7 @@ public sealed partial class World
 {
     public static string VerbName(Verb v) => v switch
     {
-        Verb.Guard => "지킴", Verb.Chase => "쫓기", Verb.Raid => "털기", Verb.Attack => "치기", Verb.Collect => "보호세", Verb.Charity => "돌봄",
+        Verb.Guard => "지킴", Verb.Chase => "공격: 범죄자", Verb.Raid => "공격: 민간인", Verb.Attack => "공격: 적대 세력", Verb.Collect => "보호세", Verb.Charity => "돌봄",
         Verb.Preach => "설교", Verb.Trade => "교역", Verb.Escort => "호송", Verb.Mercenary => "용병", Verb.Brothel => "유곽", Verb.Agitate => "선동",
         Verb.Kidnap => "납치", Verb.Recruit => "포섭", Verb.Survey => "감시", Verb.Train => "훈련", Verb.Produce => "생산", Verb.Worship => "예배", Verb.Lease => "임대", Verb.Lend => "대부", _ => "가르침",
     };
@@ -510,7 +510,7 @@ public sealed partial class World
         int sub = ms.OrderByDescending(m => Social.Opinion(p, m, lu) / 50f + FightPower(m) + p.Get(m, Trait.Charisma)).First();
         var c = new Group
         {
-            Id = _groups.Count, Kind = g.Kind, LeaderUid = p.Uid[sub], Founded = Day, Village = g.Village, Parent = g.Id, Paid = g.Paid,
+            Id = _groups.Count, Kind = g.Kind, LeaderUid = p.Uid[sub], Founded = Day, Village = g.Village, Parent = g.Id, Paid = g.Paid, Kill = g.Kill,
         };
         _groups.Add(c);
         AutoName(c);

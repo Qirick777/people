@@ -40,6 +40,7 @@ public sealed partial class World
         var hh = Households; var p = People;
         int a = p.Household[ah], t = p.Household[th];
         Stats.Wars++;
+        MarkWar(a, t);   // 다섯 해 동안 서로 적대 세력이다
         int la = WarLosses(a, won ? 0.1f : 0.25f), lt = WarLosses(t, won ? 0.25f : 0.1f);
         var c = new InteractionContext { Actor = ah, Target = th };
         if (won)

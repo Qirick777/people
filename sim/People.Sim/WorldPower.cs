@@ -111,7 +111,7 @@ public sealed partial class World
     /// 약탈: 굶을 처지인데 빌리지도 팔지도 못한 집 중 거친 가장이 있는 집이 이웃 마을의 여유 있는 집을 턴다.
     /// 지키는 쪽은 그 집 남자들과, 보호받는 집이면 지배자의 군인이 함께 막는다. 진 쪽에서 사람이 죽을 수 있다.
     /// </summary>
-    private void TryRaid(int h, float deficit, Group? gang = null, int village = -1)
+    private void TryRaid(int h, float deficit, Group? gang = null, int village = -1, Func<int, bool>? only = null, bool war = false)
     {
         var hh = Households;
         var p = People;
@@ -136,8 +136,9 @@ public sealed partial class World
         {
             int t = pool != null ? pool[_rng.NextInt(pool.Count)] : _rng.NextInt(hh.HighWater);
             if (!hh.IsAlive(t) || t == h || hh.Village[t] < 0) continue;
+            if (only != null && !only(t)) continue;   // 치기: 적대 세력의 집만
             float dx = hh.X[t] - hx, dy = hh.Y[t] - hy;
-            if (dx * dx + dy * dy > (gang != null ? 4f : 1f) * Config.RaidRange * Config.RaidRange) continue;
+            if (!war && dx * dx + dy * dy > (gang != null ? 4f : 1f) * Config.RaidRange * Config.RaidRange) continue;
             float spare = hh.Food[t] - hh.Need[t] * days;
             if (spare <= 10f) continue;
             float guard = DefensePower(t);
@@ -162,14 +163,16 @@ public sealed partial class World
             if (gang != null) { Earn(RootOf(gang), take); Stats.GangWins++; Stats.GangLoot += take; }   // 떼의 몫은 회칙대로 나눈다
             else hh.Food[h] += take;
             Stats.RaidsWon++;
-            if (gang != null) { Stats.BanditRaids++; RootOf(gang).Leak += 0.1f; if (_rng.Chance(0.5f)) gang.Exposed = true; }   // 털린 집이 누구 짓인지 알아본다
+            if (war) Stats.AttackWins++;
+            else if (gang != null) { Stats.BanditRaids++; RootOf(gang).Leak += 0.1f; if (_rng.Chance(0.5f)) gang.Exposed = true; }   // 털린 집이 누구 짓인지 알아본다
             HeadsRelate(best, h, -40f, 20f, 0f, MemoryType.Raided, -60);
             LootGoods(best, h);
-            if (p.IsValid(hh.Head[h]) && p.IsValid(hh.Head[best])) CommitCrime(CrimeType.Raid, hh.Head[h].Index, hh.Head[best].Index, take, false);
+            if (!war && p.IsValid(hh.Head[h]) && p.IsValid(hh.Head[best])) CommitCrime(CrimeType.Raid, hh.Head[h].Index, hh.Head[best].Index, take, false);
             int deadBefore = Stats.RaidDeaths;
-            if (raider < 0 || DoctrineOn(raider, Doctrine.NonViolence) <= 0f) Casualty(best, defense);   // 불살 교리: 죽이지 않는다
+            if (raider < 0 || DoctrineOn(raider, Doctrine.NonViolence) <= 0f) Casualty(best, defense, KillMult(gang));   // 불살 교리: 죽이지 않는다
             // 떼의 평판: 털기 −0.05, 사람이 죽으면 −0.1 더. 이름과 공포는 오른다
-            if (gang != null) AddRepRoot(gang, 0.02f, Stats.RaidDeaths > deadBefore ? -0.15f : -0.05f, 0.03f);
+            if (war) AddRepRoot(gang!, 0.03f, 0f, 0.02f);   // 적대 세력 치기는 평판을 깎지 않는다
+            else if (gang != null) AddRepRoot(gang, 0.02f, Stats.RaidDeaths > deadBefore ? -0.15f : -0.05f, 0.03f);
             // 지켜 주지 못한 지배자를 원망하고, 반쯤은 떠난다(충성할수록 덜)
             int lordOf = PatronOf(best);
             if (lordOf >= 0)
@@ -237,9 +240,9 @@ public sealed partial class World
     }
 
     /// <summary>진 쪽 남자 하나가 다치거나 죽는다.</summary>
-    private void Casualty(int h, float power)
+    private void Casualty(int h, float power, float mult = 1f)
     {
-        if (!_rng.Chance(Config.RaidDeath)) return;
+        if (!_rng.Chance(Config.RaidDeath * mult)) return;
         var p = People;
         int victim = -1;
         float best = 0;

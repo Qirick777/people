@@ -297,9 +297,9 @@ public partial class SimHost : Node
         var w = _w;
         var mine = w.GroupsOf(actor).ToList();
         if (mine.Count < World.GroupSlots)
-            foreach (GroupKind k in new[] { GroupKind.Watch, GroupKind.Brotherhood, GroupKind.Bandits, GroupKind.School, GroupKind.Drill, GroupKind.Inspectors, GroupKind.Company, GroupKind.Sellswords, GroupKind.Brothel })
-                if (!mine.Any(g => g.Kind == k))
-                    a.Add(new Godot.Collections.Dictionary { ["key"] = $"found:{(int)k}", ["name"] = $"{World.GroupKindName(k)} 세우기", ["note"] = FoundNote(k), ["risky"] = k is GroupKind.Bandits or GroupKind.Brothel });
+            foreach (GroupKind k in new[] { GroupKind.Watch, GroupKind.Brotherhood, GroupKind.School, GroupKind.Drill, GroupKind.Inspectors, GroupKind.Company, GroupKind.Brothel })
+                if (!mine.Any(g => g.Kind == k || (k == GroupKind.Watch && World.IsForce(g.Kind))))
+                    a.Add(new Godot.Collections.Dictionary { ["key"] = $"found:{(int)k}", ["name"] = $"{(k == GroupKind.Watch ? "무력" : World.GroupKindName(k))} 세우기", ["note"] = FoundNote(k), ["risky"] = k is GroupKind.Brothel });
         foreach (var g in mine)
             a.Add(new Godot.Collections.Dictionary { ["key"] = $"leave:{g.Id}", ["name"] = $"{g.Name}에서 나가기", ["note"] = w.IsLeader(actor, g) ? "우두머리가 나가면 다른 사람이 잇는다" : "", ["risky"] = false });
         return a;
@@ -308,7 +308,7 @@ public partial class SimHost : Node
     private static string FoundNote(GroupKind k) => k switch
     {
         GroupKind.Bandits => "숨어서 함께 턴다. 들키면 진압당한다",
-        GroupKind.Watch => "마을을 함께 지킨다",
+        GroupKind.Watch => "지킴·공격·호송·용병 일을 고른다. 공격 대상이 범죄자면 치안대, 적대 세력이면 군대, 민간인이면 도적 떼가 된다",
         GroupKind.Brotherhood => "신앙으로 묶이고 굶는 회원을 돕는다",
         GroupKind.School => "가르친다. 가르칠 만한 사람(글·무예·장사·공예 0.4)이 있어야 한다",
         GroupKind.Drill => "함께 무예를 닦는다(0.6까지)",
@@ -574,6 +574,7 @@ public partial class SimHost : Node
                     ["faith"] = World.IsTop(g) && w.IsFaith(g),
                     ["producer"] = g.Tasks.Any(t => t.Verb == Verb.Produce),
                     ["recruiter"] = g.Tasks.Any(t => t.Verb == Verb.Recruit),
+                    ["force"] = World.IsForce(g.Kind) || g.Tasks.Any(t => World.IsAttackVerb(t.Verb)),
                     ["fullTime"] = g.FullTime,
                     ["arms"] = w.ArmsCov(g),
                     ["threat"] = depth == 0 ? w.ThreatTo(g, out _) : 0f,
@@ -710,7 +711,7 @@ public partial class SimHost : Node
         }
         vs.Sort((x, y) => x.d.CompareTo(y.d));
         var root = _w.RootOf(g);
-        var verbs = new[] { Verb.Guard, Verb.Chase, Verb.Charity, Verb.Preach, Verb.Recruit, Verb.Collect, Verb.Trade, Verb.Escort,
+        var verbs = new[] { Verb.Guard, Verb.Chase, Verb.Attack, Verb.Charity, Verb.Preach, Verb.Recruit, Verb.Collect, Verb.Trade, Verb.Escort,
                             Verb.Mercenary, Verb.Brothel, Verb.Agitate, Verb.Raid, Verb.Kidnap };
         foreach (var verb in verbs)
         {
@@ -725,7 +726,8 @@ public partial class SimHost : Node
                 continue;
             }
             // 용병은 계약할 곳을 스스로 찾으니 마을을 고르지 않는다
-            foreach (var (v, _) in verb == Verb.Mercenary ? vs.Take(1) : vs.Take(4))
+            var places = verb == Verb.Attack ? _w.HostileVillages(root).Take(4).Select(v => (v, 0f)).ToList() : verb == Verb.Mercenary ? vs.Take(1).ToList() : vs.Take(4).ToList();
+            foreach (var (v, _) in places)
                 a.Add(new Godot.Collections.Dictionary
                 {
                     ["verb"] = (int)verb, ["village"] = v, ["verbName"] = World.VerbName(verb),
@@ -839,7 +841,7 @@ public partial class SimHost : Node
         if (g == null) return a;
         var w = _w!;
         var root = w.RootOf(g);
-        foreach (var v in new[] { Verb.Guard, Verb.Chase, Verb.Train, Verb.Survey, Verb.Teach, Verb.Preach, Verb.Charity, Verb.Trade, Verb.Escort,
+        foreach (var v in new[] { Verb.Guard, Verb.Chase, Verb.Attack, Verb.Train, Verb.Survey, Verb.Teach, Verb.Preach, Verb.Charity, Verb.Trade, Verb.Escort,
                                   Verb.Mercenary, Verb.Recruit, Verb.Collect, Verb.Brothel, Verb.Agitate, Verb.Raid, Verb.Kidnap })
         {
             bool open = w.CanUseVerb(root, v, out var why);
@@ -1223,6 +1225,45 @@ public partial class SimHost : Node
             lords.Add(new Godot.Collections.Dictionary { ["house"] = l, ["name"] = w.RealmName(l), ["odds"] = w.ContractOdds(root, l, Good.Arms, World.BasePrice[(int)Good.Arms]) });
         e["lords"] = lords;
         return e;
+    }
+
+    /// <summary>무력 창: 포획·사살, 적대 세력(까닭), 지정할 만한 가까운 지배자.</summary>
+    public Godot.Collections.Dictionary ForceInfo(int id)
+    {
+        var e = new Godot.Collections.Dictionary();
+        var g = Commandable(id);
+        if (g == null) return e;
+        var w = _w!; var hh = w.Households;
+        var root = w.RootOf(g);
+        e["kill"] = g.Kill;
+        var hs = w.HostilesOf(root);
+        var foes = new Godot.Collections.Array();
+        foreach (var (h, why) in hs) foes.Add(new Godot.Collections.Dictionary { ["house"] = h, ["name"] = w.RealmName(h), ["why"] = why, ["set"] = root.Hostile.Contains(h) });
+        e["foes"] = foes;
+        var cands = new Godot.Collections.Array();
+        int home = w.LandHomeOf(root);
+        if (home >= 0 && hh.IsAlive(home))
+            foreach (int l in Enumerable.Range(0, hh.HighWater).Where(l => hh.IsAlive(l) && w.TierOf(l) >= 1 && l != home && !hs.ContainsKey(l) && hh.Village[l] >= 0)
+                         .OrderBy(l => (hh.X[l] - hh.X[home]) * (hh.X[l] - hh.X[home]) + (hh.Y[l] - hh.Y[home]) * (hh.Y[l] - hh.Y[home])).Take(5))
+                cands.Add(new Godot.Collections.Dictionary { ["house"] = l, ["name"] = w.RealmName(l) });
+        e["cands"] = cands;
+        return e;
+    }
+
+    public bool SetAttackMode(int id, bool kill)
+    {
+        var g = Commandable(id);
+        if (g == null) return false;
+        _w!.SetAttackMode(g, kill);
+        return true;
+    }
+
+    public bool SetHostile(int id, int house, bool on)
+    {
+        var g = Commandable(id);
+        if (g == null) return false;
+        _w!.SetHostile(g, house, on);
+        return true;
     }
 
     /// <summary>모집 창: 데려갈 곳 후보(자기 갈래, 세력, 같은 세력 갈래)와 징집.</summary>

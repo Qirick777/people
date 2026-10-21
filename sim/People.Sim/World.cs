@@ -450,6 +450,7 @@ public sealed partial class World
             Timed("상호작용", SocialSeason);
             Timed("범죄", CrimeSeason);
             BanditSeason();
+            AttackSeason();
             KidnapSeason();
         }
         if (cal.DayOfSeason == 0) Timed("곡물 장터", GrainSeason);

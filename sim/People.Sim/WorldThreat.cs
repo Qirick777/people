@@ -32,6 +32,7 @@ public sealed partial class World
     public float KindWeight(Group root)
     {
         if (root.IdentityName.Contains("무장")) return 1.5f;
+        if (IsForce(root.Kind) && ForceWeight(root) is var fw && fw > 0f) return fw;   // 무력은 공격 대상으로
         return root.Kind switch
         {
             GroupKind.Bandits => 1.3f, GroupKind.Drill or GroupKind.Sellswords => 1.2f, GroupKind.Watch => 1f, GroupKind.Brotherhood => 0.8f, _ => 0.5f,

@@ -625,6 +625,7 @@ public sealed partial class World
         _lordLedger[c.Lord] = led;
         Stats.Caught++;
         Interrogated(culprit);   // 잡힌 범인이 든 숨긴 조직의 비밀이 새어 나간다
+        if (ChaseKill(c, culprit)) return;   // 사살로 쫓는 갈래는 그 자리에서 죽이기도 한다
         bool close = CloseToLord(culprit, c.Lord) && c.Type != CrimeType.Embezzle;   // 빼돌리기는 지배자 자신이 당한 일이라 덮을 것이 없다
         // 플레이어가 직접 판결할 사건: 모두 고른 경우, 혈족(3촌 안, 같은 집), 살인. 부리는 사람의 일은 정한 세기로 판결한다
         if (c.Lord == PlayerHousehold && _player >= 0 && (PlayerJudgesAll || KinOfLord(culprit, c.Lord) || c.Type == CrimeType.Murder))

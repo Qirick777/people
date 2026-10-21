@@ -609,6 +609,11 @@ func _open_orgs() -> void:
 				fb2.tooltip_text = "헌금 회칙과 바치기. 믿음이 깊은 신도는 광신도가 되어 떠나지 않고 굶어도 낸다"
 				fb2.pressed.connect(func(): _open_faith(id, e["name"]))
 				r.add_child(_center(fb2))
+			if e.get("force", false):
+				var fcb := UI.ghost("무력")
+				fcb.tooltip_text = "공격 뒤 포획·사살, 적대 세력 지정"
+				fcb.pressed.connect(func(): _open_force(id, e["name"]))
+				r.add_child(_center(fcb))
 			if e.get("recruiter", false):
 				var rcb := UI.ghost("모집")
 				rcb.tooltip_text = "모집해서 데려갈 곳을 고른다. 데려갈 곳에 따라 모병단·선교단·학생 모집·일꾼 모집이 된다"
@@ -1505,6 +1510,58 @@ func _open_company(id: int, name: String) -> void:
 			_set_hint(host.OfferContract(id, lh, 5, 2.0, 8.0, 5))
 			for line in host.DrainChronicle(): _log(line)
 			_open_company(id, name))
+		org_box.add_child(cb)
+	_show_panel(org_panel)
+
+
+## 무력: 포획·사살과 적대 세력.
+func _open_force(id: int, name: String) -> void:
+	var info: Dictionary = host.ForceInfo(id)
+	if info.is_empty():
+		_open_orgs()
+		return
+	org_title.text = name + " · 무력"
+	for c in org_box.get_children(): c.queue_free()
+	var back := UI.ghost("← 조직으로")
+	back.pressed.connect(_open_orgs)
+	org_box.add_child(back)
+	org_box.add_child(UI.label("공격은 대상으로 나뉜다: 범죄자(치안대), 적대 세력(군대), 민간인(도적 떼). 일 비중에서 고른다", 12, UI.MUTED))
+	var mrow := HBoxContainer.new()
+	mrow.add_theme_constant_override("separation", 0)
+	mrow.add_child(_center(UI.label("공격 뒤 ", 12, UI.MUTED)))
+	var modes := ["포획", "사살"]
+	for k in 2:
+		var b := Button.new()
+		b.text = modes[k]
+		b.add_theme_font_size_override("font_size", 12)
+		UI.segment(b, bool(info["kill"]) == (k == 1), k == 0, k == 1)
+		var kv: bool = k == 1
+		b.pressed.connect(func():
+			host.SetAttackMode(id, kv)
+			_open_force(id, name))
+		mrow.add_child(b)
+	org_box.add_child(mrow)
+	org_box.add_child(UI.label("사살은 맞선 사람이 더 많이 죽고, 범죄자를 쫓을 때 잡은 범인을 그 자리에서 죽이기도 한다", 12, UI.MUTED))
+	org_box.add_child(UI.label("적대 세력", 13, UI.MUTED, true))
+	if (info["foes"] as Array).is_empty():
+		org_box.add_child(UI.label("없음(전쟁 상대, 크게 의심하는 상대, 지정한 집이 적대 세력이 된다)", 12, UI.INK))
+	for f in info["foes"]:
+		var fh := int(f["house"])
+		if f["set"]:
+			var ub := UI.action("%s · %s" % [f["name"], f["why"]], "지정을 푼다")
+			ub.pressed.connect(func():
+				host.SetHostile(id, fh, false)
+				_open_force(id, name))
+			org_box.add_child(ub)
+		else:
+			org_box.add_child(UI.label("%s · %s" % [f["name"], f["why"]], 12, UI.INK))
+	org_box.add_child(UI.label("적대 세력으로 지정", 13, UI.MUTED, true))
+	for c in info["cands"]:
+		var ch := int(c["house"])
+		var cb := UI.action(String(c["name"]), "이 집과 그 아래 집을 칠 수 있다", -1.0, true)
+		cb.pressed.connect(func():
+			host.SetHostile(id, ch, true)
+			_open_force(id, name))
 		org_box.add_child(cb)
 	_show_panel(org_panel)
 
@@ -2581,6 +2638,10 @@ func _run_autotest() -> void:
 				await _snap("live_budget.png")
 				org_panel.visible = false
 				print("autotest: 예산 갈래 ", (host.BudgetInfo(int(sorgs[0]["id"])).get("units", []) as Array).size())
+				_open_force(int(sorgs[0]["id"]), sorgs[0]["name"])
+				await _snap("live_force.png")
+				org_panel.visible = false
+				print("autotest: 무력 후보 ", (host.ForceInfo(int(sorgs[0]["id"])).get("cands", []) as Array).size())
 				_open_recruit(int(sorgs[0]["id"]), sorgs[0]["name"])
 				await _snap("live_recruit.png")
 				org_panel.visible = false
