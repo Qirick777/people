@@ -1161,6 +1161,13 @@ public partial class SimHost : Node
         if (!hh.IsAlive(h) || w.ClientCount(h) == 0 || !p.IsValid(hh.Head[h])) return e;
         int me = hh.Head[h].Index;
         e["tax"] = (int)MathF.Round(w.TaxRate(h) * 100f);
+        // 소속 저울: 내 세력원 집 가운데 떠날 듯한 집(남을 까닭이 0.1 아래)
+        var subs = Enumerable.Range(0, hh.HighWater).Where(x => hh.IsAlive(x) && w.PatronOf(x) == h && w.ClientCount(x) == 0).Select(x => w.BelongOf(x, h)).ToList();
+        e["subjects"] = subs.Count;
+        e["wavering"] = subs.Count(b => b.Total < 0.1f);
+        e["belongAvg"] = subs.Count > 0 ? $"보호 {subs.Average(b => b.Protect):0.00} · 생계 {subs.Average(b => b.Living):0.00} · 공포 {subs.Average(b => b.Fear):0.00} · 충성 {subs.Average(b => b.Loyal):0.00} · 혜택 {subs.Average(b => b.Benefit):0.00} · 관습 {subs.Average(b => b.Habit):0.00} − 부담 {subs.Average(b => b.Burden):0.00}" : "";
+        var (fearR, creditR) = w.RepOf(h);
+        e["fear"] = fearR; e["credit"] = creditR;
         var orgs = new Godot.Collections.Array();
         foreach (var g in w.Groups)
         {

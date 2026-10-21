@@ -60,6 +60,12 @@ public static class RegionView
             int hv = hh.Village[h];
             hinfo.Append($"\"goods\":[{w.GoodsOf(h, Good.Basic).ToString("0", inv)},{w.GoodsOf(h, Good.Fine).ToString("0", inv)},{w.GoodsOf(h, Good.Tools).ToString("0.0", inv)},{w.GoodsOf(h, Good.Cloth).ToString("0.0", inv)},{w.GoodsOf(h, Good.Build).ToString("0.0", inv)},{w.GoodsOf(h, Good.Arms).ToString("0.0", inv)}],");
             hinfo.Append($"\"prices\":[{w.PriceAt(hv, Good.Basic).ToString("0.0", inv)},{w.PriceAt(hv, Good.Fine).ToString("0.0", inv)},{w.PriceAt(hv, Good.Tools).ToString("0.0", inv)},{w.PriceAt(hv, Good.Cloth).ToString("0.0", inv)},{w.PriceAt(hv, Good.Build).ToString("0.0", inv)},{w.PriceAt(hv, Good.Arms).ToString("0.0", inv)}],");
+            // 소속 저울: 내 집이거나 내 세력원 집일 때만 보인다(남의 속사정은 모른다)
+            if (patron >= 0 && w.ClientCount(h) == 0 && (h == w.PlayerHousehold || patron == w.PlayerHousehold))
+            {
+                var b = w.BelongOf(h, patron);
+                hinfo.Append($"\"belong\":[{b.Protect.ToString("0.00", inv)},{b.Living.ToString("0.00", inv)},{b.Fear.ToString("0.00", inv)},{b.Loyal.ToString("0.00", inv)},{b.Benefit.ToString("0.00", inv)},{b.Habit.ToString("0.00", inv)},{b.Burden.ToString("0.00", inv)}],");
+            }
             hinfo.Append($"\"realm\":{J(w.RealmName(h))},\"topRealm\":{J(top >= 0 && top != h && top != patron ? w.RealmName(top) : "")},");
             hinfo.Append($"\"tier\":{J(World.TierName(tier))},\"below\":{w.BelowOf(h)},\"top\":{J(topName)},\"legit\":{J(tier >= 2 ? World.LegitName(w.LegitOf(h)) : "")},");
             hinfo.Append($"\"class\":{J(tier >= 1 ? World.TierName(tier) : World.ClassName(w.ClassOf(h)))},\"leasedOut\":{w.LeasedOutCount(h)},\"leasedIn\":{w.LeasedInCount(h)},\"lord\":{J(lordName)},\"debt\":{w.DebtOf(h).ToString("0", inv)}}}");

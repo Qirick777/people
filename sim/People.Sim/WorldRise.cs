@@ -557,6 +557,7 @@ public sealed partial class World
         for (int h = 0; h < hh.HighWater; h++)
             if (hh.IsAlive(h) && PatronOf(h) == t) { _patron[h] = a; _patronFounded[h] = hh.FoundedDay[a]; Resnap(h); n++; }
         Casualty(t, HouseholdPower(t));
+        AddRep(a, 0.1f, 0f);   // 누른 지배자는 두려움을 산다
         Stats.RiseSuppressWins++;
         RiseChron(new InteractionContext { Actor = lh, Target = rh }, x => $"{Obj(x)} 무력으로 누르고 집 {n}곳을 거두었다", x => $"{x}의 진압에 져서 집 {n}곳을 잃었다");
         if (p.IsAliveIndex(rh))

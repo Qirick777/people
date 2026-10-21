@@ -266,6 +266,7 @@ public sealed partial class World
 
         RecountClients();
         RecountTree();
+        BelongYear();
 
         // 1) 지배자 후보: 마을마다 힘센 집 몇
         var power = new Dictionary<int, float>();
@@ -288,9 +289,9 @@ public sealed partial class World
             int cur = PatronOf(h);
             if (cur >= 0)
             {
-                // 위험이 사라지면 공납을 그만둔다(고집 센 가장일수록 빨리). 자리 잡은 땅에서는 섬김이 관습이라 덜 떠나고,
-                // 대대로 묶인 집은 충성이 무너질 때만 떠난다
-                if (!Bound(h) && danger < 0.2f && _rng.Chance((0.1f + 0.3f * HeadTrait(h, Trait.Stubbornness)) * LeaveFactor(h) * (1f - 0.8f * Established(hh.Village[h])))) _patron[h] = -1;
+                // 세력원 집은 소속 저울로 판단한다(WorldBelong). 봉신(아래 집을 거느린 집)은 예전 규칙: 위험이 사라지면 그만두고, 충성이 무너지면 떠난다
+                if (ClientCount(h) == 0) BelongDecide(h, cur, lords);
+                else if (!Bound(h) && danger < 0.2f && _rng.Chance((0.1f + 0.3f * HeadTrait(h, Trait.Stubbornness)) * LeaveFactor(h) * (1f - 0.8f * Established(hh.Village[h])))) _patron[h] = -1;
                 else if (Disloyal(h)) { _patron[h] = -1; Stats.DisloyalLeft++; }
                 continue;
             }
@@ -711,6 +712,7 @@ public sealed partial class World
         float income = MathF.Max(0f, _incOwn[h] + 0.5f * _incTenant[h]);   // 빌린 땅의 수확은 소작료를 이미 냈으니 반만 센다
         float rate = TaxRate(lord);
         float t = MathF.Min(income * rate, MathF.Max(0f, hh.Food[h]));
+        PayDues(h, t);
         if (MathF.Abs(rate - Config.TributeRate) > 0.005f && HeadIdx(h) is int ch && ch >= 0 && HeadIdx(lord) is int lh && lh >= 0)
             Social.Add(People, ch, People.Uid[lh], -(rate - Config.TributeRate) * 50f);
         hh.Food[h] -= t;

@@ -316,6 +316,7 @@ public sealed partial class World
             if (!hh.IsAlive(h) || Surplus(h) < 1f) continue;
             float g = MathF.Min(10f, hh.Food[h] * 0.02f);
             hh.Food[h] -= g; gift += g;
+            PayDues(h, g);
         }
         if (FacilityOf(root, FacilityKind.Chapel, v) != null) gift *= 1.3f;   // 예배당
         Earn(root, gift);

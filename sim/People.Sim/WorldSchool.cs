@@ -169,6 +169,7 @@ public sealed partial class World
                 {
                     float fee = MathF.Min(plan.Fee, MathF.Max(0f, hh.Food[sh]));
                     hh.Food[sh] -= fee;
+                    PayDues(sh, fee);
                     Earn(root, fee);
                 }
                 Stats.Studied++;

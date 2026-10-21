@@ -845,6 +845,12 @@ func _open_rise() -> void:
 				_open_rise())
 			trow.add_child(b)
 		rise_box.add_child(trow)
+		if int(lt["subjects"]) > 0:
+			var bl := UI.label("세력원 %d집 · 떠날 듯한 집 %d · 공포 %.2f · 신용 %.2f\n섬기는 까닭 평균: %s" % [int(lt["subjects"]), int(lt["wavering"]), float(lt["fear"]), float(lt["credit"]), lt["belongAvg"]], 12, UI.MUTED)
+			bl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			bl.custom_minimum_size = Vector2(600, 0)
+			bl.tooltip_text = "집마다 남을 까닭(보호, 생계, 공포, 충성, 혜택, 관습)에서 부담을 뺀 값이 다른 길보다 0.1 넘게 모자라면 해마다 30% 확률로 떠난다"
+			rise_box.add_child(bl)
 		var lorgs: Array = lt["orgs"]
 		if not lorgs.is_empty():
 			rise_box.add_child(UI.label("내 땅의 조직", 13, UI.MUTED, true))

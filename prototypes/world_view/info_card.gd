@@ -237,6 +237,16 @@ func show_person(pd: Dictionary, house: Dictionary) -> void:
 	var line := "%s 가문의 집 · %s · 땅 %d필지 · 식량 %s" % [house["family"], house.get("class", ""), int(house["plots"]), _food_word(house)]
 	if int(house.get("leasedIn", 0)) > 0: line += " · %s 가문 땅 %d필지를 부침" % [house.get("lord", ""), int(house["leasedIn"])]
 	if float(house.get("debt", 0)) > 0.5: line += " · 빚 식량 %d" % int(float(house["debt"]))
+	if house.has("belong"):
+		var bl: Array = house["belong"]
+		var names := ["보호", "생계", "공포", "충성", "혜택", "관습"]
+		var parts := []
+		var tot := 0.0
+		for k in names.size():
+			tot += float(bl[k])
+			if float(bl[k]) >= 0.05: parts.append("%s %.2f" % [names[k], float(bl[k])])
+		tot -= float(bl[6])
+		_row("섬기는 까닭", "%s − 부담 %.2f = %.2f%s" % [" + ".join(parts) if not parts.is_empty() else "없음", float(bl[6]), tot, "(떠날 수 있다)" if tot < 0.1 else ""])
 	if house.get("patron", "") != "": line += " · %s 가문의 보호" % house["patron"]
 	body.add_child(_label(line, 14, INK, false, true))
 	visible = true

@@ -125,3 +125,24 @@ public class SupplyTests
         Assert.Equal(org.Id, f.Owner);
     }
 }
+
+public class BelongTests
+{
+    [Fact]
+    public void HeavierTaxRaisesBurden()
+    {
+        var (w, lord) = TestWorlds.WithLord(12);
+        var hh = w.Households;
+        int h = Enumerable.Range(0, hh.HighWater).First(x => hh.IsAlive(x) && w.PatronOf(x) == lord && w.ClientCount(x) == 0);
+        var b0 = w.BelongOf(h, lord);
+        Assert.InRange(b0.Protect, 0f, 1f);
+        Assert.InRange(b0.Living, 0f, 1f);
+        Assert.InRange(b0.Loyal, 0f, 1f);
+        // 처음 해(낸 기록이 없으면)는 세율로 부담을 센다. 세율을 올리면 부담이 는다
+        w.SetTaxRate(lord, 0.08f);
+        float low = w.BelongOf(h, lord).Burden;
+        w.SetTaxRate(lord, 0.2f);
+        float high = w.BelongOf(h, lord).Burden;
+        Assert.True(high >= low);
+    }
+}
