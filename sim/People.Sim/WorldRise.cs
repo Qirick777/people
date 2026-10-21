@@ -659,7 +659,7 @@ public sealed partial class World
             if (accept != null) Chronicle.Add((Day, "그 사이 형편이 바뀌어 요구가 없던 일이 되었다"));
             return false;
         }
-        bool yes = accept ?? _rng.Chance(def.Accept(this, c));
+        bool yes = accept ?? _rng.Chance(AcceptChance(def, c));
         if (yes) def.Success?.Invoke(this, c, new InteractionResult { Accepted = true });
         else def.Fail?.Invoke(this, c);
         return true;

@@ -368,8 +368,8 @@ public partial class SimHost : Node
             }
             else
             {
-                if (!def.Can(w, c)) continue;
-                e["chance"] = def.Accept(w, c);
+                if (!w.CanOffer(def, c)) continue;
+                e["chance"] = w.AcceptChance(def, c);
             }
             if (def.Id == InteractionId.SexTrade) e["price"] = w.SexPrice(actor, target);
             if (def.Id == InteractionId.Affair) e["risk"] = w.AffairRisk(actor, target);
@@ -418,13 +418,13 @@ public partial class SimHost : Node
         foreach (int t in cands)
         {
             var c = new InteractionContext { Actor = actor, Target = target, Third = t, Amount = amount0 };
-            if (t == actor || t == target || !def.Can(w, c)) continue;
+            if (t == actor || t == target || !w.CanOffer(def, c)) continue;
             a.Add(new Godot.Collections.Dictionary
             {
                 ["i"] = t,
                 ["name"] = Names.Full(w.Lineage, p.Uid[t]),
                 ["sub"] = $"{Age(t)}세 · {OpinionWord(Social.Opinion(p, actor, p.Uid[t]))}",
-                ["chance"] = def.Accept(w, c),
+                ["chance"] = w.AcceptChance(def, c),
             });
         }
         return a;
@@ -441,8 +441,8 @@ public partial class SimHost : Node
         for (int k = 0; k < def.Amounts.Length; k++)
         {
             var c = new InteractionContext { Actor = actor, Target = target, Third = third, Amount = def.Amounts[k] };
-            if (!def.Can(w, c)) continue;
-            a.Add(new Godot.Collections.Dictionary { ["amount"] = def.Amounts[k], ["name"] = def.AmountNames[k], ["chance"] = def.Accept(w, c) });
+            if (!w.CanOffer(def, c)) continue;
+            a.Add(new Godot.Collections.Dictionary { ["amount"] = def.Amounts[k], ["name"] = def.AmountNames[k], ["chance"] = w.AcceptChance(def, c) });
         }
         return a;
     }
@@ -626,7 +626,7 @@ public partial class SimHost : Node
         var c = new InteractionContext { Actor = x.Item2, Target = x.Item3, Third = -1 };
         var def = w.Def(x.Item1);
         if (x.Item2 == x.Item3 || !def.Can(w, c)) return null;
-        return (x.Item1, x.Item2, x.Item3, def.Name, def.Accept(w, c));
+        return (x.Item1, x.Item2, x.Item3, def.Name, w.AcceptChance(def, c));
     }
 
     /// <summary>조직 줄의 지배자 수를 한다. 결과 글(없으면 빈 글).</summary>
@@ -801,7 +801,7 @@ public partial class SimHost : Node
                 a.Add(new Godot.Collections.Dictionary
                 {
                     ["i"] = m, ["name"] = Names.Full(w.Lineage, p.Uid[m]),
-                    ["note"] = $"{u.Name} · 지휘 범위 {w.CommandSpan(m)} · 글 {p.GetSkill(m, Skill.Letters):0.0} · 무예 {p.GetSkill(m, Skill.Arms):0.0} · 눈치 {p.Get(m, Trait.Perception):0.0} · 우두머리를 보는 눈 {Social.Opinion(p, m, root.LeaderUid):+0;-0}",
+                    ["note"] = $"{u.Name} {w.RoleOf(m, u)?.Name ?? ""} · 지휘 범위 {w.CommandSpan(m)} · 글 {p.GetSkill(m, Skill.Letters):0.0} · 무예 {p.GetSkill(m, Skill.Arms):0.0} · 눈치 {p.Get(m, Trait.Perception):0.0} · 조직 충성 {w.OrgLoyalty(root, p.Uid[m]):0.00} · 우두머리 개인 충성 {w.PersonalLoyalty(m, root.LeaderUid, 0f):0.00}",
                     ["here"] = u.Id == g.Id,
                 });
                 if (a.Count >= 40) return a;
@@ -1079,6 +1079,48 @@ public partial class SimHost : Node
         return got < 0f ? "바치기는 세 해에 한 번만 청할 수 있다" : $"바치기로 은화 {got:0}을 거두었다";
     }
 
+    /// <summary>임금 창: 갈래마다 그 갈래에 있는 직책(사람 수, 지금 단계, 보통일 때 한 사람 임금).</summary>
+    public Godot.Collections.Dictionary WageInfo(int id)
+    {
+        var e = new Godot.Collections.Dictionary();
+        var g = Commandable(id);
+        if (g == null) return e;
+        var w = _w!; var p = w.People;
+        var root = w.RootOf(g);
+        var units = new Godot.Collections.Array();
+        foreach (var u in w.Groups.Where(x => x.Alive && (x.Id == root.Id || w.RootOf(x).Id == root.Id && !World.IsTop(x))))
+        {
+            var count = new Dictionary<RoleKind, int>();
+            foreach (int m in w.Members(u)) if (w.RoleOf(m, u) is { } r && r.WageWeight > 0f) count[r.Kind] = count.GetValueOrDefault(r.Kind) + 1;
+            var roles = new Godot.Collections.Array();
+            foreach (var (k, n) in count)
+            {
+                var r = w.RoleDefOf(k);
+                roles.Add(new Godot.Collections.Dictionary { ["kind"] = (int)k, ["name"] = r.Name, ["n"] = n, ["level"] = (int)w.WageOf(u, k), ["base"] = w.BaseWage(u, r) });
+            }
+            units.Add(new Godot.Collections.Dictionary { ["id"] = u.Id, ["name"] = u.Name, ["paid"] = u.Paid, ["roles"] = roles });
+        }
+        e["units"] = units; e["fromLeader"] = root.WageFromLeader; e["manual"] = root.WagesManual;
+        return e;
+    }
+
+    public bool SetWage(int id, int unit, int role, int level)
+    {
+        var g = Commandable(id);
+        var u = _w?.GroupById(unit);
+        if (g == null || u == null || _w!.RootOf(u).Id != _w.RootOf(g).Id) return false;
+        _w.SetWage(u, (RoleKind)role, (WageLevel)level);
+        return true;
+    }
+
+    public bool SetWageSource(int id, bool fromLeader)
+    {
+        var g = Commandable(id);
+        if (g == null) return false;
+        _w!.SetWageSource(g, fromLeader);
+        return true;
+    }
+
     public bool SetBudgetWeight(int id, int unit, float weight)
     {
         var g = Commandable(id);
@@ -1277,8 +1319,8 @@ public partial class SimHost : Node
             {
                 var def = w.Def(id);
                 var c = new InteractionContext { Actor = me, Target = leader, Third = -1 };
-                if (!def.Can(w, c)) continue;
-                moves.Add(new Godot.Collections.Dictionary { ["id"] = (int)id, ["name"] = def.Name, ["chance"] = def.Accept(w, c), ["harsh"] = def.Harsh, ["actor"] = me, ["target"] = leader });
+                if (!w.CanOffer(def, c)) continue;
+                moves.Add(new Godot.Collections.Dictionary { ["id"] = (int)id, ["name"] = def.Name, ["chance"] = w.AcceptChance(def, c), ["harsh"] = def.Harsh, ["actor"] = me, ["target"] = leader });
             }
             // 조건 걸기(홀로 선 조직, 걸린 조건이 없을 때)
             var conds = new Godot.Collections.Array();
@@ -1304,7 +1346,7 @@ public partial class SimHost : Node
             if (!hh.IsAlive(t) || t == h || !p.IsValid(hh.Head[t])) continue;
             var c = new InteractionContext { Actor = me, Target = hh.Head[t].Index, Third = -1 };
             if (!wdef.Can(w, c)) continue;
-            wars.Add(new Godot.Collections.Dictionary { ["id"] = (int)InteractionId.War, ["name"] = $"{Names.Full(w.Lineage, p.Uid[hh.Head[t].Index])}({w.RealmName(t)}, 아래 {w.BelowOf(t)})", ["chance"] = wdef.Accept(w, c), ["actor"] = me, ["target"] = hh.Head[t].Index });
+            wars.Add(new Godot.Collections.Dictionary { ["id"] = (int)InteractionId.War, ["name"] = $"{Names.Full(w.Lineage, p.Uid[hh.Head[t].Index])}({w.RealmName(t)}, 아래 {w.BelowOf(t)})", ["chance"] = w.AcceptChance(wdef, c), ["actor"] = me, ["target"] = hh.Head[t].Index });
         }
         e["wars"] = wars;
         return e;
@@ -1458,11 +1500,11 @@ public partial class SimHost : Node
                 {
                     var def = w.Def(id);
                     var c = new InteractionContext { Actor = myHead, Target = t, Third = -1 };
-                    if (!def.Can(w, c)) continue;
+                    if (!w.CanOffer(def, c)) continue;
                     moves.Add(new Godot.Collections.Dictionary
                     {
                         ["id"] = (int)id, ["target"] = t, ["actor"] = myHead, ["name"] = def.Name + (t != oh ? $"({Names.Full(w.Lineage, p.Uid[t])})" : ""),
-                        ["chance"] = def.Accept(w, c), ["harsh"] = def.Harsh || def.Secret,
+                        ["chance"] = w.AcceptChance(def, c), ["harsh"] = def.Harsh || def.Secret,
                     });
                 }
             a.Add(new Godot.Collections.Dictionary

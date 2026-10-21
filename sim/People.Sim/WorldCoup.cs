@@ -321,7 +321,7 @@ public sealed partial class World
         Chron(pi, $"{SubjName(pi)} 꾸민 거사가 {Names.Full(Lineage, People.Uid[lh])}에게 들켰다");
         if (IsPlayer(lh)) { AskPlayer(InteractionId.PlotPurge, x.PlotterHouse, x.Lord); return; }
         var c = new InteractionContext { Actor = pi, Target = lh, Third = -1 };
-        if (_rng.Chance(Def(InteractionId.PlotPurge).Accept(this, c))) Purge(x);
+        if (_rng.Chance(AcceptChance(Def(InteractionId.PlotPurge), c))) Purge(x);
         else Forgive(x);
     }
 

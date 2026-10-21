@@ -607,6 +607,11 @@ func _open_orgs() -> void:
 				fb2.pressed.connect(func(): _open_faith(id, e["name"]))
 				r.add_child(_center(fb2))
 			if depth == 0:
+				var wgb := UI.ghost("임금")
+				wgb.tooltip_text = "직책마다 임금 단계(없음·적음·보통·많음·초호화). 많이 줄수록 조직 충성이 오른다. 우두머리 집에서 주면 대신 우두머리 개인 충성이 오른다"
+				wgb.pressed.connect(func(): _open_wages(id, e["name"]))
+				r.add_child(_center(wgb))
+			if depth == 0:
 				var bb := UI.ghost("예산")
 				bb.tooltip_text = "곳간을 갈래마다 나눈다. 몫이 모자란 갈래는 일을 덜 하고 지휘자의 불만이 쌓인다. 감시가 있으면 파벌이 보인다"
 				bb.pressed.connect(func(): _open_budget(id, e["name"]))
@@ -1414,6 +1419,45 @@ func _open_facilities(id: int, name: String) -> void:
 			for line in host.DrainChronicle(): _log(line)
 			_open_facilities(id, name))
 		org_box.add_child(btn)
+	_show_panel(org_panel)
+
+
+## 임금: 갈래마다 직책별 단계를 고른다.
+func _open_wages(id: int, name: String) -> void:
+	var info: Dictionary = host.WageInfo(id)
+	if info.is_empty():
+		_open_orgs()
+		return
+	org_title.text = name + " · 임금"
+	for c in org_box.get_children(): c.queue_free()
+	var back := UI.ghost("← 조직으로")
+	back.pressed.connect(_open_orgs)
+	org_box.add_child(back)
+	var from_leader: bool = info["fromLeader"]
+	var src := UI.ghost("지급: 우두머리 집에서 (개인 충성)" if from_leader else "지급: 세력 곳간에서 (조직 충성)")
+	src.pressed.connect(func():
+		host.SetWageSource(id, not from_leader)
+		_open_wages(id, name))
+	org_box.add_child(src)
+	var levels := ["없음", "적음", "보통", "많음", "초호화"]
+	for u in info["units"]:
+		org_box.add_child(UI.label(String(u["name"]) + (" (품삯 받는 군인: 지배자가 준다)" if u["paid"] else ""), 13, UI.MUTED, true))
+		for r in u["roles"]:
+			var row := HBoxContainer.new()
+			row.add_theme_constant_override("separation", 6)
+			var lab := UI.label("%s %d명 · 지금 %s · 보통이면 한 사람 은화 %.1f" % [r["name"], int(r["n"]), levels[int(r["level"])], float(r["base"])], 12, UI.INK)
+			lab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.add_child(lab)
+			var mb := MenuButton.new()
+			mb.text = "단계"
+			for k in levels.size(): mb.get_popup().add_item(levels[k], k)
+			var uid := int(u["id"])
+			var rk := int(r["kind"])
+			mb.get_popup().id_pressed.connect(func(k):
+				host.SetWage(id, uid, rk, k)
+				_open_wages(id, name))
+			row.add_child(_center(mb))
+			org_box.add_child(row)
 	_show_panel(org_panel)
 
 
@@ -2341,6 +2385,10 @@ func _run_autotest() -> void:
 					_open_faith(int(bro[0]["id"]), bro[0]["name"])
 					await _snap("live_faith.png")
 					org_panel.visible = false
+				_open_wages(int(sorgs[0]["id"]), sorgs[0]["name"])
+				await _snap("live_wages.png")
+				org_panel.visible = false
+				print("autotest: 임금 갈래 ", (host.WageInfo(int(sorgs[0]["id"])).get("units", []) as Array).size())
 				_open_budget(int(sorgs[0]["id"]), sorgs[0]["name"])
 				await _snap("live_budget.png")
 				org_panel.visible = false

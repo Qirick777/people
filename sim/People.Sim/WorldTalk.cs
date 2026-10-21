@@ -141,7 +141,7 @@ public sealed partial class World
         };
         d[(int)InteractionId.Propose] = new InteractionDef
         {
-            Id = InteractionId.Propose, Name = "청혼", Category = InteractionCategory.Courtship,
+            Id = InteractionId.Propose, Name = "청혼", Category = InteractionCategory.Courtship, Intimate = true,
             // 아내는 한 사람뿐이다. 아내 있는 남자가 더 들이는 것은 "첩으로 들이기"다.
             Can = (w, c) => w.People.Male[c.Actor] != w.People.Male[c.Target] && w.People.WifeCount[w.Pair(c.Actor, c.Target).man] == 0
                             && w.CanMarry(w.Pair(c.Actor, c.Target).man, w.Pair(c.Actor, c.Target).woman),
@@ -158,7 +158,7 @@ public sealed partial class World
         d[(int)InteractionId.ArrangeMatch] = new InteractionDef
         {
             // Actor = 가장, Target = 상대 집의 혼인할 사람, Third = 내 집의 혼인할 사람, Amount = 내가 얹는 지참금
-            Id = InteractionId.ArrangeMatch, Name = "혼담", Category = InteractionCategory.Family, NeedsThird = true, ThirdLabel = "누구를 짝지을까",
+            Id = InteractionId.ArrangeMatch, Name = "혼담", Category = InteractionCategory.Family, Intimate = true, NeedsThird = true, ThirdLabel = "누구를 짝지을까",
             Amounts = new[] { 0f, 30f, 100f, 300f }, AmountNames = new[] { "지참금 없이", "지참금 조금", "지참금 넉넉히", "지참금 많이" },
             Can = (w, c) =>
             {

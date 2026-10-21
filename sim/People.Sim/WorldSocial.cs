@@ -215,8 +215,8 @@ public sealed partial class World
         var r = new InteractionResult();
         if (!People.IsAliveIndex(c.Actor) || !People.IsAliveIndex(c.Target) || c.Actor == c.Target) return r;
         if (def.Sexual && (!Adult(c.Actor) || !Adult(c.Target))) return r;   // 어른끼리만
-        if (!def.Can(this, c)) return r;
-        if (_rng.Chance(def.Accept(this, c)))
+        if (!CanOffer(def, c)) return r;
+        if (_rng.Chance(AcceptChance(def, c)))
         {
             r.Accepted = true;
             def.Success?.Invoke(this, c, r);

@@ -34,33 +34,14 @@ public sealed partial class World
 
     private List<Group> UnitsOf(Group root) => Subtree(root).Where(u => u == root || RootOf(u).Id == root.Id).ToList();
 
-    private const float StipendBase = 4f, StipendPer = 0.2f;
-
-    /// <summary>
-    /// 지휘자가 바라는 녹봉: 4 + 갈래 사람당 0.2. 다만 세력이 버는 만큼만 바란다(그 갈래 몫 번 것의 0.2).
-    /// 가난한 자경단 지휘자는 녹봉을 크게 바라지 않는다.
-    /// </summary>
-    private float Stipend(Group u)
-    {
-        var root = RootOf(u);
-        float earned = MathF.Max(0f, root.LastIncome) + (root.Home >= 0 && root.Home < _incTribute.Length ? _incTribute[root.Home] : 0f);
-        float part = root.Total > 0 ? earned * u.Members / root.Total : 0f;
-        return MathF.Min(StipendBase + StipendPer * u.Members, 0.2f * part);
-    }
-
-    private float RoleStipend(Group root)
-    {
-        float earned = MathF.Max(0f, root.LastIncome) + (root.Home >= 0 && root.Home < _incTribute.Length ? _incTribute[root.Home] : 0f);
-        return MathF.Min(StipendBase, 0.05f * earned);
-    }
-
-    /// <summary>갈래 하나가 한 해에 쓸 은화: 지휘자 녹봉과 상근 군량. 맨 위 조직은 곳간지기·연락책 녹봉.</summary>
+    /// <summary>갈래 하나가 한 해에 쓸 은화: 직책별 임금(우두머리 집에서 주면 빼고)과 상근 군량.</summary>
     public float UnitNeed(Group u)
     {
         var p = People; var hh = Households;
         float need = 0f;
-        if (!IsTop(u) && !u.Paid && FindAlive(u.LeaderUid) >= 0) need += Stipend(u);   // 품삯 받는 군인 갈래 지휘자는 품삯으로 받는다
-        if (IsTop(u)) { if (FindAlive(u.TreasurerUid) >= 0) need += RoleStipend(u); if (FindAlive(u.LiaisonUid) >= 0) need += RoleStipend(u); }
+        var root = RootOf(u);
+        if (!root.WageFromLeader)
+            foreach (int m in MembersFast(u)) if (p.Uid[m] != root.LeaderUid) need += WageFor(m, u);
         if (u.FullTime && u.Home < 0)
         {
             float ration = 24f * (FacilityOf(RootOf(u), FacilityKind.Barracks, -1, u) != null ? 0.8f : 1f);
@@ -90,6 +71,8 @@ public sealed partial class World
             if (!root.Alive || !IsTop(root)) continue;
             var units = UnitsOf(root);
             foreach (var u in units) { root.Treasury += u.Purse; u.Purse = 0f; }
+            int rl = FindAlive(root.LeaderUid);
+            if (!root.WagesManual && (rl < 0 || !IsPlayer(rl))) NpcWages(root, units);
             float total = 0f;
             foreach (var u in units) { u.Need = UnitNeed(u); total += u.Need; }
             // 곳간이 모자라면 우두머리 집이 번 것의 일부로 댄다(번 것을 우두머리가 다 가지는 조직이 많다)
@@ -130,28 +113,20 @@ public sealed partial class World
             {
                 u.Fill = u.Need > 0f ? u.Alloc / u.Need : 1f;
                 u.Purse = u.Alloc;
-                // 녹봉: 받은 비율만큼
-                int cmd = FindAlive(u.LeaderUid);
-                if (!IsTop(u) && !u.Paid && cmd >= 0)
-                {
-                    float pay = MathF.Min(u.Purse, Stipend(u) * u.Fill);
-                    u.Purse -= pay; hh.Coin[p.Household[cmd]] += pay; stip += pay;
-                    AddGrievance(root.Id, u.LeaderUid, u.Need > 0f && u.Fill < 0.8f ? 0.1f : -0.05f);
-                    if (u.Need > 0f && u.Fill < 0.8f) shortUnits++;
-                }
+                if (u.Need > 0f && u.Fill < 0.8f) shortUnits++;
+                // 직책자 불만: 받을 임금이 있는데 몫이 0.8에 못 미치면 오르고, 아니면 식는다
+                if (!IsTop(u) && FindAlive(u.LeaderUid) is int cmd && cmd >= 0)
+                    AddGrievance(root.Id, u.LeaderUid, WageFor(cmd, u) > 0f && u.Fill < 0.8f ? 0.1f : -0.05f);
                 if (IsTop(u))
                     foreach (int uid in new[] { u.TreasurerUid, u.LiaisonUid })
-                    {
-                        int r = FindAlive(uid);
-                        if (r < 0) continue;
-                        float pay = MathF.Min(u.Purse, RoleStipend(u) * u.Fill);
-                        u.Purse -= pay; hh.Coin[p.Household[r]] += pay; stip += pay;
-                        AddGrievance(root.Id, uid, u.Need > 0f && u.Fill < 0.8f ? 0.1f : -0.05f);
-                    }
+                        if (FindAlive(uid) is int r && r >= 0) AddGrievance(root.Id, uid, WageFor(r, u) > 0f && u.Fill < 0.8f ? 0.1f : -0.05f);
             }
+            PayWages(root, units, ref stip);
             RivalUnits(root, units);
         }
         Stats.BudgetShort = shortUnits; Stats.Stipends = stip;
+        DecayBonuses();
+        Stats.MeanOrgLoyalty = _orgLoyal.Count > 0 ? _orgLoyal.Values.Average() : 0.3f;
         // 사라진 세력·사람의 불만은 지운다
         foreach (var k in _grievance.Keys.ToList())
             if (GroupById(k.root) == null || FindAlive(k.uid) < 0) _grievance.Remove(k);

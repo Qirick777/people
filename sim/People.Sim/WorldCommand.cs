@@ -144,9 +144,10 @@ public sealed partial class World
                 if (cuid < 0) u.Grip = 0f;
                 else
                 {
-                    float op = 0f; int k = 0;
-                    foreach (int m in ms) { if (m == cmd) continue; op += Social.Opinion(p, m, cuid); if (++k >= 20) break; }
-                    u.Grip = Math.Clamp(0.1f * (Day - u.CmdSince) / Config.DaysPerYear + (k > 0 ? op / k : 0f) / 200f, 0f, 1f);
+                    // 장악도 = 조직원(스물까지)이 지휘자를 향한 개인 충성의 평균
+                    float yrs = (Day - u.CmdSince) / (float)Config.DaysPerYear, sum = 0f; int k = 0;
+                    foreach (int m in ms) { if (m == cmd) continue; sum += PersonalLoyalty(m, cuid, yrs); if (++k >= 20) break; }
+                    u.Grip = k > 0 ? sum / k : Math.Clamp(0.1f * yrs, 0f, 1f);
                 }
                 u.SurveyOwn = 0f;
                 foreach (var t in u.Tasks)

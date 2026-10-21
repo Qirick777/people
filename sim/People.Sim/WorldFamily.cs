@@ -57,7 +57,7 @@ public sealed partial class World
     {
         d[(int)InteractionId.TakeConcubine] = new InteractionDef
         {
-            Id = InteractionId.TakeConcubine, Name = "첩으로 들이기", Category = InteractionCategory.Family, Sexual = true,
+            Id = InteractionId.TakeConcubine, Name = "첩으로 들이기", Category = InteractionCategory.Family, Sexual = true, Intimate = true,
             Can = (w, c) =>
             {
                 var p = w.People;
@@ -172,7 +172,7 @@ public sealed partial class World
         d[(int)InteractionId.ForcedMatch] = new InteractionDef
         {
             // 혼담과 같되 내 식구의 뜻을 묻지 않는다. 대신 그 식구의 마음이 떠난다.
-            Id = InteractionId.ForcedMatch, Name = "억지 혼담", Category = InteractionCategory.Family, NeedsThird = true, Harsh = true, ThirdLabel = "누구를 억지로 보낼까",
+            Id = InteractionId.ForcedMatch, Name = "억지 혼담", Category = InteractionCategory.Family, Intimate = true, NeedsThird = true, Harsh = true, ThirdLabel = "누구를 억지로 보낼까",
             Amounts = am.Amounts, AmountNames = am.AmountNames, Can = am.Can,
             Accept = (w, c) => w.MatchAccept(c.Actor, c.Target, c.Third, c.Amount),
             Success = (w, c, r) =>

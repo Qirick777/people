@@ -36,6 +36,7 @@ public sealed partial class World
         if (map.Coarse == null) { SpawnX = map.Width / 2; SpawnY = map.Height / 2; }
         else (SpawnX, SpawnY) = ChooseSpawn();
         map.EnsureAround(SpawnX, SpawnY, WorldMap.CS * 2);
+        InitRoles();
     }
 
     public int SpawnX { get; private set; }

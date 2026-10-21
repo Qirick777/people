@@ -17,6 +17,8 @@ public class FactionTests
         var c = w.SplitUnit(g)!;
         int t = w.Members(g).First(m => p.Uid[m] != g.LeaderUid);
         Assert.True(w.AppointRole(g, 0, t));
+        w.SetWage(c, RoleKind.Commander, WageLevel.Normal);
+        w.SetWage(g, RoleKind.Treasurer, WageLevel.Normal);
         w.RecountOrgs();
         return (w, g, c, t);
     }

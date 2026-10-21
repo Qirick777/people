@@ -33,6 +33,7 @@ public sealed class InteractionDef
     public string Name = "";
     public InteractionCategory Category;
     public bool Secret, Sexual, AllowPressure;
+    public bool Intimate;                    // 혼인처럼 몸이 닿는 관계로 이어지는 상호작용(청혼, 혼담, 첩)
     public bool Harsh;                       // 험한 일(위협, 의절, 억지 혼담): 화면에서 붉게 보인다
     public bool NeedsThird;                  // 세 번째 사람을 골라야 한다(험담·설득의 대상, 혼담의 내 식구)
     public string ThirdLabel = "";
