@@ -31,6 +31,14 @@ public sealed partial class World
     /// <summary>가르치는 몫만큼 갈래의 일이 준다.</summary>
     private static float WorkFactor(Group g) => 1f - g.TeachShare;
 
+    /// <summary>갈래가 맡은 가르침 일의 무게(0~1).</summary>
+    private static float TeachWeight(Group g)
+    {
+        float w = 0f;
+        foreach (var t in g.Tasks) if (t.Verb == Verb.Teach) w += t.Weight;
+        return w;
+    }
+
     private const float ScholarLetters = 0.6f;   // 이만큼 글을 알아야 '배운 사람'(집에서 어깨너머로 배운 것보다 위)
 
     /// <summary>자리 없이 놀고 있는 배운 사람인가(글 0.6 넘음, 장사꾼·약초꾼·장인·징수관이 아니고, 갈래 우두머리나 측근도 아님).</summary>
@@ -60,11 +68,14 @@ public sealed partial class World
             var root = RootOf(g);
             if (!g.TeachManual) AutoLesson(g, root);
             KeepHeir(g);
-            if (g.Lesson == Lesson.None || g.TeachShare <= 0f) { if (g.Home < 0 && root.Home < 0) g.Inherit = MathF.Max(0f, g.Inherit - 0.05f); continue; }
+            // 가르침 일(Teach)을 맡은 갈래는 그 무게만큼 가르친다(학교). 가르칠 것을 안 정했으면 글
+            float share = MathF.Max(g.TeachShare, TeachWeight(g));
+            if (share > g.TeachShare && g.Lesson == Lesson.None) g.Lesson = Lesson.Letters;
+            if (g.Lesson == Lesson.None || share <= 0f) { if (g.Home < 0 && root.Home < 0) g.Inherit = MathF.Max(0f, g.Inherit - 0.05f); continue; }
             var ms = MembersFast(g);
             if (ms.Count == 0) continue;
             // 비용: 가르치는 동안 먹여야 한다(곳간이 먼저, 모자라면 우두머리 집)
-            float cost = ms.Count * g.TeachShare * 8f;
+            float cost = ms.Count * g.TeachShare * 8f;   // 일을 떼어 모여 배우는 몫만 먹인다(학교 일은 제 집에서 먹으며 한다)
             float fromT = MathF.Min(root.Treasury, cost);
             root.Treasury -= fromT;
             int leader = FindAlive(root.LeaderUid);
@@ -80,7 +91,7 @@ public sealed partial class World
                 foreach (int m in ms.Take(40))
                 {
                     if (m == teacher) continue;
-                    Learn(m, s, teacher, 2f * g.TeachShare);
+                    Learn(m, s, teacher, 2f * share);
                     Stats.Taught++;
                 }
             }
@@ -92,14 +103,14 @@ public sealed partial class World
                     if (p.Uid[m] == root.LeaderUid) continue;
                     // 교리만으로는 0.8까지(광신은 우두머리를 직접 겪어야 생긴다)
                     bool cap = p.LoyalUid[m] == root.LeaderUid ? p.Loyalty[m] >= 0.8f : Social.Opinion(p, m, root.LeaderUid) >= 60f;
-                    if (!cap) Social.Add(p, m, root.LeaderUid, 30f * g.TeachShare);
-                    if (faith) p.Piety[m] = MathF.Min(1f, p.Piety[m] + 0.1f * g.TeachShare);
+                    if (!cap) Social.Add(p, m, root.LeaderUid, 30f * share);
+                    if (faith) p.Piety[m] = MathF.Min(1f, p.Piety[m] + 0.1f * share);
                     Stats.Taught++;
                 }
             }
             else if (g.Lesson == Lesson.Succession && g.HeirUid >= 0)
             {
-                g.Inherit = MathF.Min(1f, g.Inherit + 1.5f * g.TeachShare);
+                g.Inherit = MathF.Min(1f, g.Inherit + 1.5f * share);
                 Stats.Taught++;
             }
         }
@@ -128,6 +139,8 @@ public sealed partial class World
             GroupKind.Company => (Lesson.Trade, 0.1f),
             GroupKind.Sellswords => (Lesson.Arms, 0.2f),
             GroupKind.Bandits or GroupKind.Watch => (Lesson.Arms, 0.05f),
+            GroupKind.School => (Lesson.Letters, 0f),   // 학교는 가르침 일의 무게로 가르친다
+            GroupKind.Drill => (Lesson.Arms, 0.1f),
             _ => (Lesson.None, 0f),
         };
         g.Lesson = pick.l;

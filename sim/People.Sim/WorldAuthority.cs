@@ -295,6 +295,7 @@ public sealed partial class World
                 float n = MathF.Max(1, ms.Count);
                 float leak = 0.01f * MathF.Sqrt(g.Total) + 0.1f * low / n + 0.05f * dual / n + (g.Visibility == Visibility.Neutral ? 0.05f : 0f);
                 if (g.Visibility == Visibility.Hidden) leak *= 0.5f;
+                leak *= 1f - LiaisonGuard(g);   // 연락책이 입단속을 한다
                 g.Leak += leak;
                 if (g.Leak >= 1f && g.Visibility < Visibility.Public)
                 {

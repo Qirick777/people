@@ -26,11 +26,18 @@ public sealed partial class World
     public bool CanUseVerb(Group root, Verb v, out string why)
     {
         why = "";
+        var p = People;
         int leader = FindAlive(root.LeaderUid);
         int size = root.Home >= 0 ? BelowOf(root.Home) + root.Total : root.Total;
         switch (v)
         {
-            case Verb.Guard: case Verb.Raid: case Verb.Charity: case Verb.Recruit: return true;
+            case Verb.Guard: case Verb.Raid: case Verb.Charity: case Verb.Recruit: case Verb.Train: return true;
+            case Verb.Survey:
+                if (size >= 3) return true;
+                why = "조직원 3명부터"; return false;
+            case Verb.Teach:
+                if (Subtree(root).SelectMany(MembersFast).Any(m => p.GetSkill(m, Skill.Letters) >= 0.4f || p.GetSkill(m, Skill.Arms) >= 0.4f || p.GetSkill(m, Skill.Trade) >= 0.4f || p.GetSkill(m, Skill.Craft) >= 0.4f)) return true;
+                why = "가르칠 만한 사람(글·무예·장사·공예 0.4)이 있어야"; return false;
             case Verb.Chase:
                 if (root.Home >= 0 || root.Kind == GroupKind.Watch) return true;
                 why = "자경단이나 지배자 조직만"; return false;
@@ -110,6 +117,8 @@ public sealed partial class World
         if (amount <= 0f) return;
         root.Income += amount;
         Stats.OrgIncome += amount;
+        float loss = ManageLoss(root);   // 큰 조직은 곳간지기 없이 새어 나간다
+        if (loss > 0f) { Stats.ManageLost += amount * loss; amount *= 1f - loss; }
         if (IsAttached(root) && Households.IsAlive(root.Sanction))
         {
             float cut = amount * OfferCut;
@@ -117,6 +126,18 @@ public sealed partial class World
             amount -= cut;
         }
         Pay(root, amount);
+    }
+
+    /// <summary>훈련: 갈래 사람의 무예가 오른다(0.6까지. 더 깊은 것은 가르침으로).</summary>
+    private void Drill(Group g, float w)
+    {
+        var p = People;
+        foreach (int m in MembersFast(g))
+        {
+            float a = p.GetSkill(m, Skill.Arms);
+            if (a < 0.6f) p.SetSkill(m, Skill.Arms, a + 0.06f * w * (0.6f - a) / 0.6f + 0.01f * w);
+        }
+        Stats.Trained++;
     }
 
     /// <summary>조직 몫을 회칙대로 우두머리 집, 조직원 집들, 곳간으로.</summary>
@@ -158,7 +179,8 @@ public sealed partial class World
             {
                 // 플레이어 조직의 해를 끼치는 일은 플레이어가 직접 정했을 때만 한다
                 if (playerAuto && t.Verb is Verb.Collect or Verb.Agitate) continue;
-                float effort = g.Members * t.Weight * WorkFactor(g), strength = g.OwnStrength * t.Weight * WorkFactor(g);   // 가르치는 몫만큼 덜 한다
+                float cf = WorkFactor(g) * g.CmdFactor;   // 가르치는 몫만큼, 지휘 범위를 넘은 만큼 덜 한다
+                float effort = g.Members * t.Weight * cf, strength = g.OwnStrength * t.Weight * cf;
                 if (effort <= 0.1f || !CanUseVerb(root, t.Verb, out _)) continue;
                 switch (t.Verb)
                 {
@@ -171,6 +193,7 @@ public sealed partial class World
                     case Verb.Brothel: BrothelCut(root, g, t.Village, t.Weight, leader); break;
                     case Verb.Agitate: Agitate(root, t.Village, effort); break;
                     case Verb.Recruit: for (int k = 0; k < Math.Min(6, (int)MathF.Ceiling(effort / 2f)); k++) RecruitOne(root, g); break;
+                    case Verb.Train: Drill(g, t.Weight * cf); break;
                 }
             }
         }
@@ -551,6 +574,16 @@ public sealed partial class World
             case GroupKind.Brothel:
                 Add(Verb.Brothel, 1.5f);
                 Add(Verb.Guard, 0.3f);
+                break;
+            case GroupKind.School:
+                Add(Verb.Teach, 1.5f);
+                break;
+            case GroupKind.Drill:
+                Add(Verb.Train, 1.5f);
+                Add(Verb.Guard, 0.4f);
+                break;
+            case GroupKind.Inspectors:
+                Add(Verb.Survey, 1.5f);
                 break;
         }
         if (list.Count == 0) Add(Verb.Guard, 1f);

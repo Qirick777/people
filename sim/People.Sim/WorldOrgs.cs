@@ -1,7 +1,7 @@
 namespace People.Sim;
 
 /// <summary>조직이 맡는 일(동사). 조직의 종류는 이름일 뿐이고, 하는 일은 이것으로 정한다.</summary>
-public enum Verb : byte { Guard, Chase, Raid, Attack, Collect, Charity, Teach, Preach, Trade, Escort, Mercenary, Brothel, Agitate, Kidnap, Recruit }
+public enum Verb : byte { Guard, Chase, Raid, Attack, Collect, Charity, Teach, Preach, Trade, Escort, Mercenary, Brothel, Agitate, Kidnap, Recruit, Survey, Train }
 
 /// <summary>맡은 일 하나: 무엇을, 어느 마을에서, 얼마의 무게로.</summary>
 public struct OrgTask
@@ -23,7 +23,7 @@ public sealed partial class World
     {
         Verb.Guard => "지킴", Verb.Chase => "쫓기", Verb.Raid => "털기", Verb.Attack => "치기", Verb.Collect => "보호세", Verb.Charity => "돌봄",
         Verb.Preach => "설교", Verb.Trade => "교역", Verb.Escort => "호송", Verb.Mercenary => "용병", Verb.Brothel => "유곽", Verb.Agitate => "선동",
-        Verb.Kidnap => "납치", Verb.Recruit => "포섭", _ => "가르침",
+        Verb.Kidnap => "납치", Verb.Recruit => "포섭", Verb.Survey => "감시", Verb.Train => "훈련", _ => "가르침",
     };
 
     /// <summary>지금 하는 일로 붙는 이름.</summary>
@@ -36,7 +36,7 @@ public sealed partial class World
             Verb.Guard => g.Paid || g.Parent >= 0 || g.Sanction >= 0 ? "경비대" : "자경단",
             Verb.Raid => "도적 떼", Verb.Chase => "치안대", Verb.Attack => "군대", Verb.Collect => g.Home >= 0 || RootOf(g).Home >= 0 ? "징수대" : "보호세 패",
             Verb.Charity => "신도회", Verb.Preach => "교단", Verb.Trade => "상단", Verb.Escort => "호송대", Verb.Mercenary => "용병단",
-            Verb.Brothel => "유곽", Verb.Agitate => "선동대", Verb.Kidnap => "납치단", Verb.Recruit => "포섭조", _ => "학당",
+            Verb.Brothel => "유곽", Verb.Agitate => "선동대", Verb.Kidnap => "납치단", Verb.Recruit => "포섭조", Verb.Survey => "감찰대", Verb.Train => "수련단", _ => "학당",
         };
     }
 
@@ -90,7 +90,8 @@ public sealed partial class World
         var v = g.Kind switch
         {
             GroupKind.Bandits => Verb.Raid, GroupKind.Brotherhood => Verb.Charity, GroupKind.Company => Verb.Trade,
-            GroupKind.Sellswords => Verb.Mercenary, GroupKind.Brothel => Verb.Brothel, _ => Verb.Guard,
+            GroupKind.Sellswords => Verb.Mercenary, GroupKind.Brothel => Verb.Brothel,
+            GroupKind.School => Verb.Teach, GroupKind.Drill => Verb.Train, GroupKind.Inspectors => Verb.Survey, _ => Verb.Guard,
         };
         g.Tasks.Add(new OrgTask { Verb = v, Village = g.Village, Weight = 1f });
     }
@@ -389,6 +390,10 @@ public sealed partial class World
                 float heat = CrimeHeat(v);
                 if (heat > 0.5f) list.Add(new OrgTask { Verb = Verb.Chase, Village = v, Weight = heat * 1.5f * (0.5f + aggr) });
             }
+            // 봉신을 거느린 지배자는 제 마을에 감찰대를 둔다(거사와 빼돌림을 캔다). 신중할수록 크게
+            int vassals = DirectClients(root.Home).Count(c => Households.IsAlive(c) && ClientCount(c) > 0);
+            int hv = Households.Village[root.Home];
+            if (vassals > 0 && hv >= 0) list.Add(new OrgTask { Verb = Verb.Survey, Village = hv, Weight = (1f + vassals) * (0.3f + caution) });
         }
         else
         {
@@ -411,25 +416,28 @@ public sealed partial class World
     {
         var children = ChildrenOf(g).OrderByDescending(c => c.Strength).ToList();
         var left = new List<OrgTask>(tasks);
+        // 인정받아 붙은 조직은 제 일(자경단은 제 마을 지킴)을 한다. 지배자 군대의 일을 넘겨받지 않는다
+        foreach (var c in children.Where(c => IsAttached(c) && !c.Manual).ToList()) DefaultTask(c);
+        children = children.Where(c => !IsAttached(c)).ToList();
+        // 일은 지휘자가 있는 갈래로 저절로 내려간다(플레이어가 정한 조직의 일도). 지휘자가 빈 갈래는 가장 큰 일 하나만 한다
+        foreach (var c in children)
+        {
+            if (c.Manual) continue;
+            if (NoCommander(c)) { c.Tasks.Clear(); c.Tasks.AddRange(tasks.Take(1).Select(t => { t.Weight = 1f; return t; })); continue; }
+            if (left.Count == 0) { c.Tasks.Clear(); c.Tasks.AddRange(tasks.Take(1).Select(t => { t.Weight = 1f; return t; })); continue; }
+            var t = left[0];
+            left.RemoveAt(0);
+            c.Tasks.Clear();
+            t.Weight = 1f;
+            c.Tasks.Add(t);
+        }
+        // 플레이어가 정한 조직은 제 일을 그대로 둔다(아래로 내려보내기만 한다)
         if (!g.Manual)
         {
-            // 인정받아 붙은 조직은 제 일(자경단은 제 마을 지킴)을 한다. 지배자 군대의 일을 넘겨받지 않는다
-            foreach (var c in children.Where(c => IsAttached(c) && !c.Manual).ToList()) DefaultTask(c);
-            children = children.Where(c => !IsAttached(c)).ToList();
-            foreach (var c in children)
-            {
-                if (c.Manual) continue;
-                if (left.Count == 0) { c.Tasks.Clear(); c.Tasks.AddRange(tasks.Take(1).Select(t => { t.Weight = 1f; return t; })); continue; }
-                var t = left[0];
-                left.RemoveAt(0);
-                c.Tasks.Clear();
-                t.Weight = 1f;
-                c.Tasks.Add(t);
-            }
             if (depth == 0 && children.Count > 0)
             {
                 // 하위 조직이 있는 맨 위 조직은 일을 갈래에 넘긴다. 남은 일은 가장 센 갈래가 더 맡는다
-                var top = children.FirstOrDefault(c => !c.Manual);
+                var top = children.FirstOrDefault(c => !c.Manual && !NoCommander(c));
                 if (top != null && left.Count > 0)
                 {
                     // 제 일 1, 남은 일 0.5씩 두고 합이 1이 되게 나눈다(힘이 무에서 생기지 않게)
@@ -734,7 +742,8 @@ public sealed partial class World
         foreach (var g in _groups.ToList())
         {
             if (!g.Alive || g.Parent >= 0) continue;
-            var needs = Needs(g);
+            // 플레이어가 일을 정한 맨 위 조직은 그 일을 갈래로 내려보낸다
+            var needs = g.Manual && g.Tasks.Count > 0 ? g.Tasks.ToList() : Needs(g);
             if (needs.Count == 0) { if (g.Tasks.Count == 0) DefaultTask(g); needs = g.Tasks.ToList(); }
             PlanUnit(g, needs, 0);
         }
@@ -742,12 +751,14 @@ public sealed partial class World
         DelegationYear();
         BuildMemberIndex();
         foreach (var g in _groups) if (g.Alive && IsTop(g)) PickInner(g);
+        CommandYear();
         AuthorityYear();
         VisibilityYear();
         WorkYear();
         TeachYear();
         AuthorityStats();
         _memberIdx = null;
+        IdentityYear();
         RefreshNames();
         Stats.OrgUnits = _groups.Count(g => g.Alive && g.Parent >= 0);
         Stats.LordArmies = _lordOrg.Count;

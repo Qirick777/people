@@ -532,6 +532,14 @@ func _open_orgs() -> void:
 		if depth == 0: info += " · 권위 %s(%.0f) · %s" % [_authority_word(float(e["authority"])), float(e["authority"]), e["visibilityName"]]
 		tv.add_child(UI.label(info, 12, UI.MUTED))
 		tv.add_child(UI.label(("정한 일: " if e["manual"] else "맡은 일: ") + e["tasks"], 12, UI.INK))
+		if depth == 0 and e["shares"] != "":
+			tv.add_child(UI.label("정체: %s · 일 비중 %s" % [e["identity"], e["shares"]], 12, UI.MUTED))
+		if e["vacant"]:
+			tv.add_child(UI.label("지휘자 없음: 일이 저절로 내려가지 않고 가장 큰 일 하나만 한다", 12, UI.RISK))
+		if float(e["over"]) > 0.0:
+			tv.add_child(UI.label("지휘 범위를 %d%% 넘음: 일과 싸움 힘 %d%%, 해마다 사람이 떠난다. 갈래를 나누고 지휘자를 앉힌다" % [int(float(e["over"]) * 100.0), int(float(e["cmdFactor"]) * 100.0)], 12, UI.RISK))
+		elif depth > 0 and not e["vacant"]:
+			tv.add_child(UI.label("장악도 %d%%(거사 때 이만큼이 지휘자를 따른다)" % int(float(e["grip"]) * 100.0), 12, UI.MUTED))
 		var teach: String = "가르침: " + e["lesson"] + (" %d%%" % int(float(e["teachShare"]) * 100.0) if float(e["teachShare"]) > 0.0 else "")
 		if e["heir"] != "": teach += " · 후계자 %s(이음 %d%%)" % [e["heir"], int(float(e["inherit"]) * 100.0)]
 		tv.add_child(UI.label(teach, 12, UI.MUTED))
@@ -561,6 +569,15 @@ func _open_orgs() -> void:
 			lb.tooltip_text = "무엇을 얼마나 가르칠지(가르치는 만큼 일이 준다)"
 			lb.pressed.connect(func(): _open_org_lessons(id, e["name"]))
 			r.add_child(_center(lb))
+			var wb := UI.ghost("일 비중")
+			wb.tooltip_text = "여러 일을 고르고 비중을 나눈다. 비중이 정체(이름)를 정한다"
+			wb.pressed.connect(func(): _open_org_weights(id, e["name"]))
+			r.add_child(_center(wb))
+			if depth > 0:
+				var cb := UI.ghost("지휘자")
+				cb.tooltip_text = "이 갈래의 지휘자를 앉힌다. 비우면 일이 내려가지 않는다"
+				cb.pressed.connect(func(): _open_appoint(id, 0, e["name"] + " · 지휘자"))
+				r.add_child(_center(cb))
 			var tb := UI.ghost("일 정하기")
 			tb.tooltip_text = "이 갈래가 할 일을 직접 정한다"
 			tb.pressed.connect(func(): _open_org_tasks(id, e["name"]))
@@ -573,6 +590,26 @@ func _open_orgs() -> void:
 					_open_orgs())
 				r.add_child(_center(ab))
 		org_box.add_child(r)
+		# 맨 위 조직: 직책(곳간지기, 연락책)과 감시 세기
+		if depth == 0 and e["command"]:
+			var rrow := HBoxContainer.new()
+			rrow.add_theme_constant_override("separation", 6)
+			var rp := Control.new()
+			rp.custom_minimum_size = Vector2(22, 0)
+			rrow.add_child(rp)
+			var rid := int(e["id"])
+			var tr_txt: String = e["treasurer"] if e["treasurer"] != "" else "비어 있음"
+			var li_txt: String = e["liaison"] if e["liaison"] != "" else "비어 있음"
+			var rl := UI.label("곳간지기 %s · 연락책 %s · 감시 세기 %.1f" % [tr_txt, li_txt, float(e["survey"])], 12, UI.MUTED)
+			rl.tooltip_text = "곳간지기가 없으면 큰 조직의 번 것이 샌다. 연락책은 새어 나감을 줄인다. 감시는 감찰 일을 맡은 갈래가 낸다"
+			rrow.add_child(_center(rl))
+			var tbn := UI.ghost("곳간지기")
+			tbn.pressed.connect(func(): _open_appoint(rid, 1, e["name"] + " · 곳간지기"))
+			rrow.add_child(_center(tbn))
+			var lbn := UI.ghost("연락책")
+			lbn.pressed.connect(func(): _open_appoint(rid, 2, e["name"] + " · 연락책"))
+			rrow.add_child(_center(lbn))
+			org_box.add_child(rrow)
 		# 맨 위 조직: 알려진 정도 고르기(숨길수록 의심을 피하고, 드러낼수록 사람이 모인다)
 		if depth == 0 and e["command"]:
 			var seg := HBoxContainer.new()
@@ -1035,6 +1072,90 @@ func _open_org_tasks(id: int, name: String) -> void:
 		var vv := int(t["village"])
 		b.pressed.connect(func():
 			host.SetOrgTask(id, verb, vv)
+			for line in host.DrainChronicle(): _log(line)
+			_open_orgs())
+		org_box.add_child(b)
+
+
+## 일 비중: 일마다 0~100%를 고르고 적용한다. 비중이 정체를 정한다.
+func _open_org_weights(id: int, name: String) -> void:
+	org_title.text = name + " · 일 비중"
+	for c in org_box.get_children(): c.queue_free()
+	var back := UI.ghost("← 조직으로")
+	back.pressed.connect(_open_orgs)
+	org_box.add_child(back)
+	var note := UI.label("고른 일에 비중대로 사람과 시간을 나눈다. 가장 큰 일이 절반을 넘으면 그 이름을 받고, 둘이 비슷하면 합친 이름을 받는다(두 해 연속일 때). 지휘자가 있는 갈래로 일이 저절로 내려간다.", 12, UI.MUTED)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note.custom_minimum_size = Vector2(600, 0)
+	org_box.add_child(note)
+	var rows: Array = host.OrgWeights(id)
+	var pick := {}
+	for e in rows: pick[int(e["verb"])] = int(e["weight"])
+	var steps := [0, 25, 50, 75, 100]
+	for e in rows:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 0)
+		var lab := UI.label(e["name"], 13, UI.RISK if e["harsh"] else UI.INK, true)
+		lab.custom_minimum_size = Vector2(90, 0)
+		row.add_child(_center(lab))
+		var vb := int(e["verb"])
+		if e["locked"] != "":
+			row.add_child(_center(UI.label("잠김: " + e["locked"], 12, UI.MUTED)))
+			org_box.add_child(row)
+			continue
+		var btns := []
+		for k in steps.size():
+			var b := Button.new()
+			b.text = "%d" % steps[k]
+			b.add_theme_font_size_override("font_size", 12)
+			var cur: int = int(pick[vb])
+			var near: int = steps[0]
+			for st in steps:
+				if abs(st - cur) < abs(near - cur): near = st
+			UI.segment(b, near == steps[k], k == 0, k == steps.size() - 1)
+			btns.append(b)
+			row.add_child(b)
+		for k in btns.size():
+			var val: int = steps[k]
+			var b2: Button = btns[k]
+			b2.pressed.connect(func():
+				pick[vb] = val
+				for j in btns.size(): UI.segment(btns[j], j == k, j == 0, j == btns.size() - 1))
+		org_box.add_child(row)
+	var apply := UI.action("이대로 정한다", "", -1.0, false)
+	apply.pressed.connect(func():
+		var pairs := []
+		for v in pick.keys():
+			if int(pick[v]) > 0: pairs.append([int(v), float(pick[v])])
+		host.SetOrgWeights(id, pairs)
+		for line in host.DrainChronicle(): _log(line)
+		_open_orgs())
+	org_box.add_child(apply)
+
+
+## 직책에 앉히기: role 0 지휘자, 1 곳간지기, 2 연락책.
+func _open_appoint(id: int, role: int, title: String) -> void:
+	org_title.text = title
+	for c in org_box.get_children(): c.queue_free()
+	var back := UI.ghost("← 조직으로")
+	back.pressed.connect(_open_orgs)
+	org_box.add_child(back)
+	var tips := ["지휘 범위(말솜씨·무예·글)가 크면 많이 부린다. 오래 맡을수록 장악도가 올라, 거사 때 갈래가 그를 따른다", "글이 높을수록 번 것이 덜 샌다", "말솜씨와 눈치가 높을수록 새어 나감을 막는다"]
+	var tl := UI.label(tips[role], 12, UI.MUTED)
+	tl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tl.custom_minimum_size = Vector2(600, 0)
+	org_box.add_child(tl)
+	var none := UI.ghost("비운다")
+	none.pressed.connect(func():
+		host.Appoint(id, role, -1)
+		for line in host.DrainChronicle(): _log(line)
+		_open_orgs())
+	org_box.add_child(none)
+	for e in host.OrgPeople(id):
+		var b := UI.action(e["name"], e["note"], -1.0, false)
+		var who := int(e["i"])
+		b.pressed.connect(func():
+			host.Appoint(id, role, who)
 			for line in host.DrainChronicle(): _log(line)
 			_open_orgs())
 		org_box.add_child(b)
@@ -1652,6 +1773,19 @@ func _run_autotest() -> void:
 			host.SetUnitLesson(int(orgs[0]["id"]), 1, 20)
 			_open_orgs()
 			await _snap("live_orgs_rules.png")
+			# 일 비중과 직책
+			var oid := int(orgs[0]["id"])
+			_open_org_weights(oid, orgs[0]["name"])
+			await _snap("live_org_weights.png")
+			host.SetOrgWeights(oid, [[0, 60.0], [16, 40.0]])
+			_open_appoint(oid, 1, "곳간지기")
+			await _snap("live_org_appoint.png")
+			var ppl: Array = host.OrgPeople(oid)
+			if ppl.size() > 0: host.Appoint(oid, 1, int(ppl[0]["i"]))
+			_open_orgs()
+			await _snap("live_orgs_roles.png")
+			var o2: Dictionary = host.OrgPanel().filter(func(o): return int(o["id"]) == oid)[0]
+			print("autotest: 일 비중 ", o2["tasks"], " · 곳간지기 ", o2["treasurer"])
 		org_panel.visible = false
 	# 재판: 주군이 없는 집이 당한 사건은 마을 자경단 우두머리가 맡는다. 방금 세운 자경단의 집으로 모든 사건을 직접 판결한다
 	host.JudgeAll = true

@@ -1,6 +1,6 @@
 namespace People.Sim;
 
-public enum GroupKind : byte { Watch, Bandits, Brotherhood, Army, Company, Sellswords, Brothel }
+public enum GroupKind : byte { Watch, Bandits, Brotherhood, Army, Company, Sellswords, Brothel, School, Drill, Inspectors }
 
 /// <summary>
 /// 모임 하나. 섬김 나무와 따로, 사람들이 가로로 묶인다. 우두머리는 uid 로 적는다.
@@ -45,6 +45,19 @@ public sealed class Group
     public float Inherit;                             // 이음(0~1): 후계자가 우두머리가 아는 것을 얼마나 넘겨받았나
     public float Shaken;                              // 억지 계승으로 흔들린 정도(0~1, 해마다 줄고 권위를 깎는다)
     public readonly List<OrgTask> Tasks = new();
+    // 세력 틀(plan_faction 1~2장): 직책, 지휘, 정체
+    public int TreasurerUid = -1, LiaisonUid = -1;   // 곳간지기, 연락책(맨 위 조직만)
+    public int CmdUid = -2, CmdSince;                 // 지금 지휘자가 언제부터 맡았나(-2: 아직 센 적 없음)
+    public float CmdFactor = 1f;                      // 지휘 범위를 넘어 줄어든 일의 몫(해마다 센다)
+    public float Over;                                // 지휘 범위를 넘은 정도((사람 − 범위) / 범위)
+    public float Grip;                                // 장악도(0~1): 지휘자가 조직을 쥔 정도
+    public float SurveyOwn;                           // 이 갈래의 감시 세기
+    public GroupKind PendingKind;                     // 정체 판정: 새로 나온 종류와 연속 해 수
+    public int PendingYears;
+    public string NameFamily = "";                    // 이름에 쓰는 가문 이름(세울 때)
+    public string IdentityName = "";                  // 비중으로 붙은 이름(무장 신도회 등)
+    public string PendingName = "";                   // 이름도 두 해 연속 같아야 바뀐다
+    public int PendingNameYears;
 }
 
 /// <summary>
@@ -60,7 +73,7 @@ public sealed partial class World
     public static string GroupKindName(GroupKind k) => k switch
     {
         GroupKind.Watch => "자경단", GroupKind.Bandits => "도적 떼", GroupKind.Army => "군대", GroupKind.Company => "상단",
-        GroupKind.Sellswords => "용병단", GroupKind.Brothel => "유곽", _ => "신도회",
+        GroupKind.Sellswords => "용병단", GroupKind.Brothel => "유곽", GroupKind.School => "학교", GroupKind.Drill => "수련단", GroupKind.Inspectors => "감찰대", _ => "신도회",
     };
 
     public Group? GroupById(int id) => id >= 0 && id < _groups.Count && _groups[id].Alive ? _groups[id] : null;
@@ -110,7 +123,8 @@ public sealed partial class World
     {
         int h = People.Household[leader];
         var g = new Group { Id = _groups.Count, Kind = kind, LeaderUid = People.Uid[leader], Founded = Day, Village = Households.IsAlive(h) ? Households.Village[h] : -1 };
-        g.Name = $"{Names.Family(Lineage.FamilyOf(People.Uid[leader]))} {GroupKindName(kind)}";
+        g.NameFamily = Names.Family(Lineage.FamilyOf(People.Uid[leader]));
+        g.Name = $"{g.NameFamily} {GroupKindName(kind)}";
         g.Visibility = DefaultVisibility(kind);
         // NPC 우두머리의 성격: 아주 신중한 도적 두목은 조직원끼리도 모르게 숨기고, 고집 센 신앙인은 신도회를 숨긴다(이단)
         if (!IsPlayer(leader))
@@ -207,6 +221,11 @@ public sealed partial class World
                 ? (0.8f * p.GetSkill(i, Skill.Arms) + 0.3f * p.Get(i, Trait.Aggression) + 0.2f * p.Get(i, Trait.Ambition) - 0.15f) * (ClassOf(h) is LandClass.Laborer or LandClass.Tenant or LandClass.None ? 1.2f : 0.8f) : 0f,
             // 유곽: 스스로 몸 파는 일을 하는 어른, 또는 신앙이 옅고 욕심 있는 어른(포주)
             GroupKind.Brothel => age >= 16 ? (p.JobOf[i] == (byte)Job.SexWorker ? 0.6f : 0f) + MathF.Max(0f, p.Get(i, Trait.Ambition) - 0.5f) * (1f - p.Piety[i]) * 2f : 0f,
+            // 학교: 배우고 싶은 젊은이와 가르칠 만한 배운 사람
+            GroupKind.School => age >= 16 ? (age <= 30 ? 0.4f * p.Get(i, Trait.Intelligence) + 0.3f * p.Get(i, Trait.Ambition) - 0.1f : 0f)
+                                            + (p.GetSkill(i, Skill.Letters) >= 0.5f ? 0.4f : 0f) : 0f,
+            GroupKind.Drill => p.Male[i] && age >= 16 && age <= 40 ? 0.2f + 0.4f * p.Get(i, Trait.Aggression) + 0.3f * p.GetSkill(i, Skill.Arms) : 0f,
+            GroupKind.Inspectors => age >= 18 ? 0.6f * p.Get(i, Trait.Perception) + 0.3f * p.Get(i, Trait.Caution) - 0.2f : 0f,
             _ => age >= 16 ? MathF.Max(0f, p.Piety[i] - 0.6f) * 2.5f : 0f,
         };
     }
@@ -262,6 +281,10 @@ public sealed partial class World
             }
             // 갈래 우두머리가 갈래를 떠났으면(군인을 그만둠 등) 남은 사람 가운데서 새로 세운다
             bool lost = members == null || !members.Any(m => p.Uid[m] == g.LeaderUid);
+            // 플레이어 세력의 갈래는 지휘자가 빠지면 빈자리로 남는다(플레이어가 앉힌다)
+            int rl = IsTop(g) ? -1 : FindAlive(RootOf(g).LeaderUid);
+            bool playerBranch = rl >= 0 && IsPlayer(rl);
+            if (lost && playerBranch) { if (g.LeaderUid >= 0) { g.LeaderUid = -1; Chron(rl, $"{g.Name}의 지휘자 자리가 비었다"); } lost = false; }
             if (lost && members != null && members.Count > 0)
             {
                 // 이음이 넉넉한 후계자가 잇거나, 아니면 말솜씨와 싸움 힘이 큰 어른이 억지로 잇는다(O3)
@@ -270,13 +293,19 @@ public sealed partial class World
             }
             // 맨 위 조직은 갈래까지 모두 세어 둘이 안 되면 흩어진다
             bool tooSmall = !IsTop(g) ? g.Members == 0 || (g.Members < 2 && Day - g.Founded >= 2 * Config.DaysPerYear) : g.Total < 2;
-            if (tooSmall || members == null || !members.Any(m => p.Uid[m] == g.LeaderUid))
+            if (tooSmall || members == null || (g.LeaderUid >= 0 && !members.Any(m => p.Uid[m] == g.LeaderUid)))
             {
                 if (!IsTop(g) && GroupById(g.Parent) is { } up && members != null) MergeInto(g, up, members);
                 else CloseGroup(g);
                 continue;
             }
-            if (g.Sanction >= 0 && (!hh.IsAlive(g.Sanction) || hh.FoundedDay[g.Sanction] != g.SanctionFounded)) { if (IsAttached(g)) g.Parent = -1; g.Sanction = -1; }   // 인정한 집이 사라지면 홀로 선다
+            if (g.Sanction >= 0 && (!hh.IsAlive(g.Sanction) || hh.FoundedDay[g.Sanction] != g.SanctionFounded))
+            {
+                // 지배권이 다른 집으로 옮겨 갔으면(상속, 거사) 그 군대를 따라 새 집의 인정을 받는다. 아니면 홀로 선다
+                if (IsAttached(g) && GroupById(g.Parent) is { Home: >= 0 } up2 && hh.IsAlive(up2.Home) && hh.FoundedDay[up2.Home] == up2.HomeFounded)
+                { g.Sanction = up2.Home; g.SanctionFounded = up2.HomeFounded; }
+                else { if (IsAttached(g)) g.Parent = -1; g.Sanction = -1; }
+            }
         }
         SumSubtrees();
         // 2) 마을마다: 생기고, 들고, 나간다
@@ -292,7 +321,7 @@ public sealed partial class World
             int traders = 0, workers = 0;
             foreach (int i in folk) { if (p.JobOf[i] == (byte)Job.Trader) traders++; else if (p.JobOf[i] == (byte)Job.SexWorker) workers++; }
             int houses = VillageList.Households[v];
-            foreach (GroupKind kind in new[] { GroupKind.Watch, GroupKind.Bandits, GroupKind.Brotherhood, GroupKind.Company, GroupKind.Sellswords, GroupKind.Brothel })
+            foreach (GroupKind kind in new[] { GroupKind.Watch, GroupKind.Bandits, GroupKind.Brotherhood, GroupKind.Company, GroupKind.Sellswords, GroupKind.Brothel, GroupKind.School, GroupKind.Drill, GroupKind.Inspectors })
             {
                 // 이 마을의 그 종류 모임(가장 큰 것)
                 Group? here = null;
@@ -310,6 +339,9 @@ public sealed partial class World
                         GroupKind.Company => traders >= 2 && houses >= 20 ? 0.15f : 0f,
                         GroupKind.Sellswords => danger > 0.4f ? 0.1f * (1f - 0.5f * est) : 0f,
                         GroupKind.Brothel => workers >= 2 && houses >= Config.TradeVillage ? 0.1f : 0f,
+                        // 학교는 놀고 있는 배운 사람이 있는 큰 마을에서 선다. 수련단과 감찰대는 저절로 서지 않는다(세력이 만든다)
+                        GroupKind.School => houses >= 15 && folk.Any(IsIdleScholar) ? 0.08f : 0f,
+                        GroupKind.Drill or GroupKind.Inspectors => 0f,
                         _ => 0.25f,
                     };
                     if (!_rng.Chance(pressure)) continue;
@@ -417,7 +449,7 @@ public sealed partial class World
                 if (!g.Alive) continue;
                 foreach (var t in g.Tasks)
                     if (t.Verb == Verb.Guard)
-                        _watchPow[t.Village] = _watchPow.GetValueOrDefault(t.Village) + g.OwnStrength * t.Weight * WorkFactor(g) * (g.Paid || g.Parent >= 0 || g.Sanction >= 0 ? 0.6f : 0.4f);
+                        _watchPow[t.Village] = _watchPow.GetValueOrDefault(t.Village) + g.OwnStrength * t.Weight * WorkFactor(g) * g.CmdFactor * (g.Paid || g.Parent >= 0 || g.Sanction >= 0 ? 0.6f : 0.4f);
             }
             foreach (var (mv, ms) in _mercGuard) _watchPow[mv] = _watchPow.GetValueOrDefault(mv) + 0.6f * ms;   // 용병 계약
             _watchPowDay = Day;
@@ -439,7 +471,7 @@ public sealed partial class World
             // 큰 떼는 한 계절에 여러 번 나간다(네 명마다 한 번 더)
             for (int k = 0, tries = 1 + g.Members / 4; k < tries; k++)
             {
-                if (!g.Alive || !_rng.Chance(0.5f * w * WorkFactor(g))) continue;
+                if (!g.Alive || !_rng.Chance(0.5f * w * WorkFactor(g) * g.CmdFactor)) continue;
                 leader = FindAlive(g.LeaderUid);   // 앞선 털기에서 두목이 죽었을 수 있다
                 if (leader < 0 || !Households.IsAlive(People.Household[leader])) break;
                 // 맡은 털기 마을 가운데 무게대로 하나

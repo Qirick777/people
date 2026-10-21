@@ -506,11 +506,22 @@ switch (cmd)
         var map = WorldMap.Generate((uint)seed, 48);
         var w = new World((ulong)seed, map, Config());
         w.GenerateSettled(new GenOptions { Rulers = Arg("--rulers", 4), VillagesPerRuler = Arg("--vpr", 7) });
+        var trackAtt = new Dictionary<int, (string, int)>();
         long off = 0, taken = 0, pl = 0, br = 0, sup = 0, supw = 0, raids = 0, won = 0, rd = 0, gang = 0, gt = 0, gn = 0; double loot = 0;
         for (int y = 0; y < years; y++)
         {
             for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
             var st = w.Stats;
+            if (Arg("--track", 0) > 0)
+            {
+                foreach (var g in w.Groups.Where(g => g.Alive && World.IsAttached(g))) trackAtt[g.Id] = (g.Name, g.Total);
+                foreach (var (id, nm) in trackAtt.ToList())
+                {
+                    var g = w.GroupById(id);
+                    if (g == null) { Console.WriteLine($"  {y + 1}년 붙은 조직 사라짐: {nm.Item1} ({nm.Item2}명)"); trackAtt.Remove(id); }
+                    else if (!World.IsAttached(g)) { Console.WriteLine($"  {y + 1}년 붙은 조직 떨어짐: {nm.Item1}, 위 {g.Parent}, 인정 {g.Sanction}"); trackAtt.Remove(id); }
+                }
+            }
             raids += st.Raids; won += st.RaidsWon; rd += st.RaidDeaths; gang += st.BanditRaids; gt += st.GangTries; gn += st.GangNoTarget; loot += st.GangLoot;
             off += st.OrgOffers; taken += st.OrgOffersTaken; pl += st.OrgPledges; br += st.OrgBreaks; sup += st.OrgSuppressions; supw += st.OrgSuppressWins;
             if (y % 5 == 4)

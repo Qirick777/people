@@ -121,7 +121,7 @@ public sealed partial class World
             if (aggr < Config.RaidAggression) return;
             if (!_rng.Chance((aggr - Config.RaidAggression) / (1f - Config.RaidAggression) * 0.8f)) return;
         }
-        float power = HouseholdPower(h) + (gang != null ? 0.8f * gang.OwnStrength : 0f);   // 떼는 함께 턴다(이 갈래의 힘)
+        float power = HouseholdPower(h) + (gang != null ? 0.8f * gang.OwnStrength * gang.CmdFactor : 0f);   // 떼는 함께 턴다(이 갈래의 힘)
         if (gang != null) Stats.GangTries++;
         if (power < 0.3f) return;
         int days = DaysToHarvest();
@@ -467,6 +467,27 @@ public sealed partial class World
     /// 지배권을 넘긴다: 따르는 집, 군인·징수관, 땅, 식량, 집(성). 상속자가 큰 집이 없으면 성으로 옮겨 들어가고
     /// 살던 집은 빈집이 된다. 성으로 옮기면 true(끊긴 가구의 집을 빈집으로 두지 않는다).
     /// </summary>
+    /// <summary>지배권이 from 집에서 to 집으로 옮겨 갈 때 군대와 인정한 조직도 옮긴다(군대가 없던 집이면 그 군대를 그대로 넘겨받는다).</summary>
+    private void PassOrgs(int from, int to)
+    {
+        var hh = Households;
+        var old = LordOrg(from, false);
+        if (old != null)
+        {
+            var mine = LordOrg(to, false);
+            if (mine == null)
+            {
+                _lordOrg.Remove(from);
+                old.Home = to; old.HomeFounded = hh.FoundedDay[to];
+                _lordOrg[to] = old.Id;
+                if (People.IsValid(hh.Head[to])) old.LeaderUid = People.Uid[hh.Head[to].Index];
+            }
+            else foreach (var c in ChildrenOf(old).ToList()) c.Parent = mine.Id;
+        }
+        foreach (var g in _groups)
+            if (g.Alive && g.Sanction == from && g.SanctionFounded == hh.FoundedDay[from]) { g.Sanction = to; g.SanctionFounded = hh.FoundedDay[to]; }
+    }
+
     private bool InheritLordship(int from, int to)
     {
         EnsurePowerArrays();
@@ -507,6 +528,7 @@ public sealed partial class World
             intoCastle = true;
         }
         Stats.LordshipsInherited++;
+        PassOrgs(from, to);
         EnsureRealmArrays();
         _legit[to] = (byte)Legitimacy.Inherited;
         _tier[to] = Math.Max(_tier[to], _tier[from]);
@@ -644,7 +666,8 @@ public sealed partial class World
                 // 웬만큼 더 떼는 건 눈감는 관행이다. 야망이 0.6을 넘는 몫만 빼돌리기로 친다
                 float excess = collected * 0.15f * MathF.Max(0f, (p.Get(c, Trait.Ambition) - 0.6f) / 0.4f) * SkimFactor(c);
                 var lh = hh.Head[lord];
-                if (excess > 1f && p.IsValid(lh) && hh.IsAlive(ch) && _rng.Chance(0.1f + 0.4f * p.Get(lh.Index, Trait.Perception)))
+                float eye = LordOrg(lord, false) is { } lo ? SurveyOf(lo) : 0f;   // 감찰대
+                if (excess > 1f && p.IsValid(lh) && hh.IsAlive(ch) && _rng.Chance(MathF.Min(0.9f, 0.1f + 0.4f * p.Get(lh.Index, Trait.Perception) + 0.02f * eye)))
                     CommitCrime(CrimeType.Embezzle, c, lh.Index, excess, false);
             }
             Stats.Uncollected += list.Count - idx;

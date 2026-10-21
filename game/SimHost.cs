@@ -295,13 +295,26 @@ public partial class SimHost : Node
         var w = _w;
         var mine = w.GroupsOf(actor).ToList();
         if (mine.Count < World.GroupSlots)
-            foreach (GroupKind k in new[] { GroupKind.Watch, GroupKind.Brotherhood, GroupKind.Bandits })
+            foreach (GroupKind k in new[] { GroupKind.Watch, GroupKind.Brotherhood, GroupKind.Bandits, GroupKind.School, GroupKind.Drill, GroupKind.Inspectors, GroupKind.Company, GroupKind.Sellswords, GroupKind.Brothel })
                 if (!mine.Any(g => g.Kind == k))
-                    a.Add(new Godot.Collections.Dictionary { ["key"] = $"found:{(int)k}", ["name"] = $"{World.GroupKindName(k)} 세우기", ["note"] = k == GroupKind.Bandits ? "숨어서 함께 턴다. 들키면 진압당한다" : k == GroupKind.Watch ? "마을을 함께 지킨다" : "신앙으로 묶이고 굶는 회원을 돕는다", ["risky"] = k == GroupKind.Bandits });
+                    a.Add(new Godot.Collections.Dictionary { ["key"] = $"found:{(int)k}", ["name"] = $"{World.GroupKindName(k)} 세우기", ["note"] = FoundNote(k), ["risky"] = k is GroupKind.Bandits or GroupKind.Brothel });
         foreach (var g in mine)
             a.Add(new Godot.Collections.Dictionary { ["key"] = $"leave:{g.Id}", ["name"] = $"{g.Name}에서 나가기", ["note"] = w.IsLeader(actor, g) ? "우두머리가 나가면 다른 사람이 잇는다" : "", ["risky"] = false });
         return a;
     }
+
+    private static string FoundNote(GroupKind k) => k switch
+    {
+        GroupKind.Bandits => "숨어서 함께 턴다. 들키면 진압당한다",
+        GroupKind.Watch => "마을을 함께 지킨다",
+        GroupKind.Brotherhood => "신앙으로 묶이고 굶는 회원을 돕는다",
+        GroupKind.School => "가르친다. 가르칠 만한 사람(글·무예·장사·공예 0.4)이 있어야 한다",
+        GroupKind.Drill => "함께 무예를 닦는다(0.6까지)",
+        GroupKind.Inspectors => "감시한다. 세력 안의 거사와 빼돌림을 캔다",
+        GroupKind.Company => "함께 장사한다. 장사꾼이 있어야 한다",
+        GroupKind.Sellswords => "칼을 판다. 열 명부터 계약한다",
+        _ => "원하는 어른만 든다. 큰 마을에서만 열린다",
+    };
 
     public string DoSelf(int actor, string key)
     {
@@ -544,6 +557,15 @@ public partial class SimHost : Node
                     ["command"] = cmd,
                     ["canSplit"] = cmd && g.Members >= 9,
                     ["attached"] = World.IsAttached(g),
+                    ["identity"] = depth == 0 && g.IdentityName.Length > 0 ? g.IdentityName : World.GroupKindName(g.Kind),
+                    ["shares"] = depth == 0 ? string.Join(" · ", w.KindShares(g).Where(x => x.share >= 0.05f).Select(x => $"{World.GroupKindName(x.kind)} {(int)MathF.Round(x.share * 100f)}%")) : "",
+                    ["vacant"] = w.NoCommander(g),
+                    ["cmdFactor"] = g.CmdFactor,
+                    ["over"] = g.Over,
+                    ["grip"] = g.Grip,
+                    ["treasurer"] = depth == 0 && g.TreasurerUid >= 0 ? Names.Full(w.Lineage, g.TreasurerUid) : "",
+                    ["liaison"] = depth == 0 && g.LiaisonUid >= 0 ? Names.Full(w.Lineage, g.LiaisonUid) : "",
+                    ["survey"] = depth == 0 ? w.SurveyOf(g) : 0f,
                     ["lordAct"] = act?.name ?? "",
                     ["lordChance"] = act?.chance ?? 0f,
                     ["mineIn"] = mine.Any(i => w.InGroup(i, g)),
@@ -566,6 +588,8 @@ public partial class SimHost : Node
                     ["authority"] = known, ["leak"] = 0f, ["inner"] = 0, ["lesson"] = World.LessonName(g.Lesson), ["teachShare"] = g.TeachShare,
                     ["heir"] = "", ["inherit"] = 0f, ["joinRule"] = (int)root.JoinRule, ["shareRule"] = (int)root.ShareRule, ["treasury"] = 0f,
                     ["command"] = false, ["canSplit"] = false, ["mineIn"] = true, ["attached"] = false, ["lordAct"] = "", ["lordChance"] = 0f,
+                    ["identity"] = World.GroupKindName(g.Kind), ["shares"] = "", ["vacant"] = false, ["cmdFactor"] = 1f, ["over"] = 0f, ["grip"] = 0f,
+                    ["treasurer"] = "", ["liaison"] = "", ["survey"] = 0f,
                 });
             }
         }
@@ -748,6 +772,88 @@ public partial class SimHost : Node
         g.TeachShare = g.Lesson == Lesson.None ? 0f : Math.Clamp(pct, 0, 30) / 100f;
         g.TeachManual = true;
         _w!.Chronicle.Add((_w.Day, $"{g.Name}: 조직원 시간의 {(int)(g.TeachShare * 100)}%를 {World.LessonName(g.Lesson)} 가르치기에 쓴다"));
+        return true;
+    }
+
+    /// <summary>앉힐 수 있는 사람: 그 조직 나무의 어른. (번호, 이름, 한 줄 설명)</summary>
+    public Godot.Collections.Array OrgPeople(int id)
+    {
+        var a = new Godot.Collections.Array();
+        var g = Commandable(id);
+        if (g == null) return a;
+        var w = _w!; var p = w.People;
+        var root = w.RootOf(g);
+        var seen = new HashSet<int>();
+        foreach (var u in w.Groups.Where(x => x.Alive && w.RootOf(x).Id == root.Id))
+            foreach (int m in w.Members(u))
+            {
+                if (!seen.Add(m) || Age(m) < 16 || p.Uid[m] == root.LeaderUid) continue;
+                a.Add(new Godot.Collections.Dictionary
+                {
+                    ["i"] = m, ["name"] = Names.Full(w.Lineage, p.Uid[m]),
+                    ["note"] = $"{u.Name} · 지휘 범위 {w.CommandSpan(m)} · 글 {p.GetSkill(m, Skill.Letters):0.0} · 무예 {p.GetSkill(m, Skill.Arms):0.0} · 눈치 {p.Get(m, Trait.Perception):0.0} · 우두머리를 보는 눈 {Social.Opinion(p, m, root.LeaderUid):+0;-0}",
+                    ["here"] = u.Id == g.Id,
+                });
+                if (a.Count >= 40) return a;
+            }
+        return a;
+    }
+
+    /// <summary>직책에 앉힌다. role: 0 지휘자(그 갈래), 1 곳간지기, 2 연락책. person -1 이면 비운다.</summary>
+    public bool Appoint(int id, int role, int person)
+    {
+        var g = Commandable(id);
+        if (g == null) return false;
+        var w = _w!;
+        bool ok = role == 0 ? w.AppointCommander(g, person) : w.AppointRole(g, role - 1, person);
+        if (ok)
+        {
+            string who = person >= 0 ? Names.Full(w.Lineage, w.People.Uid[person]) : "아무도";
+            string what = role == 0 ? $"{g.Name}의 지휘자" : role == 1 ? "곳간지기" : "연락책";
+            w.Chronicle.Add((w.Day, person >= 0 ? $"{World.Obj(who)} {what}로 앉혔다" : $"{what} 자리를 비웠다"));
+        }
+        return ok;
+    }
+
+    /// <summary>갈래의 일 비중 고르기: 일마다 지금 무게(0~100)와 잠긴 까닭.</summary>
+    public Godot.Collections.Array OrgWeights(int id)
+    {
+        var a = new Godot.Collections.Array();
+        var g = Commandable(id);
+        if (g == null) return a;
+        var w = _w!;
+        var root = w.RootOf(g);
+        foreach (var v in new[] { Verb.Guard, Verb.Chase, Verb.Train, Verb.Survey, Verb.Teach, Verb.Preach, Verb.Charity, Verb.Trade, Verb.Escort,
+                                  Verb.Mercenary, Verb.Recruit, Verb.Collect, Verb.Brothel, Verb.Agitate, Verb.Raid, Verb.Kidnap })
+        {
+            bool open = w.CanUseVerb(root, v, out var why);
+            float cur = g.Tasks.Where(t => t.Verb == v).Sum(t => t.Weight);
+            a.Add(new Godot.Collections.Dictionary
+            {
+                ["verb"] = (int)v, ["name"] = World.VerbName(v), ["weight"] = (int)MathF.Round(cur * 100f), ["locked"] = open ? "" : why,
+                ["harsh"] = v is Verb.Raid or Verb.Kidnap or Verb.Agitate or Verb.Collect,
+            });
+        }
+        return a;
+    }
+
+    /// <summary>갈래의 일 비중을 정한다. pairs: [일, 무게(0~100)] 목록.</summary>
+    public bool SetOrgWeights(int id, Godot.Collections.Array pairs)
+    {
+        var g = Commandable(id);
+        if (g == null) return false;
+        var w = _w!;
+        var root = w.RootOf(g);
+        var list = new List<(Verb, float)>();
+        foreach (var o in pairs)
+        {
+            var e = o.AsGodotArray();
+            var v = (Verb)(int)e[0];
+            float wt = (float)e[1];
+            if (wt > 0f && w.CanUseVerb(root, v, out _)) list.Add((v, wt));
+        }
+        w.SetUnitWeights(g, list);
+        w.Chronicle.Add((w.Day, $"{g.Name}의 일: {string.Join(", ", g.Tasks.Select(t => $"{World.VerbName(t.Verb)} {(int)MathF.Round(t.Weight * 100f)}%"))}"));
         return true;
     }
 

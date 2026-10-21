@@ -60,7 +60,7 @@ public sealed partial class World
         var org = LordOrg(lord, false);
         if (org != null)
         {
-            foreach (var g in Subtree(org)) if (g != org && g.LeaderUid == p.Uid[i]) s += g.OwnStrength;
+            foreach (var g in Subtree(org)) if (g != org && g.LeaderUid == p.Uid[i]) s += g.Grip * g.OwnStrength;   // 쥔 만큼만 따른다
             if (org.Inner.Contains(p.Uid[i])) s += FightPower(i);
         }
         return s;
@@ -135,6 +135,8 @@ public sealed partial class World
                 else if (lean < 0.3f) lf += FightPower(m);
             }
         }
+        // 갈래에서 지휘자가 쥐지 못한 몫은 지배자 곁에 남는다
+        if (lo != null) foreach (var u in Subtree(lo)) if (u != lo && RootOf(u).Id == RootOf(lo).Id) lf += (1f - u.Grip) * u.OwnStrength;
         foreach (int c in insiders)
         {
             if (c == pi) continue;
@@ -229,7 +231,8 @@ public sealed partial class World
             }
             // 새어 나감: 아는 사람 한 명당 4%, 신중한 꾸미는 사람은 덜
             float susp = RivalOf(x.Lord, x.PlotterHouse)?.Suspicion ?? 0f;   // 의심하는 지배자는 더 잘 알아챈다
-            float leak = MathF.Min(0.5f, 0.025f * x.Known.Count * (1.2f - 0.5f * p.Get(pi, Trait.Caution)) + susp / 1000f);
+            float eye = LordOrg(x.Lord, false) is { } lo0 ? SurveyOf(lo0) : 0f;   // 감찰대가 있으면 더 잘 캔다
+            float leak = MathF.Min(0.5f, 0.025f * x.Known.Count * (1.2f - 0.5f * p.Get(pi, Trait.Caution)) + susp / 1000f + 0.02f * eye);
             if (_rng.Chance(leak)) { Expose(x); continue; }
             if (IsPlayer(pi)) continue;   // 플레이어는 거사할 때를 스스로 고른다
             int years = (Day - x.Since) / Config.DaysPerYear;
