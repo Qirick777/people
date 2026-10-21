@@ -56,4 +56,48 @@ public class SchoolTests
         Assert.Equal(0.75f, got.Weights[(int)Lesson.Arms], 3);
         Assert.Equal(0.25f, got.Weights[(int)Lesson.Loyalty], 3);
     }
+
+    [Fact]
+    public void SchoolNameFollowsDestination()
+    {
+        var (w, school, target, _) = WithSchool();
+        var plan = new SchoolPlan { Dest = SchoolDest.Unit, DestUnit = target.Id };
+        plan.Weights[(int)Lesson.Arms] = 1f;
+        w.SetPlan(school, plan);
+        w.SetUnitWeights(target, new[] { (Verb.Guard, 1f) });
+        Assert.Equal("사관학교", w.SchoolLabel(school));
+        w.SetUnitWeights(target, new[] { (Verb.Trade, 1f) });
+        Assert.Equal("상업학교", w.SchoolLabel(school));
+        var plan2 = new SchoolPlan { Dest = SchoolDest.Faction };
+        plan2.Weights[(int)Lesson.Arms] = 1f;
+        w.SetPlan(school, plan2);
+        Assert.Equal("학교", w.SchoolLabel(school));
+    }
+
+    [Fact]
+    public void QualityCostsMoneyPerStudent()
+    {
+        var (w, school, _, _) = WithSchool();
+        var plan = new SchoolPlan { MinAge = 8, MaxAge = 30, Years = 3, Fee = 0f, FeeOut = 0f, Quality = WageLevel.Lavish };
+        plan.Weights[(int)Lesson.Letters] = 1f;
+        w.SetPlan(school, plan);
+        for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
+        var (n, _, _) = w.SchoolCount(school);
+        Assert.True(n > 0);
+        Assert.Equal(12f * n, w.SchoolCost(school), 3);
+    }
+
+    [Fact]
+    public void EtiquetteIsLearnedWithoutASkillSlot()
+    {
+        var (w, school, _, leader) = WithSchool();
+        var p = w.People;
+        foreach (int m in w.Members(school)) if (!w.IsStudent(m)) p.Set(m, Trait.Charisma, 0.9f);
+        var plan = new SchoolPlan { MinAge = 8, MaxAge = 30, Years = 3, Fee = 0f, FeeOut = 0f };
+        plan.Weights[(int)Lesson.Etiquette] = 1f;
+        w.SetPlan(school, plan);
+        school.Treasury = 500f;
+        for (int y = 0; y < 2; y++) for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
+        Assert.Contains(Enumerable.Range(0, p.HighWater), i => p.IsAliveIndex(i) && w.Polish(i, Lesson.Etiquette) > 0f);
+    }
 }

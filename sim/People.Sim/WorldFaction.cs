@@ -42,6 +42,7 @@ public sealed partial class World
         var root = RootOf(u);
         if (!root.WageFromLeader)
             foreach (int m in MembersFast(u)) if (p.Uid[m] != root.LeaderUid) need += WageFor(m, u);
+        need += SchoolCost(u);   // 학교의 질 비용(R4)
         if (u.FullTime && u.Home < 0)
         {
             float ration = 24f * (FacilityOf(RootOf(u), FacilityKind.Barracks, -1, u) != null ? 0.8f : 1f);

@@ -208,6 +208,7 @@ public sealed partial class World
         }
         foreach (var k in _orgLoyal.Keys.ToList())
             if (GroupById(k.root) == null || FindAlive(k.uid) < 0) _orgLoyal.Remove(k);
+        foreach (var k in _polish.Keys.ToList()) if (FindAlive(k.uid) < 0) _polish.Remove(k);
     }
 
     /// <summary>임금을 세력 곳간에서 줄지(조직 충성), 우두머리 집에서 줄지(우두머리 개인 충성).</summary>

@@ -1,7 +1,7 @@
 namespace People.Sim;
 
 /// <summary>갈래가 가르치는 것.</summary>
-public enum Lesson : byte { None, Arms, Letters, Trade, Craft, Doctrine, Succession, Loyalty }
+public enum Lesson : byte { None, Arms, Letters, Trade, Craft, Doctrine, Succession, Loyalty, Medicine, Carpentry, Farming, Etiquette, Espionage, Count }
 
 /// <summary>
 /// O3 교육.
@@ -20,12 +20,14 @@ public sealed partial class World
 
     public static string LessonName(Lesson l) => l switch
     {
-        Lesson.Arms => "무예", Lesson.Letters => "글", Lesson.Trade => "장사", Lesson.Craft => "공예", Lesson.Doctrine => "교리", Lesson.Succession => "이음", Lesson.Loyalty => "충성", _ => "없음",
+        Lesson.Arms => "무예", Lesson.Letters => "글", Lesson.Trade => "장사", Lesson.Craft => "공예", Lesson.Doctrine => "교리", Lesson.Succession => "이음", Lesson.Loyalty => "충성",
+        Lesson.Medicine => "의술", Lesson.Carpentry => "목공", Lesson.Farming => "농사", Lesson.Etiquette => "예법", Lesson.Espionage => "첩보", _ => "없음",
     };
 
     private static Skill? LessonSkill(Lesson l) => l switch
     {
-        Lesson.Arms => Skill.Arms, Lesson.Letters => Skill.Letters, Lesson.Trade => Skill.Trade, Lesson.Craft => Skill.Craft, _ => null,
+        Lesson.Arms => Skill.Arms, Lesson.Letters => Skill.Letters, Lesson.Trade => Skill.Trade, Lesson.Craft => Skill.Craft,
+        Lesson.Medicine => Skill.Herbalism, Lesson.Carpentry => Skill.Carpentry, Lesson.Farming => Skill.Farming, _ => null,
     };
 
     /// <summary>가르치는 몫만큼 갈래의 일이 준다.</summary>

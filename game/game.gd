@@ -1229,7 +1229,8 @@ func _open_school(id: int, name: String) -> void:
 	back.pressed.connect(_open_orgs)
 	org_box.add_child(back)
 	org_box.add_child(UI.label("학생 %d / 받을 수 있는 수 %d · 교사 %d명 · 올해 들어옴 %d, 졸업 %d, 달아남 %d" % [int(info["students"]), int(info["capacity"]), int(info["teachers"]), int(info["enrolled"]), int(info["graduated"]), int(info["fled"])], 13, UI.INK, true))
-	var note := UI.label("교사 한 명이 4 + 6 × 말솜씨 명을 받는다. 과목 비중이 25% 아래면 0.4까지, 50% 넘으면 0.8까지 오른다. 교사 솜씨가 위를 막는다. 배우는 동안 일손은 절반이다.", 12, UI.MUTED)
+	org_box.add_child(UI.label("이름: %s(졸업 뒤 갈 곳으로 정해진다) · 올해 질 비용 은화 %d" % [info.get("label", "학교"), int(float(info.get("cost", 0.0)))], 12, UI.INK))
+	var note := UI.label("교사 한 명이 4 + 6 × 말솜씨 명을 받는다. 과목 비중이 25% 아래면 0.4까지, 50% 넘으면 0.8까지 오른다. 질이 높으면 더 빨리, 더 깊이 배운다. 교사 솜씨가 위를 막는다. 배우는 동안 일손은 3/4이다.", 12, UI.MUTED)
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	note.custom_minimum_size = Vector2(600, 0)
 	org_box.add_child(note)
@@ -1257,29 +1258,33 @@ func _open_school(id: int, name: String) -> void:
 				on_pick.call(k)
 				for j in btns.size(): UI.segment(btns[j], j == k, j == 0, j == btns.size() - 1))
 		org_box.add_child(row)
-	var ages := [[8, 14], [10, 18], [14, 25], [16, 40]]
-	var age_cur := 1
-	for k in ages.size():
-		if int(info["minAge"]) == ages[k][0] and int(info["maxAge"]) == ages[k][1]: age_cur = k
-	seg.call("나이", ["8~14세", "10~18세", "14~25세", "16~40세"], age_cur, func(k):
-		st["minAge"] = ages[k][0]
-		st["maxAge"] = ages[k][1])
+	# 숫자 줄: 이름, 최소~최대, 지금 값, 바뀌면 st 에 넣는다
+	var num := func(label: String, lo: float, hi: float, cur: float, on_set: Callable) -> void:
+		var row := HBoxContainer.new()
+		var lab := UI.label(label + " ", 12, UI.MUTED)
+		lab.custom_minimum_size = Vector2(80, 0)
+		row.add_child(_center(lab))
+		var sp := SpinBox.new()
+		sp.min_value = lo; sp.max_value = hi; sp.step = 1; sp.value = cur
+		sp.value_changed.connect(func(v): on_set.call(v))
+		row.add_child(sp)
+		org_box.add_child(row)
+	num.call("받는 나이(부터)", 5, 40, int(info["minAge"]), func(v): st["minAge"] = int(v))
+	num.call("받는 나이(까지)", 5, 40, int(info["maxAge"]), func(v): st["maxAge"] = int(v))
+	num.call("수업료(세력 안)", 0, 50, float(info["fee"]), func(v): st["fee"] = float(v))
+	num.call("수업료(바깥)", 0, 50, float(info.get("feeOut", info["fee"])), func(v): st["feeOut"] = float(v))
+	seg.call("질", ["없음", "적음", "보통", "많음", "초호화"], int(info.get("quality", 2)), func(k): st["quality"] = k)
+	org_box.add_child(UI.label("질: 학생 한 명 한 해 은화 0·1·3·6·12와 비품 0·0.1·0.2·0.4·0.8. 배우는 속도 ×0.5~1.6, 깊이 −0.2~+0.2. 못 대면 한 단계 내려간다", 12, UI.MUTED))
 	seg.call("학력", ["아무나", "글 모르는 사람만"], 0 if float(info["maxLetters"]) >= 1.0 else 1, func(k): st["maxLetters"] = 1.0 if k == 0 else 0.2)
 	var tal := [0.0, 0.5, 0.7]
 	seg.call("재능", ["아무나", "0.5 이상", "0.7 이상"], tal.find(snappedf(float(info["talentMin"]), 0.1)) if tal.has(snappedf(float(info["talentMin"]), 0.1)) else 0, func(k): st["talentMin"] = tal[k])
 	seg.call("받는 곳", ["세력 안만", "바깥도"], 1 if info["outsiders"] else 0, func(k): st["outsiders"] = k == 1)
 	var yrs := [1, 2, 3, 4, 6]
 	seg.call("기간", ["1년", "2년", "3년", "4년", "6년"], max(0, yrs.find(int(info["years"]))), func(k): st["years"] = yrs[k])
-	var fees := [0.0, 2.0, 5.0, 10.0]
-	seg.call("수업료", ["없음", "2", "5", "10"], max(0, fees.find(float(info["fee"]))), func(k): st["fee"] = fees[k])
-	org_box.add_child(UI.label("과목 비중", 12, UI.MUTED, true))
-	var steps := [0, 25, 50, 75, 100]
+	org_box.add_child(UI.label("과목 비중(여럿 고를 수 있다. 합이 100이 되게 나눈다)", 12, UI.MUTED, true))
 	for wv in info["weights"]:
 		var lsn := int(wv["lesson"])
-		var near: int = 0
-		for x in steps:
-			if abs(x - int(wv["weight"])) < abs(near - int(wv["weight"])): near = x
-		seg.call(wv["name"], ["0", "25", "50", "75", "100"], steps.find(near), func(k): wmap[lsn] = float(steps[k]))
+		num.call(String(wv["name"]), 0, 100, int(wv["weight"]), func(v): wmap[lsn] = float(v))
 	var dests := ["세력원으로", "정한 조직으로", "성적대로", "의무 복무 3년", "교사로 남음"]
 	seg.call("졸업 뒤", dests, int(info["dest"]), func(k): st["dest"] = k)
 	var units: Array = info["units"]

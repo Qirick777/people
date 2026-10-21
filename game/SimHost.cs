@@ -887,7 +887,7 @@ public partial class SimHost : Node
         foreach (var u in w.Groups.Where(x => x.Alive && x.Id != g.Id && w.RootOf(x).Id == root.Id))
             units.Add(new Godot.Collections.Dictionary { ["id"] = u.Id, ["name"] = u.Name });
         e["minAge"] = plan.MinAge; e["maxAge"] = plan.MaxAge; e["maxLetters"] = plan.MaxLetters; e["talentMin"] = plan.TalentMin;
-        e["outsiders"] = plan.Outsiders; e["years"] = plan.Years; e["fee"] = plan.Fee; e["dest"] = (int)plan.Dest; e["destUnit"] = plan.DestUnit;
+        e["outsiders"] = plan.Outsiders; e["years"] = plan.Years; e["fee"] = plan.Fee; e["feeOut"] = plan.FeeOut; e["quality"] = (int)plan.Quality; e["label"] = w.SchoolLabel(g); e["cost"] = w.SchoolCost(g); e["dest"] = (int)plan.Dest; e["destUnit"] = plan.DestUnit;
         e["meritLine"] = plan.MeritLine; e["serviceYears"] = plan.ServiceYears; e["weights"] = weights; e["units"] = units;
         e["students"] = st; e["teachers"] = te; e["capacity"] = cap; e["graduated"] = plan.Graduated; e["enrolled"] = plan.Enrolled; e["fled"] = plan.Fled;
         return e;
@@ -902,7 +902,7 @@ public partial class SimHost : Node
         var plan = new SchoolPlan
         {
             MinAge = (int)d["minAge"], MaxAge = (int)d["maxAge"], MaxLetters = (float)d["maxLetters"], TalentMin = (float)d["talentMin"],
-            Outsiders = (bool)d["outsiders"], Years = (int)d["years"], Fee = (float)d["fee"], Dest = (SchoolDest)(int)d["dest"], DestUnit = (int)d["destUnit"],
+            Outsiders = (bool)d["outsiders"], Years = (int)d["years"], Fee = (float)d["fee"], FeeOut = d.ContainsKey("feeOut") ? (float)d["feeOut"] : (float)d["fee"], Quality = d.ContainsKey("quality") ? (WageLevel)(int)d["quality"] : WageLevel.Normal, Dest = (SchoolDest)(int)d["dest"], DestUnit = (int)d["destUnit"],
             MeritLine = (float)d["meritLine"], ServiceYears = (int)d["serviceYears"],
         };
         var ws = d["weights"].AsGodotDictionary();

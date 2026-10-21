@@ -93,6 +93,8 @@ public sealed partial class World
 
     private void InitRep()
     {
+        // 예법을 배운 사람이 거는 대화·구애는 잘 받아들여진다
+        AcceptMods.Add((w, def, c, acc) => def.Category is InteractionCategory.Talk or InteractionCategory.Courtship ? acc + 0.1f * w.Polish(c.Actor, Lesson.Etiquette) : acc);
         // 세력 우두머리가 거는 거래·구애·혼담은 이름만큼, 갈취·위협은 공포만큼 잘 받아들여진다
         AcceptMods.Add((w, def, c, acc) =>
         {

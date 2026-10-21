@@ -153,7 +153,7 @@ public sealed partial class World
                 foreach (var t in u.Tasks)
                 {
                     if (t.Verb != Verb.Survey || ms.Count == 0) continue;
-                    float eye = 0f; foreach (int m in ms) eye += p.Get(m, Trait.Perception);
+                    float eye = 0f; foreach (int m in ms) eye += p.Get(m, Trait.Perception) + Polish(m, Lesson.Espionage);   // 첩보를 배운 만큼 더 본다
                     u.SurveyOwn += eye * t.Weight * u.CmdFactor * WorkFactor(u);
                 }
                 // 기강: 넘친 갈래의 사람이 떠난다(품삯 받는 군인은 고용이 붙잡는다)

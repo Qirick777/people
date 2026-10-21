@@ -11,8 +11,10 @@ public sealed class SchoolPlan
     public float TalentMin;              // 주 과목 재능 문턱
     public bool Outsiders = true;        // 세력 밖 사람도 받는다
     public int Years = 3;
-    public readonly float[] Weights = new float[8];   // Lesson 마다 비중(합 1)
-    public float Fee = 2f;               // 한 해 수업료(학생 집이 낸다)
+    public readonly float[] Weights = new float[(int)Lesson.Count];   // Lesson 마다 비중(합 1)
+    public float Fee = 2f;               // 한 해 수업료(세력 안 학생 집이 낸다)
+    public float FeeOut = 2f;            // 세력 밖 학생 집의 수업료
+    public WageLevel Quality = WageLevel.Normal;   // 교육의 질(없음~초호화): 비용·비품이 들고 그만큼 빨리, 깊이 배운다
     public SchoolDest Dest;
     public int DestUnit = -1;            // 정한 조직(같은 세력)
     public float MeritLine = 0.4f;       // 성적대로: 이 솜씨 넘으면 정한 조직으로
@@ -35,7 +37,55 @@ public sealed partial class World
     private readonly Dictionary<int, (int unit, int until)> _service = new();        // uid → 의무 복무 갈래, 끝나는 날
     private readonly Dictionary<int, (int unit, int years)> _placeLater = new();     // uid → 열여섯이 되면 갈 갈래
 
-    public static readonly Lesson[] SchoolSubjects = { Lesson.Arms, Lesson.Letters, Lesson.Trade, Lesson.Craft, Lesson.Doctrine, Lesson.Loyalty };
+    public static readonly Lesson[] SchoolSubjects = { Lesson.Arms, Lesson.Letters, Lesson.Trade, Lesson.Craft, Lesson.Doctrine, Lesson.Loyalty,
+        Lesson.Medicine, Lesson.Carpentry, Lesson.Farming, Lesson.Etiquette, Lesson.Espionage };
+
+    // 교육의 질(R4): 한 학생 한 해 은화, 비품(재화), 배우는 속도, 깊이 상한에 더하는 몫
+    public static readonly float[] QualityCost = { 0f, 1f, 3f, 6f, 12f };
+    public static readonly float[] QualityKit = { 0f, 0.1f, 0.2f, 0.4f, 0.8f };
+    public static readonly float[] QualitySpeed = { 0.5f, 0.8f, 1f, 1.3f, 1.6f };
+    public static readonly float[] QualityDepth = { -0.2f, -0.1f, 0f, 0.1f, 0.2f };
+
+    private readonly Dictionary<(int uid, Lesson l), float> _polish = new();   // 기술이 아닌 배움(예법, 첩보) 0~1
+
+    /// <summary>예법·첩보처럼 기술 칸이 없는 배움의 깊이(0~1).</summary>
+    public float Polish(int i, Lesson l) => People.IsAliveIndex(i) ? _polish.GetValueOrDefault((People.Uid[i], l)) : 0f;
+
+    /// <summary>학교 갈래의 한 해 비용: 학생 수 × 질 단계 비용.</summary>
+    public float SchoolCost(Group u) => IsSchool(u) ? _students.Count(x => x.Value.unit == u.Id) * QualityCost[(int)PlanOf(u).Quality] : 0f;
+
+    /// <summary>졸업 뒤 갈 곳으로 붙는 학교 이름.</summary>
+    public string SchoolLabel(Group g)
+    {
+        var plan = PlanOf(g);
+        if (plan.Dest == SchoolDest.Teacher) return "교육학교";
+        if (plan.Dest == SchoolDest.Faction || GroupById(plan.DestUnit) is not { } t) return "학교";
+        return DestKind(t) switch
+        {
+            GroupKind.Brotherhood => "신학당", GroupKind.School => "교육학교", GroupKind.Company => "상업학교", GroupKind.Workshop => "공예학교",
+            GroupKind.Inspectors => "첩보학교", GroupKind.Watch or GroupKind.Bandits or GroupKind.Army or GroupKind.Sellswords or GroupKind.Drill => "사관학교", _ => "학교",
+        };
+    }
+
+    /// <summary>갈래의 성격(가장 큰 일의 종류).</summary>
+    private GroupKind DestKind(Group t)
+    {
+        if (t.Tasks.Count == 0) return t.Kind;
+        var top = t.Tasks.OrderByDescending(x => x.Weight).First().Verb;
+        return top switch
+        {
+            Verb.Guard or Verb.Chase or Verb.Raid or Verb.Attack or Verb.Mercenary or Verb.Train or Verb.Escort => GroupKind.Watch,
+            Verb.Worship or Verb.Preach or Verb.Charity => GroupKind.Brotherhood, Verb.Teach => GroupKind.School, Verb.Trade => GroupKind.Company,
+            Verb.Produce => GroupKind.Workshop, Verb.Survey => GroupKind.Inspectors, _ => t.Kind,
+        };
+    }
+
+    /// <summary>갈래 성격에 맞는 과목(사관학교면 무예, 신학당이면 교리 등).</summary>
+    private static Lesson FitLesson(GroupKind k) => k switch
+    {
+        GroupKind.Brotherhood => Lesson.Doctrine, GroupKind.School => Lesson.Letters, GroupKind.Company => Lesson.Trade, GroupKind.Workshop => Lesson.Craft,
+        GroupKind.Inspectors => Lesson.Espionage, _ => Lesson.Arms,
+    };
 
     public bool IsStudent(int i) => _students.ContainsKey(People.Uid[i]);
 
@@ -72,6 +122,8 @@ public sealed partial class World
             if (plan.Weights[(int)l] <= 0f) continue;
             if (LessonSkill(l) is Skill s) { if (p.GetSkill(t, s) >= 0.4f) return true; }
             else if (l == Lesson.Doctrine) { if (p.Piety[t] >= 0.6f) return true; }
+            else if (l == Lesson.Etiquette) { if (p.Get(t, Trait.Charisma) >= 0.6f) return true; }
+            else if (l == Lesson.Espionage) { if (p.Get(t, Trait.Perception) >= 0.6f || Polish(t, Lesson.Espionage) >= 0.4f) return true; }
             else if (p.Uid[t] == root.LeaderUid || Social.Opinion(p, t, root.LeaderUid) >= 40f) return true;
         }
         return false;
@@ -126,13 +178,16 @@ public sealed partial class World
             if (teachers.Count == 0) continue;
             float tw = u.Tasks.Where(t => t.Verb == Verb.Teach).Sum(t => t.Weight);
             bool hall = FacilityOf(root, FacilityKind.Hall, -1, u) != null;
-            int capacity = teachers.Sum(TeacherLoad) + (hall ? 4 * teachers.Count : 0);
-            // 가르치기: 시간 = 가르침 무게 × 지휘 몫, 교사가 모자라면 그만큼 느리다
-            float speed = tw * u.CmdFactor * (students.Count > capacity ? capacity / (float)students.Count : 1f) * (hall ? 1.2f : 1f);
-            // 비품: 보급받은 재화가 학생 다섯에 하나 넘으면 +10%, 한 해에 다 쓴다
-            float kit = u.Kit.Sum();
-            if (students.Count > 0 && kit >= 0.2f * students.Count) speed *= 1.1f;
+            int capacity = teachers.Sum(TeacherLoad) + (hall ? 4 * teachers.Count : 0);   // 학당은 정원만 늘린다
+            // 질: 예산을 못 채우면 한 단계, 비품이 모자라면 한 단계 내려간다. 비품은 한 해에 다 쓴다
+            int q = (int)plan.Quality;
+            if (u.Need > 0f && u.Fill < 0.999f) q--;
+            if (students.Count > 0 && u.Kit.Sum() < QualityKit[Math.Max(0, (int)plan.Quality)] * students.Count - 0.001f) q--;
+            q = Math.Clamp(q, 0, 4);
             for (int k = 0; k < GoodCount; k++) u.Kit[k] = 0f;
+            // 가르치기: 시간 = 가르침 무게 × 지휘 몫 × 질, 교사가 모자라면 그만큼 느리다
+            float speed = tw * u.CmdFactor * (students.Count > capacity ? capacity / (float)students.Count : 1f) * QualitySpeed[q];
+            var insiders = FactionHouses(root);
             bool chapel = FacilityOf(root, FacilityKind.Chapel, u.Village) != null;
             float wsum = SchoolSubjects.Sum(l => plan.Weights[(int)l]);
             if (wsum <= 0f) { plan.Weights[(int)Lesson.Letters] = 1f; wsum = 1f; }
@@ -147,8 +202,16 @@ public sealed partial class World
                         int best = teachers.OrderByDescending(t => p.GetSkill(t, s)).First();
                         float before = p.GetSkill(st, s);
                         Learn(st, s, best, 3f * w * speed);
-                        float cap = MathF.Min(DepthCap(w), p.GetSkill(best, s) + 0.05f);
+                        float cap = MathF.Min(DepthCap(w) + QualityDepth[q], p.GetSkill(best, s) + 0.05f);
                         if (p.GetSkill(st, s) > cap) p.SetSkill(st, s, MathF.Max(before, cap));
+                    }
+                    else if (l is Lesson.Etiquette or Lesson.Espionage)
+                    {
+                        // 예법은 말솜씨, 첩보는 눈치가 좋은 교사만큼, 깊이 상한까지
+                        int best = teachers.OrderByDescending(t => l == Lesson.Etiquette ? p.Get(t, Trait.Charisma) : p.Get(t, Trait.Perception) + Polish(t, l)).First();
+                        float cap = MathF.Min(DepthCap(w) + QualityDepth[q], (l == Lesson.Etiquette ? p.Get(best, Trait.Charisma) : p.Get(best, Trait.Perception)) + 0.05f);
+                        var key = (p.Uid[st], l);
+                        _polish[key] = MathF.Min(cap, MathF.Max(_polish.GetValueOrDefault(key), _polish.GetValueOrDefault(key) + 0.12f * w * speed));
                     }
                     else if (rootLeader >= 0 && st != rootLeader)
                     {
@@ -163,11 +226,12 @@ public sealed partial class World
                 int tch = teachers[_rng.NextInt(teachers.Count)];
                 Social.Add(p, st, p.Uid[tch], 5f);
                 if (students.Count > 1) { int mate = students[_rng.NextInt(students.Count)]; if (mate != st) { Social.Add(p, st, p.Uid[mate], 3f); Social.Add(p, mate, p.Uid[st], 3f); } }
-                // 수업료
+                // 수업료(세력 안·밖 따로)
                 int sh = p.Household[st];
-                if (plan.Fee > 0f && hh.IsAlive(sh))
+                float feeAsk = insiders.Contains(sh) ? plan.Fee : plan.FeeOut;
+                if (feeAsk > 0f && hh.IsAlive(sh))
                 {
-                    float fee = PayCoin(sh, -2, plan.Fee, false);   // 수업료는 은화
+                    float fee = PayCoin(sh, -2, feeAsk, false);   // 수업료는 은화
                     PayDues(sh, fee);
                     Earn(root, fee, true);
                 }
@@ -225,9 +289,11 @@ public sealed partial class World
                 if (head >= 0) pr += 0.3f * p.GetSkill(head, Skill.Letters) + 0.15f * p.Get(head, Trait.Ambition);
                 if (Surplus(h) >= 1.5f) pr += 0.15f;
                 if (head >= 0 && leader >= 0) pr += Social.Opinion(p, head, root.LeaderUid) / 200f;
-                if (plan.Fee > 0f && Surplus(h) < 1f) pr -= 0.25f * MathF.Min(1f, plan.Fee / 5f);
+                float fee = faction.Contains(h) ? plan.Fee : plan.FeeOut;
+                pr -= 0.25f * MathF.Min(1.5f, fee / (5f * MathF.Max(0.3f, Surplus(h))));   // 수업료는 형편만큼 무겁다
                 if (Surplus(h) < 0.8f) pr -= 0.3f;   // 먹을 것이 모자란 집은 일손을 내놓지 못한다
-                if (plan.Fee <= 0f) pr += 0.15f;
+                if (fee <= 0f) pr += 0.15f;
+                pr += 0.05f * ((int)plan.Quality - 2);   // 좋은 학교일수록 보낸다
                 if (age >= 12) pr -= 0.1f;
                 if (!faction.Contains(h)) pr -= 0.1f;
                 if (pr > 0f) cands.Add((k, pr));
@@ -268,6 +334,14 @@ public sealed partial class World
             Social.Add(p, st, root.LeaderUid, -10f);
             return;
         }
+        // 갈 곳에 맞는 과목을 25% 넘게 배웠으면 그 솜씨가 조금 더 붙고, 아니면 그 조직이 반기지 않는다(조직 충성 −0.05)
+        var fit = FitLesson(DestKind(target));
+        if (plan.Weights[(int)fit] >= 0.25f)
+        {
+            if (LessonSkill(fit) is Skill fs) p.SetSkill(st, fs, MathF.Min(1f, p.GetSkill(st, fs) + 0.05f));
+            else if (fit is Lesson.Espionage) _polish[(p.Uid[st], fit)] = MathF.Min(1f, _polish.GetValueOrDefault((p.Uid[st], fit)) + 0.05f);
+        }
+        else AddOrgLoyalty(root.Id, p.Uid[st], -0.05f);
         int years = plan.Dest == SchoolDest.Service ? plan.ServiceYears : 0;
         if (!Adult(st)) { _placeLater[p.Uid[st]] = (target.Id, years); return; }
         if (GroupsOf(st).Count() < GroupSlots) JoinGroup(st, target);
@@ -279,9 +353,10 @@ public sealed partial class World
     public void SetPlan(Group u, SchoolPlan src)
     {
         var plan = PlanOf(u);
-        plan.MinAge = Math.Clamp(src.MinAge, 6, 60); plan.MaxAge = Math.Clamp(src.MaxAge, plan.MinAge, 70);
+        plan.MinAge = Math.Clamp(src.MinAge, 5, 40); plan.MaxAge = Math.Clamp(src.MaxAge, plan.MinAge, 40);
         plan.MaxLetters = Math.Clamp(src.MaxLetters, 0f, 1f); plan.TalentMin = Math.Clamp(src.TalentMin, 0f, 1f);
-        plan.Outsiders = src.Outsiders; plan.Years = Math.Clamp(src.Years, 1, 10); plan.Fee = MathF.Max(0f, src.Fee);
+        plan.Outsiders = src.Outsiders; plan.Years = Math.Clamp(src.Years, 1, 10); plan.Fee = Math.Clamp(src.Fee, 0f, 50f); plan.FeeOut = Math.Clamp(src.FeeOut, 0f, 50f);
+        plan.Quality = src.Quality;
         plan.Dest = src.Dest; plan.DestUnit = src.DestUnit; plan.MeritLine = src.MeritLine; plan.ServiceYears = Math.Clamp(src.ServiceYears, 1, 10);
         float tot = SchoolSubjects.Sum(l => MathF.Max(0f, src.Weights[(int)l]));
         for (int k = 0; k < plan.Weights.Length; k++) plan.Weights[k] = 0f;
