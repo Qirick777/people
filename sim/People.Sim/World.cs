@@ -638,8 +638,7 @@ public sealed partial class World
                 {
                     // 빌린 땅: 소작료를 땅 주인에게
                     float rent = got * rate;
-                    hh.Food[owner] += rent;
-                    _incRent[owner] += rent;
+                    if (!FactionRent(plot, rent)) { hh.Food[owner] += rent; _incRent[owner] += rent; }   // 세력 땅이면 세력 곳간으로
                     tenantYield += got - rent;
                 }
                 else yield += got;

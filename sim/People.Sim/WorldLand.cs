@@ -24,7 +24,7 @@ public sealed partial class World
     private float[] _incOwn = new float[256], _incRent = new float[256], _incTenant = new float[256], _incWage = new float[256];
     private byte[] _class = new byte[256];
 
-    private struct Debt { public int Debtor, DebtorFounded, Creditor, CreditorFounded, Years; public float Owed; }
+    private struct Debt { public int Debtor, DebtorFounded, Creditor, CreditorFounded, Years; public float Owed; public int Org1; }   // Org1: 빌려준 세력(맨 위 조직 id + 1, 0이면 집끼리)
     private readonly List<Debt> _debts = new();
 
     /// <summary>진단: 지난 수확에서 제 땅 수확, 빌린 땅 수확(소작료 뺀 것), 받은 소작료.</summary>
@@ -94,7 +94,7 @@ public sealed partial class World
         var hh = Households;
         var vl = VillageList;
         float ppw = Config.PlotsPerWorker;
-        var offers = new Dictionary<int, List<int>>();
+        var offers = FactionLeaseOffers();   // 임대하는 세력 땅을 먼저 내놓는다(R7)
         var needs = new Dictionary<int, List<(int h, int n)>>();
         foreach (int h in ShuffledHouseholds())
         {
@@ -109,7 +109,7 @@ public sealed partial class World
                 var mine = Map.PlotsOf(h);
                 mine.Sort((a, b) => Map.Fert(b).CompareTo(Map.Fert(a)));
                 var o = offers.TryGetValue(v, out var ol) ? ol : offers[v] = new();
-                for (int k = keep; k < mine.Count; k++) o.Add(mine[k]);
+                for (int k = keep; k < mine.Count; k++) if (!_leasePlotRoot.ContainsKey(mine[k])) o.Add(mine[k]);
             }
             else if (own < want)
             {
@@ -345,7 +345,9 @@ public sealed partial class World
             float keep = hh.Need[d.Debtor] * Config.DaysPerYear * 0.6f;
             float pay = MathF.Min(d.Owed, MathF.Max(0f, hh.Food[d.Debtor] - keep));
             hh.Food[d.Debtor] -= pay;
-            hh.Food[d.Creditor] += pay;
+            var lender = d.Org1 > 0 ? GroupById(d.Org1 - 1) : null;
+            if (lender != null) Earn(lender, pay);   // 세력이 빌려준 빚은 세력 곳간으로
+            else hh.Food[d.Creditor] += pay;
             d.Owed -= pay;
             if (d.Owed <= 0.5f) { _debts.RemoveAt(k); continue; }
             d.Years++;
@@ -358,8 +360,10 @@ public sealed partial class World
                     if (d.Owed <= 0) break;
                     d.Owed -= Map.PlotValue(plot);
                     Map.GivePlot(plot, d.Creditor, hh);
+                    if (lender != null) lender.FactionPlots.Add(plot);   // 세력 땅이 된다
                     Stats.Foreclosed++;
                 }
+                if (lender != null) AddRepRoot(lender, 0.01f, -0.02f, 0f);
                 HeadsRelate(d.Debtor, d.Creditor, -30f, 10f, 0f, MemoryType.Foreclosed, -50);
                 _debts.RemoveAt(k);
                 continue;

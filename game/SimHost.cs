@@ -570,6 +570,7 @@ public partial class SimHost : Node
                     ["liaison"] = depth == 0 && g.LiaisonUid >= 0 ? Names.Full(w.Lineage, g.LiaisonUid) : "",
                     ["survey"] = depth == 0 ? w.SurveyOf(g) : 0f,
                     ["school"] = World.IsSchool(g),
+                    ["kind"] = World.GroupKindName(g.Kind),
                     ["faith"] = World.IsTop(g) && w.IsFaith(g),
                     ["producer"] = g.Tasks.Any(t => t.Verb == Verb.Produce),
                     ["fullTime"] = g.FullTime,
@@ -1198,6 +1199,49 @@ public partial class SimHost : Node
         if (g == null) return false;
         _w!.SetWageSource(g, fromLeader);
         return true;
+    }
+
+    /// <summary>상단 창: 이자, 세력 땅, 빌려준 빚, 계약, 계약을 걸 만한 지배자.</summary>
+    public Godot.Collections.Dictionary CompanyInfo(int id)
+    {
+        var e = new Godot.Collections.Dictionary();
+        var g = Commandable(id);
+        if (g == null) return e;
+        var w = _w!; var hh = w.Households;
+        var root = w.RootOf(g);
+        e["lendRate"] = root.LendRate; e["plots"] = root.FactionPlots.Count; e["treasury"] = root.Treasury;
+        e["store"] = string.Join(", ", Enumerable.Range(0, World.GoodCount).Where(k => root.Store[k] >= 0.5f).Select(k => $"{World.GoodName((Good)k)} {root.Store[k]:0}"));
+        var cs = new Godot.Collections.Array();
+        foreach (var c in w.Contracts.Where(c => c.Seller == root.Id))
+            cs.Add(new Godot.Collections.Dictionary { ["buyer"] = w.RealmName(c.Buyer), ["good"] = World.GoodName(c.Good), ["qty"] = c.Qty, ["price"] = c.Price, ["years"] = Math.Max(0, (c.Until - w.Day) / w.Config.DaysPerYear), ["missed"] = c.Missed });
+        e["contracts"] = cs;
+        var lords = new Godot.Collections.Array();
+        int home = w.LandHomeOf(root);
+        foreach (int l in Enumerable.Range(0, hh.HighWater).Where(l => hh.IsAlive(l) && w.TierOf(l) >= 1 && l != home && hh.IsAlive(home) && hh.Village[l] >= 0)
+                     .OrderBy(l => (hh.X[l] - hh.X[home]) * (hh.X[l] - hh.X[home]) + (hh.Y[l] - hh.Y[home]) * (hh.Y[l] - hh.Y[home])).Take(5))
+            lords.Add(new Godot.Collections.Dictionary { ["house"] = l, ["name"] = w.RealmName(l), ["odds"] = w.ContractOdds(root, l, Good.Arms, World.BasePrice[(int)Good.Arms]) });
+        e["lords"] = lords;
+        return e;
+    }
+
+    public bool SetLendRate(int id, float rate)
+    {
+        var g = Commandable(id);
+        if (g == null) return false;
+        _w!.SetLendRate(g, rate);
+        return true;
+    }
+
+    /// <summary>지배자 집에 납품 계약을 청한다(받아들일지는 그쪽이 정한다).</summary>
+    public string OfferContract(int id, int lord, int good, float qty, float price, int years)
+    {
+        var g = Commandable(id);
+        if (g == null) return "";
+        var w = _w!;
+        float odds = w.ContractOdds(g, lord, (Good)good, price);
+        if (GD.Randf() >= odds) return $"{w.RealmName(lord)}에서 계약을 받지 않았다";
+        w.MakeContract(g, lord, (Good)good, qty, price, years);
+        return $"{w.RealmName(lord)}와 {World.GoodName((Good)good)} 한 해 {qty:0}을 {price:0.0}에 {years}년 대기로 했다";
     }
 
     public bool SetBudgetWeight(int id, int unit, float weight)

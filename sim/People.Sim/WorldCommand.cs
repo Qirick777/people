@@ -21,7 +21,7 @@ public sealed partial class World
         Verb.Guard or Verb.Chase => GroupKind.Watch,
         Verb.Raid or Verb.Kidnap or Verb.Agitate => GroupKind.Bandits,
         Verb.Preach or Verb.Charity or Verb.Worship => GroupKind.Brotherhood,
-        Verb.Trade or Verb.Escort => GroupKind.Company,
+        Verb.Trade or Verb.Escort or Verb.Lease or Verb.Lend => GroupKind.Company,
         Verb.Mercenary => GroupKind.Sellswords,
         Verb.Brothel => GroupKind.Brothel,
         Verb.Teach => GroupKind.School,

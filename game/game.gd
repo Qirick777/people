@@ -609,6 +609,11 @@ func _open_orgs() -> void:
 				fb2.tooltip_text = "헌금 회칙과 바치기. 믿음이 깊은 신도는 광신도가 되어 떠나지 않고 굶어도 낸다"
 				fb2.pressed.connect(func(): _open_faith(id, e["name"]))
 				r.add_child(_center(fb2))
+			if depth == 0 and String(e.get("kind", "")) == "상단":
+				var cmb := UI.ghost("상단")
+				cmb.tooltip_text = "대부 이자, 납품 계약, 세력 땅"
+				cmb.pressed.connect(func(): _open_company(id, e["name"]))
+				r.add_child(_center(cmb))
 			if depth == 0:
 				var wgb := UI.ghost("임금")
 				wgb.tooltip_text = "직책마다 임금 단계(없음·적음·보통·많음·초호화). 많이 줄수록 조직 충성이 오른다. 우두머리 집에서 주면 대신 우두머리 개인 충성이 오른다"
@@ -1453,6 +1458,49 @@ func _open_facilities(id: int, name: String) -> void:
 			for line in host.DrainChronicle(): _log(line)
 			_open_facilities(id, name))
 		org_box.add_child(btn)
+	_show_panel(org_panel)
+
+
+## 상단: 대부 이자, 납품 계약.
+func _open_company(id: int, name: String) -> void:
+	var info: Dictionary = host.CompanyInfo(id)
+	if info.is_empty():
+		_open_orgs()
+		return
+	org_title.text = name + " · 상단"
+	for c in org_box.get_children(): c.queue_free()
+	var back := UI.ghost("← 조직으로")
+	back.pressed.connect(_open_orgs)
+	org_box.add_child(back)
+	org_box.add_child(UI.label("곳간 은화 %d · 세력 땅 %d필지 · 곳간 물건: %s" % [int(float(info["treasury"])), int(info["plots"]), info["store"] if info["store"] != "" else "없음"], 12, UI.INK))
+	org_box.add_child(UI.label("임대: 일 비중에 임대를 두면 세력 땅을 소작 시장에 먼저 내놓고 소작료가 곳간으로 온다. 대부: 일 비중에 대부를 두면 곳간 은화를 빌려준다", 12, UI.MUTED))
+	var rrow := HBoxContainer.new()
+	rrow.add_theme_constant_override("separation", 0)
+	rrow.add_child(_center(UI.label("대부 이자 ", 12, UI.MUTED)))
+	var rates := [0.1, 0.2, 0.3, 0.5]
+	for k in rates.size():
+		var b := Button.new()
+		b.text = "%d%%" % int(rates[k] * 100)
+		b.add_theme_font_size_override("font_size", 12)
+		UI.segment(b, abs(float(info["lendRate"]) - rates[k]) < 0.01, k == 0, k == rates.size() - 1)
+		var rv: float = rates[k]
+		b.pressed.connect(func():
+			host.SetLendRate(id, rv)
+			_open_company(id, name))
+		rrow.add_child(b)
+	org_box.add_child(rrow)
+	org_box.add_child(UI.label("맺은 계약", 13, UI.MUTED, true))
+	for c in info["contracts"]:
+		org_box.add_child(UI.label("%s에 %s 한 해 %d, 한 단위 은화 %.1f, %d년 남음%s" % [c["buyer"], c["good"], int(float(c["qty"])), float(c["price"]), int(c["years"]), " · 못 댄 해 %d" % int(c["missed"]) if int(c["missed"]) > 0 else ""], 12, UI.INK))
+	org_box.add_child(UI.label("무구 납품 계약 청하기(한 해 2, 기본 값, 5년)", 13, UI.MUTED, true))
+	for l in info["lords"]:
+		var lh := int(l["house"])
+		var cb := UI.action("%s에 청한다" % l["name"], "받아들일 어림 %d%%. 다 못 대면 평판이 깎이고 두 해면 깨진다" % int(float(l["odds"]) * 100.0), -1.0, false)
+		cb.pressed.connect(func():
+			_set_hint(host.OfferContract(id, lh, 5, 2.0, 8.0, 5))
+			for line in host.DrainChronicle(): _log(line)
+			_open_company(id, name))
+		org_box.add_child(cb)
 	_show_panel(org_panel)
 
 

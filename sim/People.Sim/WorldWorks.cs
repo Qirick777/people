@@ -55,6 +55,12 @@ public sealed partial class World
                 if (IsAttached(root)) { why = "지배자에게 붙은 조직은 걷지 못한다"; return false; }
                 if (size >= 5) return true;
                 why = "조직원 5명부터"; return false;
+            case Verb.Lease:
+                if (root.FactionPlots.Count > 0 || root.Treasury >= 100f) return true;
+                why = "세력 땅이 있거나 곳간 은화 100이 있어야"; return false;
+            case Verb.Lend:
+                if (root.Treasury >= 20f) return true;
+                why = "곳간 은화 20이 있어야"; return false;
             case Verb.Trade:
                 if (size < 5) { why = "조직원 5명부터"; return false; }
                 if (Traders(root).Count == 0) { why = "장사꾼 조직원이 있어야"; return false; }
@@ -202,6 +208,8 @@ public sealed partial class World
                     case Verb.Guard: if (root.Home < 0 && root.Visibility >= Visibility.Public) SeekProtection(root, t.Village, effort); break;
                     case Verb.Preach: Preach(root, g, t.Village, effort, leader); break;
                     case Verb.Trade: Trade(root, g, t.Village, t.Weight); break;
+                    case Verb.Lease: LeaseInvest(root); break;
+                    case Verb.Lend: Lend(root, g, t.Village, t.Weight * cf); break;
                     case Verb.Escort: Escort(root, t.Village, effort); break;
                     case Verb.Mercenary: Hireout(root, g, effort, strength, leader); break;
                     case Verb.Brothel: BrothelCut(root, g, t.Village, t.Weight, leader); break;
@@ -577,6 +585,8 @@ public sealed partial class World
             case GroupKind.Company:
                 Add(Verb.Trade, 1.5f);
                 Add(Verb.Escort, 0.5f * caution);
+                if (root.FactionPlots.Count > 0 || root.Treasury >= 150f) Add(Verb.Lease, 0.6f + 0.4f * caution);   // 밑천이 있으면 땅을 사 소작을 준다
+                if (root.Treasury >= 50f) Add(Verb.Lend, 0.3f + 0.3f * amb);
                 break;
             case GroupKind.Sellswords:
                 Add(Verb.Mercenary, 1.5f);

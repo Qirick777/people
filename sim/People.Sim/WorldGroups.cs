@@ -80,6 +80,7 @@ public sealed class Group
     public bool FarmFood;
     public readonly HashSet<int> FactionPlots = new();
     public int LandHome = -1;
+    public float LendRate = 0.2f;   // 대부 이자(R7)
     public int LastOffering = -1;
 }
 
@@ -154,6 +155,7 @@ public sealed partial class World
         {
             if (kind == GroupKind.Bandits && People.Get(leader, Trait.Caution) > 0.7f) g.Visibility = Visibility.Hidden;
             if (kind == GroupKind.Bandits) g.ShareRule = ShareRule.Even;   // 떼는 턴 것을 나눠 갖는다
+            else if (kind == GroupKind.Company) g.ShareRule = ShareRule.Treasury;   // 상단은 밑천을 곳간에 모은다(임대·대부의 밑천)
             else if (kind == GroupKind.Brotherhood && People.Get(leader, Trait.Stubbornness) > 0.75f) g.Visibility = Visibility.Covert;
         }
         _groups.Add(g);
