@@ -114,8 +114,8 @@ public sealed partial class World
 
     // ------------------------------------------------------------------ 번 것 나누기
 
-    /// <summary>조직이 번 것. 붙은 조직은 30%를 지배자에게 바치고 나머지를 나눈다.</summary>
-    private void Earn(Group root, float amount)
+    /// <summary>조직이 번 것. 붙은 조직은 30%를 지배자에게 바치고 나머지를 나눈다. coin 이면 은화로 번 것, 아니면 식량(현물)으로 번 것.</summary>
+    private void Earn(Group root, float amount, bool coin = false)
     {
         if (amount <= 0f) return;
         root.Income += amount;
@@ -125,10 +125,10 @@ public sealed partial class World
         if (IsAttached(root) && Households.IsAlive(root.Sanction))
         {
             float cut = amount * OfferCut;
-            Households.Food[root.Sanction] += cut;
+            if (coin) Households.Coin[root.Sanction] += cut; else Households.Food[root.Sanction] += cut;
             amount -= cut;
         }
-        Pay(root, amount);
+        Pay(root, amount, coin);
     }
 
     /// <summary>훈련: 갈래 사람의 무예가 오른다(0.6까지. 더 깊은 것은 가르침으로).</summary>
@@ -144,7 +144,7 @@ public sealed partial class World
     }
 
     /// <summary>조직 몫을 회칙대로 우두머리 집, 조직원 집들, 곳간으로.</summary>
-    private void Pay(Group root, float amount)
+    private void Pay(Group root, float amount, bool coin = false)
     {
         if (amount <= 0f) return;
         var hh = Households; var p = People;
@@ -152,14 +152,24 @@ public sealed partial class World
         int home = root.Home >= 0 ? root.Home : leader >= 0 ? p.Household[leader] : -1;
         switch (root.ShareRule)
         {
-            case ShareRule.Treasury: root.Treasury += amount; return;
+            case ShareRule.Treasury:
+                // 곳간은 은화로 쌓는다. 현물은 장터에 팔아 넣는다(값의 0.9)
+                if (coin) root.Treasury += amount;
+                else
+                {
+                    int v = hh.IsAlive(home) ? hh.Village[home] : root.Village;
+                    EnsureGranary();
+                    float price = 0.9f * FoodPrice(v);
+                    if (v >= 0 && v < _granFood.Count) { float c = MathF.Min(amount * price, _granCoin[v]); _granCoin[v] -= c; _granFood[v] += c / price; root.Treasury += c; }
+                }
+                return;
             case ShareRule.Even:
                 var houses = Subtree(root).SelectMany(MembersFast).Select(m => p.Household[m]).Where(hh.IsAlive).Distinct().ToList();
                 if (houses.Count == 0) break;
-                foreach (int h in houses) hh.Food[h] += amount / houses.Count;
+                foreach (int h in houses) { if (coin) hh.Coin[h] += amount / houses.Count; else hh.Food[h] += amount / houses.Count; }
                 return;
         }
-        if (hh.IsAlive(home)) hh.Food[home] += amount;
+        if (hh.IsAlive(home)) { if (coin) hh.Coin[home] += amount; else hh.Food[home] += amount; }
     }
 
     // ------------------------------------------------------------------ 해마다 일
@@ -217,7 +227,7 @@ public sealed partial class World
                     int h = p.Household[m];
                     if (!hh.IsAlive(h) || Surplus(h) >= 0.5f || root.Treasury < 5f) continue;
                     float give = MathF.Min(20f, root.Treasury);
-                    root.Treasury -= give; hh.Food[h] += give;
+                    root.Treasury -= give; hh.Coin[h] += give;   // 은화로 돕는다(계절마다 장터에서 산다)
                     Social.Add(p, m, root.LeaderUid, 3f);
                 }
             root.LastIncome = root.Income;
@@ -339,6 +349,7 @@ public sealed partial class World
         }
         float profit = TradeGoods(v, capacity);
         if (FacilityOf(root, FacilityKind.Inn, v) != null) profit *= 1.1f;   // 여관
+        bool coinTrade = true;
         float escort = Subtree(root).Where(g => g.Tasks.Any(t => t.Verb == Verb.Escort)).Sum(g => g.OwnStrength);
         float robbed = Math.Clamp(0.1f + 0.2f * DangerAt(v) - 0.05f * escort, 0f, 0.6f);
         if (_rng.Chance(robbed))
@@ -348,10 +359,10 @@ public sealed partial class World
             profit -= lost;
             Stats.TradeRobbed++;
             foreach (var b in _groups)
-                if (b.Alive && b.Tasks.Any(t => t.Verb == Verb.Raid && t.Village == v)) { Earn(RootOf(b), lost); break; }
+                if (b.Alive && b.Tasks.Any(t => t.Verb == Verb.Raid && t.Village == v)) { Earn(RootOf(b), lost, coinTrade); break; }
         }
         Stats.TradeProfit += profit;
-        Earn(root, profit);
+        Earn(root, profit, coinTrade);
     }
 
     /// <summary>호송: 마을 장사꾼 집에서 삯을 받는다.</summary>
@@ -392,13 +403,13 @@ public sealed partial class World
         }
         if (best < 0) return;
         float wage = effort * Config.SoldierWage * 0.8f;
-        if (hh.Food[best] < 2f * wage) return;
-        hh.Food[best] -= wage;
+        if (WealthOf(best) < 2f * wage) return;
+        wage = PayCoin(best, -2, wage);   // 삯은 은화로
         _mercGuard.Add((hh.Village[best], strength));
         HeadsRelate(best, home, 5f, 0f, 5f, MemoryType.Protected, 5);
         Stats.MercPay += wage;
         Stats.MercContracts++;
-        Earn(root, wage);
+        Earn(root, wage, true);
     }
 
     /// <summary>유곽: 스스로 몸 파는 일을 하는 어른에게 손님을 잇고 보호하며, 그 마을 거래 값의 몫을 받는다. 강압은 없다.</summary>

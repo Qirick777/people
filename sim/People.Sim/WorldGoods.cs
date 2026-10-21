@@ -200,6 +200,13 @@ public sealed partial class World
         _buildWant.Clear();
     }
 
+    /// <summary>재화를 사는 데 쓸 수 있는 은화: 가진 은화 + 다음 수확까지 먹을 것을 남긴 식량을 판 값의 절반.</summary>
+    private float Budget(int h, int days)
+    {
+        var hh = Households;
+        return hh.Coin[h] + MathF.Max(0f, hh.Food[h] - hh.Need[h] * days) * 0.5f * 0.9f * FoodPrice(hh.Village[h]);
+    }
+
     private Dictionary<int, List<int>> HousesByVillage()
     {
         var hh = Households;
@@ -254,22 +261,24 @@ public sealed partial class World
         // 사는 쪽: 모자람 비율대로, 쓸 수 있는 식량만큼
         float wanted = MathF.Min(supply, demand);
         float bought = 0f;
+        float pool = 0f;
         foreach (var (h, amt) in buyers)
         {
             float share = wanted * amt / demand;
-            float budget = MathF.Max(0f, hh.Food[h] - hh.Need[h] * days) * 0.5f;
-            float take = MathF.Min(share, budget / price);
+            float take = MathF.Min(share, Budget(h, days) / price);
             if (take <= 0f) continue;
+            float paid = PayCoin(h, -2, take * price, false);   // 값은 은화로(모자라면 남는 식량을 장터에 판다)
+            take = paid / price;
             G(h, g) += take;
-            hh.Food[h] -= take * price;
+            pool += paid;
             bought += take;
         }
-        // 파는 쪽: 남는 양 비율대로 내놓고 값을 받는다
+        // 파는 쪽: 남는 양 비율대로 내놓고 값을 은화로 받는다
         foreach (var (h, amt) in sellers)
         {
             float give = bought * amt / supply;
             G(h, g) -= give;
-            hh.Food[h] += give * price;
+            hh.Coin[h] += pool * amt / supply;
         }
         Stats.GoodsSold += bought * price;
         // 남은 공급이 있으면 내다 팔 것(+), 없으면 못 채운 수요(−)
@@ -296,17 +305,16 @@ public sealed partial class World
         {
             if (need <= 0.01f) break;
             if (!hh.IsAlive(h) || h == payer || hh.Village[h] != v || G(h, Good.Build) < 0.5f) continue;
-            float take = MathF.Min(need, MathF.Min(G(h, Good.Build), MathF.Max(0f, hh.Food[payer]) / price));
+            float take = MathF.Min(need, MathF.Min(G(h, Good.Build), Budget(payer, 0) / price));
+            if (take <= 0f) break;
+            take = PayCoin(payer, h, take * price) / price;
             if (take <= 0f) break;
             G(h, Good.Build) -= take;
-            hh.Food[h] += take * price;
-            hh.Food[payer] -= take * price;
             need -= take;
         }
         if (need > 0.01f)
         {
-            float extra = MathF.Min(MathF.Max(0f, hh.Food[payer]), need * BasePrice[(int)Good.Build] * 2f);
-            hh.Food[payer] -= extra;
+            PayCoin(payer, -1, need * BasePrice[(int)Good.Build] * 2f);   // 직접 마련: 장꾼에게 두 배 값
             Stats.BuildShort += need;
         }
     }
@@ -363,7 +371,7 @@ public sealed partial class World
             float spare = G(h, g) - KeepOf(h, g);
             if (spare <= 0.05f) continue;
             float take = MathF.Min(spare, vol - got);
-            G(h, g) -= take; hh.Food[h] += take * lo; got += take;
+            G(h, g) -= take; hh.Coin[h] += take * lo; got += take;
             bought.Add((h, take));
         }
         float sold = 0f;
@@ -374,10 +382,11 @@ public sealed partial class World
             if (!hh.IsAlive(h) || hh.Village[h] != to) continue;
             float want = Want(h, g);
             if (want <= 0.05f) continue;
-            float afford = MathF.Max(0f, hh.Food[h] - hh.Need[h] * days) * 0.5f / hi;
+            float afford = Budget(h, days) / hi;
             float give = MathF.Min(MathF.Min(want, afford), got - sold);
             if (give <= 0f) continue;
-            G(h, g) += give; hh.Food[h] -= give * hi; sold += give;
+            give = PayCoin(h, -2, give * hi, false) / hi;
+            G(h, g) += give; sold += give;
         }
         // 못 판 짐은 판 집들에게 산 값에 되돌려 놓는다(장사꾼이 떠안지 않는다)
         if (sold < got)
@@ -387,7 +396,7 @@ public sealed partial class World
             {
                 if (!hh.IsAlive(h)) continue;
                 float r = amt * back;
-                G(h, g) += r; hh.Food[h] -= r * lo;
+                G(h, g) += r; hh.Coin[h] -= MathF.Min(hh.Coin[h], r * lo);
             }
         }
         return sold;
@@ -419,6 +428,11 @@ public sealed partial class World
     /// <summary>끊긴 집의 재화는 그 집 사람을 맡은 집이 물려받는다.</summary>
     private void PassGoods(int h, int heir)
     {
+        // 은화는 물려받는다. 받을 집이 없으면 마을 장터로 간다
+        var hh = Households;
+        if (heir >= 0 && hh.IsAlive(heir) && heir != h) hh.Coin[heir] += hh.Coin[h];
+        else if (hh.Village[h] >= 0) { EnsureGranary(); if (hh.Village[h] < _granCoin.Count) _granCoin[hh.Village[h]] += hh.Coin[h]; }
+        hh.Coin[h] = 0f;
         if (h * GoodCount >= _goods.Length || _goodsFounded[h] != Households.FoundedDay[h]) return;
         if (heir < 0 || !Households.IsAlive(heir) || heir == h) return;
         for (int k = 0; k < GoodCount; k++) G(heir, (Good)k) += _goods[h * GoodCount + k];

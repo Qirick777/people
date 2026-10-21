@@ -57,8 +57,7 @@ public sealed partial class World
         int id = PlotForSale(seller, buyer);
         if (id < 0) return;
         float price = Map.PlotValue(id) * BuyPremium;
-        hh.Food[buyer] -= price;
-        hh.Food[seller] += price;
+        PayCoin(buyer, seller, price);   // 땅값은 은화
         _tiller.Remove(id);
         Map.GivePlot(id, buyer, hh);
         Stats.LandBought++;
@@ -184,7 +183,7 @@ public sealed partial class World
                     if (w > sw) { sw = w; seller = o; }
                 }
                 int sh = seller >= 0 ? HeadIdx(seller) : -1;
-                if (sh >= 0 && LandPrice(seller, h) is float pr && pr > 0f && hh.Food[h] - pr > hh.Need[h] * Config.DaysPerYear)
+                if (sh >= 0 && LandPrice(seller, h) is float pr && pr > 0f && WealthOf(h) - pr > hh.Need[h] * Config.DaysPerYear)
                     Interact(InteractionId.BuyLand, new InteractionContext { Actor = head, Target = sh, Third = -1 });
             }
             // 봉토 청하기: 지배자를 좋게 보는 야심가, 드물게
@@ -206,7 +205,7 @@ public sealed partial class World
                 if (w.HeadIdx(a) != c.Actor || w.HeadIdx(t) != c.Target || a == t || w.Households.PlotCount[t] <= 1) return false;
                 if (w.Households.Village[a] != w.Households.Village[t] && w.PatronOf(a) != t) return false;
                 float pr = w.LandPrice(t, a);
-                return pr > 0f && w.Households.Food[a] >= pr;
+                return pr > 0f && w.WealthOf(a) >= pr;
             },
             Accept = (w, c) => w.SellOdds(H(w, c.Target), H(w, c.Actor)),
             Success = (w, c, r) =>
@@ -228,7 +227,7 @@ public sealed partial class World
                 if (j is 0 or (int)Job.SexWorker || !w.Adult(c.Target) || H(w, c.Target) == H(w, c.Actor)) return false;
                 if (c.Third < 0) return w.MembersOf(H(w, c.Actor)).Any(k => w.AgeYears(k) is >= 10 and <= 15 && p.Master[k].IsNone);
                 return p.IsAliveIndex(c.Third) && H(w, c.Third) == H(w, c.Actor) && w.AgeYears(c.Third) is >= 10 and <= 15 && p.Master[c.Third].IsNone
-                       && w.Households.Food[H(w, c.Actor)] >= ApprenticeFee;
+                       && w.WealthOf(H(w, c.Actor)) >= ApprenticeFee;
             },
             Accept = (w, c) =>
             {
@@ -245,8 +244,7 @@ public sealed partial class World
                 int j = p.JobOf[c.Target];
                 p.Master[c.Third] = p.IdAt(c.Target);
                 w._apprenticeOf.Add(((long)p.Uid[c.Third] << 8) | (byte)j);
-                w.Households.Food[H(w, c.Actor)] -= ApprenticeFee;
-                w.Households.Food[H(w, c.Target)] += ApprenticeFee;
+                w.PayCoin(H(w, c.Actor), H(w, c.Target), ApprenticeFee);
                 w.Stats.Apprentices++;
                 w.RiseChron(c, x => $"{Obj(Names.Full(w.Lineage, p.Uid[c.Third]))} {x}에게 도제로 보냈다", x => $"{Obj(Names.Full(w.Lineage, p.Uid[c.Third]))} 도제로 받았다");
             },

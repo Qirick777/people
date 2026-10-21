@@ -143,6 +143,8 @@ public partial class SimHost : Node
         for (int i = 0; i < p.HighWater; i++) if (p.IsAliveIndex(i) && w.Lineage.FamilyOf(p.Uid[i]) == fam) kin++;
         d["family"] = fam >= 0 ? Names.Family(fam) : "";
         d["food"] = hh.Food[h];
+        d["coin"] = hh.Coin[h];
+        d["foodPrice"] = w.FoodPrice(hh.Village[h]);
         d["surplus"] = w.Surplus(h);
         d["plots"] = hh.PlotCount[h];
         d["kin"] = kin;
@@ -1164,6 +1166,7 @@ public partial class SimHost : Node
         if (!hh.IsAlive(h) || w.ClientCount(h) == 0 || !p.IsValid(hh.Head[h])) return e;
         int me = hh.Head[h].Index;
         e["tax"] = (int)MathF.Round(w.TaxRate(h) * 100f);
+        e["coin"] = w.TributeInCoin(h);
         // 소속 저울: 내 세력원 집 가운데 떠날 듯한 집(남을 까닭이 0.1 아래)
         var subs = Enumerable.Range(0, hh.HighWater).Where(x => hh.IsAlive(x) && w.PatronOf(x) == h && w.ClientCount(x) == 0).Select(x => w.BelongOf(x, h)).ToList();
         e["subjects"] = subs.Count;
@@ -1230,6 +1233,14 @@ public partial class SimHost : Node
         w.ForceCondition(g, (OrgCondition)cond, h, Math.Max(3, (int)(g.Total * 0.8f)));
         var r = w.Interact(InteractionId.OrgCondition, new InteractionContext { Actor = hh.Head[h].Index, Target = leader, Third = -1 });
         return r.Accepted ? $"{g.Name}: 조건을 받아들였다" : $"{g.Name}: 조건을 거절했다";
+    }
+
+    /// <summary>공납을 은화로 받을지 현물로 받을지.</summary>
+    public void SetTributeCoin(bool coin)
+    {
+        if (!Ready || _w!.PlayerHousehold < 0) return;
+        _w.SetTributeInCoin(_w.PlayerHousehold, coin);
+        _w.Chronicle.Add((_w.Day, coin ? "공납을 은화로 받는다" : "공납을 현물로 받는다"));
     }
 
     /// <summary>세율을 정한다(8~20%). 12%보다 무거우면 아래 집들이 해마다 나를 나쁘게 본다.</summary>

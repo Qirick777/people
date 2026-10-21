@@ -79,7 +79,7 @@ public sealed partial class World
             root.Treasury -= fromT;
             int leader = FindAlive(root.LeaderUid);
             int home = root.Home >= 0 ? root.Home : leader >= 0 ? p.Household[leader] : -1;
-            if (hh.IsAlive(home)) hh.Food[home] -= MathF.Min(cost - fromT, MathF.Max(0f, hh.Food[home]));
+            if (hh.IsAlive(home) && cost > fromT) PayCoin(home, -1, cost - fromT, false);
             var sk = LessonSkill(g.Lesson);
             if (sk is Skill s)
             {

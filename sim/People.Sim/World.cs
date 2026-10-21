@@ -223,6 +223,7 @@ public sealed partial class World
     private int NewHousehold(int x, int y, float food, int capacity, int village)
     {
         int h = Households.Add(village, food, capacity, Day);
+        Households.Coin[h] = 0.25f * food;   // 처음 세운 집은 가진 식량의 4분의 1만큼 은화를 들고 온다
         VillageList.Join(village);
         Households.X[h] = x;
         Households.Y[h] = y;
@@ -448,6 +449,7 @@ public sealed partial class World
             BanditSeason();
             KidnapSeason();
         }
+        if (cal.DayOfSeason == 0) Timed("곡물 장터", GrainSeason);
         Timed("식량 소비", Consume);
         Timed("삶(사망·임신·출산)", Life);
         if (doy == Config.HarvestDayOfYear) Timed("수확", Harvest);
@@ -472,6 +474,7 @@ public sealed partial class World
         Timed("해/SocialYear", SocialYear);
         Timed("해/YearOfWork", YearOfWork);
         Timed("해/GoodsYear", GoodsYear);
+        Timed("해/MoneyYear", MoneyYear);
         if (Layout) Stats.RegrownForest += Map.AgeAbandoned(Config.ForestYears);
         Timed("해/Splits", Splits);
         Timed("해/ClaimLand", ClaimLand);
@@ -565,9 +568,11 @@ public sealed partial class World
     /// <summary>잉여 식량 S = 창고 ÷ 다음 수확까지 먹을 양.</summary>
     public int DaysToHarvestPublic => DaysToHarvest();
 
+    /// <summary>잉여 식량 S = (창고 + 은화로 살 수 있는 식량) ÷ 다음 수확까지 먹을 양.</summary>
     public float Surplus(int h)
     {
         float need = Households.Need[h] * DaysToHarvest();
+        if (need > 0 && Households.Coin[h] > 0f) return (Households.Food[h] + Households.Coin[h] / MathF.Max(0.1f, FoodPrice(Households.Village[h]))) / need;
         return need <= 0 ? 2f : Households.Food[h] / need;
     }
 
@@ -779,6 +784,9 @@ public sealed partial class World
         float food = hh.Food[h] * moved / n;
         hh.Food[h] -= food;
         hh.Food[nh] = food;
+        float coin = hh.Coin[h] * moved / n;   // 은화도 식구 몫만큼 들고 나간다
+        hh.Coin[h] -= coin;
+        hh.Coin[nh] = coin;
         hh.Members[h] -= moved;
         hh.Head[nh] = me;
         int sonsLeft = 0;

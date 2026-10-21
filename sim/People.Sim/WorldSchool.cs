@@ -167,10 +167,9 @@ public sealed partial class World
                 int sh = p.Household[st];
                 if (plan.Fee > 0f && hh.IsAlive(sh))
                 {
-                    float fee = MathF.Min(plan.Fee, MathF.Max(0f, hh.Food[sh]));
-                    hh.Food[sh] -= fee;
+                    float fee = PayCoin(sh, -2, plan.Fee, false);   // 수업료는 은화
                     PayDues(sh, fee);
-                    Earn(root, fee);
+                    Earn(root, fee, true);
                 }
                 Stats.Studied++;
             }

@@ -12,7 +12,9 @@ public class AuthorityTests
         var p = w.People;
         var adults = Enumerable.Range(0, p.HighWater).Where(i => p.IsAliveIndex(i) && (w.Day - p.BirthDay[i]) / w.Config.DaysPerYear >= 16 && w.GroupsOf(i).Count() < World.GroupSlots).ToList();
         var g = w.FoundGroup(adults[0], GroupKind.Bandits);
-        Assert.Equal(Visibility.Covert, g.Visibility);
+        // 도적 떼는 일부 은폐로 선다(아주 신중한 NPC 두목은 완전 은폐)
+        Assert.Equal(p.Get(adults[0], Trait.Caution) > 0.7f ? Visibility.Hidden : Visibility.Covert, g.Visibility);
+        w.SetVisibility(g, Visibility.Covert);
         foreach (int i in adults.Skip(1).Take(10)) w.JoinGroup(i, g);
         w.RecountOrgs();
         Assert.True(g.Authority > 0f);

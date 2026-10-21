@@ -372,6 +372,7 @@ func _refresh_family() -> void:
 	var s: Dictionary = host.PlayerSummary()
 	if s.is_empty():
 		_set_stats("", "", "", "")
+		(stat_coin.get_node("Value") as Label).text = "-"
 		return
 	var members: Array = s["members"]
 	var alive := false
@@ -382,6 +383,7 @@ func _refresh_family() -> void:
 	_refresh_kin()
 	var fw := _food_word(float(s["surplus"]))
 	_set_stats(s["family"], "%d명" % int(s["kin"]), "%d필지" % int(s["plots"]), fw)
+	(stat_coin.get_node("Value") as Label).text = "%d · 값 %.1f" % [int(float(s.get("coin", 0.0))), float(s.get("foodPrice", 1.0))]
 	members.sort_custom(func(a, b):
 		if a["head"] != b["head"]: return a["head"]
 		return int(a["age"]) > int(b["age"]))
@@ -688,7 +690,7 @@ func _open_orgs() -> void:
 						_open_orgs())
 					rs.add_child(b)
 				org_box.add_child(rs)
-			if float(e["treasury"]) > 0.5: org_box.add_child(UI.label("      곳간 식량 %d" % int(float(e["treasury"])), 12, UI.MUTED))
+			if float(e["treasury"]) > 0.5: org_box.add_child(UI.label("      곳간 은화 %d" % int(float(e["treasury"])), 12, UI.MUTED))
 	_show_panel(org_panel)
 
 
@@ -849,6 +851,14 @@ func _open_rise() -> void:
 				for line in host.DrainChronicle(): _log(line)
 				_open_rise())
 			trow.add_child(b)
+		var cbtn := UI.ghost("공납: 은화로" if lt["coin"] else "공납: 현물로")
+		cbtn.tooltip_text = "현물은 흉년에 강하고, 은화는 품삯을 주기 쉽다. 눌러 바꾼다"
+		var now_coin: bool = lt["coin"]
+		cbtn.pressed.connect(func():
+			host.SetTributeCoin(not now_coin)
+			for line in host.DrainChronicle(): _log(line)
+			_open_rise())
+		trow.add_child(_center(cbtn))
 		rise_box.add_child(trow)
 		if int(lt["subjects"]) > 0:
 			var bl := UI.label("세력원 %d집 · 떠날 듯한 집 %d · 공포 %.2f · 신용 %.2f\n섬기는 까닭 평균: %s" % [int(lt["subjects"]), int(lt["wavering"]), float(lt["fear"]), float(lt["credit"]), lt["belongAvg"]], 12, UI.MUTED)
@@ -1561,6 +1571,7 @@ var stat_family: VBoxContainer
 var stat_kin: VBoxContainer
 var stat_land: VBoxContainer
 var stat_food: VBoxContainer
+var stat_coin: VBoxContainer
 var notice: PanelContainer
 
 
@@ -1641,7 +1652,9 @@ func _build_ui() -> void:
 	stat_kin = UI.stat("성이 같은 사람", "-")
 	stat_land = UI.stat("땅", "-")
 	stat_food = UI.stat("식량", "-")
-	for st in [stat_family, stat_kin, stat_land, stat_food]: tr.add_child(st)
+	stat_coin = UI.stat("은화", "-")
+	stat_coin.tooltip_text = "은화와 마을 식량 값(은화로 식량 한 단위)"
+	for st in [stat_family, stat_kin, stat_land, stat_food, stat_coin]: tr.add_child(st)
 	rootc.add_child(top)
 	_set_speed(0)
 	_style_marry()

@@ -15,6 +15,7 @@ public sealed class HouseholdStore
     public PersonId[] Head = new PersonId[256];
     public int[] Village = new int[256];
     public float[] Food = new float[256];
+    public float[] Coin = new float[256];   // 은화
     public int[] Capacity = new int[256];
     public int[] PlotCount = new int[256];
     public float[] LandValue = new float[256];
@@ -44,6 +45,7 @@ public sealed class HouseholdStore
         Head[h] = PersonId.None;
         Village[h] = village;
         Food[h] = food;
+        Coin[h] = 0f;
         Capacity[h] = capacity;
         PlotCount[h] = 0;
         LandValue[h] = 0;
@@ -76,6 +78,7 @@ public sealed class HouseholdStore
         Array.Resize(ref Head, cap);
         Array.Resize(ref Village, cap);
         Array.Resize(ref Food, cap);
+        Array.Resize(ref Coin, cap);
         Array.Resize(ref Capacity, cap);
         Array.Resize(ref PlotCount, cap);
         Array.Resize(ref LandValue, cap);

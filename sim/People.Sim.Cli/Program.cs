@@ -685,7 +685,7 @@ switch (cmd)
                         foreach (var (s0, _) in sellers.OrderByDescending(x => x.a).Take(3))
                         {
                             float price = w.LandPrice(p.Household[s0], h);
-                            if (hh.Food[h] - price < 0.5f * hh.Need[h] * w.Config.DaysPerYear) break;   // 반년 먹을 것은 남긴다
+                            if (w.WealthOf(h) - price < 0.5f * hh.Need[h] * w.Config.DaysPerYear) break;   // 반년 먹을 것은 남긴다
                             Try(InteractionId.BuyLand, head, s0);
                         }
                     }
@@ -701,7 +701,7 @@ switch (cmd)
                 w.RecountOrgs();
                 var o2 = org != null && org.Alive ? w.RootOf(org) : null;
                 bool alive = hf >= 0 && hh.IsAlive(hf);
-                rows.Add((strat, seed, alive, alive ? hh.Food[hf] + 30f * hh.PlotCount[hf] : 0f, alive ? w.BelowOf(hf) : 0, alive ? w.TierOf(hf) : -1, o2?.Total ?? 0, kin,
+                rows.Add((strat, seed, alive, alive ? w.WealthOf(hf) + 30f * hh.PlotCount[hf] : 0f, alive ? w.BelowOf(hf) : 0, alive ? w.TierOf(hf) : -1, o2?.Total ?? 0, kin,
                           alive ? $"{World.ClassName(w.ClassOf(hf))}{(w.MembersOf(hf).Any(m => p.JobOf[m] is (byte)Job.Soldier or (byte)Job.Collector) ? "+자리" : "")}{(w.PlayerPlot != null ? "+거사" : "")}" : "끊김"));
                 var r = rows[^1];
                 Console.WriteLine($"[{names[strat]} {seed}] {(r.alive ? $"재산 {r.wealth:0}, 아래 {r.below}, 단계 {r.tier}, 조직 {r.org}, {r.note}" : "대가 끊김")}{(kin > 0 ? $", 혈족 집으로 {kin}번 옮김" : "")}, 수 {ok}/{acts}");

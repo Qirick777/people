@@ -652,6 +652,8 @@ public sealed partial class World
             int direct = DirectSpan(lord);
             int idx = 0;
             float got = 0;
+            bool coin = TributeInCoin(lord);   // 공납을 은화로 받는가(아니면 현물)
+            void Give(int x, float a) { if (coin) hh.Coin[x] += a; else hh.Food[x] += a; }
             for (; idx < list.Count && idx < direct; idx++) got += TakeTribute(list[idx], lord, 1f);
             foreach (int c in collectors)
             {
@@ -660,8 +662,8 @@ public sealed partial class World
                 for (int k = 0; k < span && idx < list.Count; k++, idx++) collected += TakeTribute(list[idx], lord, 0f);
                 float skim = collected * (Config.CollectorCut + 0.15f * p.Get(c, Trait.Ambition)) * SkimFactor(c);
                 int ch = p.Household[c];
-                if (hh.IsAlive(ch)) { hh.Food[ch] += skim; _incWage[ch] += skim; }
-                hh.Food[lord] += collected - skim;
+                if (hh.IsAlive(ch)) { Give(ch, skim); _incWage[ch] += skim; }
+                Give(lord, collected - skim);
                 got += collected - skim;
                 Stats.Skimmed += skim;
                 // 웬만큼 더 떼는 건 눈감는 관행이다. 야망이 0.6을 넘는 몫만 빼돌리기로 친다
@@ -674,15 +676,17 @@ public sealed partial class World
             Stats.Uncollected += list.Count - idx;
             _incTribute[lord] += got;
             Stats.Tribute += got;
-            // 군인 품삯
+            // 군인 품삯(은화. 모자라면 지배자가 곳간 식량을 장터에 판다)
             foreach (int person in StaffOf(lord))
             {
                 if (_employer.GetValueOrDefault(person, -1) != lord || !p.IsAliveIndex(person) || p.JobOf[person] != (byte)Job.Soldier) continue;
                 int sh = p.Household[person];
-                float pay = MathF.Min(Config.SoldierWage, MathF.Max(0f, hh.Food[lord]));
-                hh.Food[lord] -= pay;
-                if (hh.IsAlive(sh)) { hh.Food[sh] += pay; _incWage[sh] += pay; }
+                if (!hh.IsAlive(sh)) continue;
+                float pay = PayCoin(lord, sh, Config.SoldierWage);
+                _incWage[sh] += pay;
             }
+            // 큰 지배자는 걷은 공납의 5%만큼 은화를 찍는다
+            if (TierOf(lord) >= 2) { float mint = 0.05f * got; hh.Coin[lord] += mint; Stats.Minted += mint; }
         }
         PassTributeUp();
     }
@@ -711,7 +715,16 @@ public sealed partial class World
         var hh = Households;
         float income = MathF.Max(0f, _incOwn[h] + 0.5f * _incTenant[h]);   // 빌린 땅의 수확은 소작료를 이미 냈으니 반만 센다
         float rate = TaxRate(lord);
-        float t = MathF.Min(income * rate, MathF.Max(0f, hh.Food[h]));
+        float t;
+        if (TributeInCoin(lord))
+        {
+            // 은화 공납: 값어치만큼 은화로 낸다(모자라면 식량을 장터에 판다). 받는 쪽은 부른 곳이 나눈다
+            t = PayCoin(h, -2, income * rate * FoodPrice(hh.Village[h]));
+            PayDues(h, t);
+            if (toLord > 0) hh.Coin[lord] += t;
+            return t;
+        }
+        t = MathF.Min(income * rate, MathF.Max(0f, hh.Food[h]));
         PayDues(h, t);
         if (MathF.Abs(rate - Config.TributeRate) > 0.005f && HeadIdx(h) is int ch && ch >= 0 && HeadIdx(lord) is int lh && lh >= 0)
             Social.Add(People, ch, People.Uid[lh], -(rate - Config.TributeRate) * 50f);

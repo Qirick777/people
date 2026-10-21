@@ -165,12 +165,13 @@ public sealed partial class World
                 if (!hh.IsAlive(h)) continue;
                 float want = Want(h, g);
                 if (want <= 0.05f) continue;
-                float afford = MathF.Max(0f, hh.Food[h] - hh.Need[h] * days) * 0.5f / MathF.Max(0.1f, price);
+                float afford = Budget(h, days) / MathF.Max(0.1f, price);
                 float give = MathF.Min(MathF.Min(want, afford), amt - sold);
                 if (give <= 0f) continue;
-                G(h, g) += give; hh.Food[h] -= give * price; sold += give;
+                give = PayCoin(h, -2, give * price, false) / MathF.Max(0.1f, price);
+                G(h, g) += give; sold += give;
             }
-        if (sold > 0f) { Earn(root, sold * price); Stats.OrgGoodsSold += sold * price; }
+        if (sold > 0f) { Earn(root, sold * price, true); Stats.OrgGoodsSold += sold * price; }
         if (amt - sold > 0f) root.Store[(int)g] += amt - sold;
         return sold;
     }
@@ -209,16 +210,13 @@ public sealed partial class World
             {
                 int h = p.Household[m];
                 if (!hh.IsAlive(h)) continue;
-                float fromT = MathF.Min(ration, root.Treasury);
+                // 군량: 세력 곳간이 그 마을 값으로 은화를 대고, 그 집이 장터에서 산다. 못 대면 제 집이 대고, 제 집도 어려우면 떠난다
+                float cost = ration * FoodPrice(hh.Village[h]);
+                float fromT = MathF.Min(cost, root.Treasury);
                 root.Treasury -= fromT;
-                float rest = ration - fromT;
-                if (rest > 0f)
-                {
-                    // 세력이 못 대면 제 집이 댄다. 제 집도 어려우면 갈래를 떠난다
-                    if (Surplus(h) < 0.5f) { LeaveGroup(m, g); Stats.RationLeft++; continue; }
-                    hh.Food[h] -= MathF.Min(rest, MathF.Max(0f, hh.Food[h]));
-                }
-                hh.Food[h] += ration;   // 상근 사람은 먹을 것을 받는다(일손 대신)
+                hh.Coin[h] += fromT;
+                if (fromT < cost && Surplus(h) < 0.5f) { LeaveGroup(m, g); Stats.RationLeft++; continue; }
+                BuyFood(h, ration);
                 _fullTimeUids.Add(p.Uid[m]);
             }
         }
@@ -236,10 +234,12 @@ public sealed partial class World
         int home = root.Home >= 0 ? root.Home : leader >= 0 ? People.Household[leader] : -1;
         if (!hh.IsAlive(home) || village < 0) return null;
         var (cost, _, _) = FacilityCost(k);
-        if (root.Treasury + MathF.Max(0f, hh.Food[home] - hh.Need[home] * DaysToHarvest()) < cost) return null;
+        if (root.Treasury + Budget(home, DaysToHarvest()) * 2f < cost) return null;
+        // 값은 은화로(곳간, 모자라면 우두머리 집). 그 마을 장꾼과 일꾼의 품삯으로 장터에 들어간다
         float fromT = MathF.Min(cost, root.Treasury);
         root.Treasury -= fromT;
-        hh.Food[home] -= cost - fromT;
+        if (village < _granCoin.Count) { EnsureGranary(); _granCoin[village] += fromT; }
+        PayCoin(home, -1, cost - fromT);
         UseBuildMaterials(home, cost);
         var f = new Facility { Id = _facilities.Count, Kind = k, Village = village, Owner = root.Id, Assigned = assign?.Id ?? DefaultAssign(root, k) };
         _facilities.Add(f);
@@ -299,7 +299,8 @@ public sealed partial class World
             float fromT = MathF.Min(upkeep, owner.Treasury);
             owner.Treasury -= fromT;
             float rest = upkeep - fromT;
-            if (rest > 0f && hh.IsAlive(home) && Surplus(home) > 0.8f) { hh.Food[home] -= rest; rest = 0f; }
+            if (rest > 0f && hh.IsAlive(home) && Surplus(home) > 0.8f) rest -= PayCoin(home, -1, rest, false);
+            if (rest < 0.01f) rest = 0f;
             f.Unpaid = rest > 0f ? f.Unpaid + 1 : 0;
             if (f.Unpaid >= 3) { f.Alive = false; Stats.FacilitiesLost++; if (leader >= 0) Chron(leader, $"돌보지 못한 {Topic(FacilityName(f.Kind))} 무너졌다"); continue; }
             // 방앗간 삯

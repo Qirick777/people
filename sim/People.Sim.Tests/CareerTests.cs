@@ -16,10 +16,11 @@ public class CareerTests
         Assert.True(def.Can(w, c));
         int p0 = hh.PlotCount[buyer], s0 = hh.PlotCount[lord];
         float price = w.LandPrice(lord, buyer);
+        float sellerCoin = hh.Coin[lord];
         def.Success!(w, c, new InteractionResult { Accepted = true });
         Assert.Equal(p0 + 1, hh.PlotCount[buyer]);
         Assert.Equal(s0 - 1, hh.PlotCount[lord]);
-        Assert.Equal(1000f - price, hh.Food[buyer], 2);
+        Assert.Equal(sellerCoin + price, hh.Coin[lord], 1);   // 땅값은 은화로 판 쪽에 간다
     }
 
     [Fact]
