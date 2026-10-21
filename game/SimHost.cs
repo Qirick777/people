@@ -567,6 +567,9 @@ public partial class SimHost : Node
                     ["liaison"] = depth == 0 && g.LiaisonUid >= 0 ? Names.Full(w.Lineage, g.LiaisonUid) : "",
                     ["survey"] = depth == 0 ? w.SurveyOf(g) : 0f,
                     ["school"] = World.IsSchool(g),
+                    ["producer"] = g.Tasks.Any(t => t.Verb == Verb.Produce),
+                    ["fullTime"] = g.FullTime,
+                    ["arms"] = w.ArmsCov(g),
                     ["lordAct"] = act?.name ?? "",
                     ["lordChance"] = act?.chance ?? 0f,
                     ["mineIn"] = mine.Any(i => w.InGroup(i, g)),
@@ -590,7 +593,7 @@ public partial class SimHost : Node
                     ["heir"] = "", ["inherit"] = 0f, ["joinRule"] = (int)root.JoinRule, ["shareRule"] = (int)root.ShareRule, ["treasury"] = 0f,
                     ["command"] = false, ["canSplit"] = false, ["mineIn"] = true, ["attached"] = false, ["lordAct"] = "", ["lordChance"] = 0f,
                     ["identity"] = World.GroupKindName(g.Kind), ["shares"] = "", ["vacant"] = false, ["cmdFactor"] = 1f, ["over"] = 0f, ["grip"] = 0f,
-                    ["treasurer"] = "", ["liaison"] = "", ["survey"] = 0f, ["school"] = false,
+                    ["treasurer"] = "", ["liaison"] = "", ["survey"] = 0f, ["school"] = false, ["producer"] = false, ["fullTime"] = false, ["arms"] = 0f,
                 });
             }
         }
@@ -906,6 +909,112 @@ public partial class SimHost : Node
         };
         w.Chronicle.Add((w.Day, $"{g.Name}: {pl.MinAge}~{pl.MaxAge}세, {pl.Years}년, {string.Join("·", World.SchoolSubjects.Where(l => pl.Weights[(int)l] > 0f).Select(l => $"{World.LessonName(l)} {(int)MathF.Round(pl.Weights[(int)l] * 100f)}%"))}, 졸업 뒤 {dest}"));
         return true;
+    }
+
+    /// <summary>생산 갈래: 만드는 것(고를 수 있는 것과 잠긴 까닭)과 공급 선(보낼 곳과 비중).</summary>
+    public Godot.Collections.Dictionary ProductionInfo(int id)
+    {
+        var e = new Godot.Collections.Dictionary();
+        var g = Commandable(id);
+        if (g == null) return e;
+        var w = _w!;
+        var root = w.RootOf(g);
+        bool shop = w.Facilities.Any(f => f.Owner == root.Id && f.Kind == FacilityKind.Workshop && f.Assigned == g.Id && f.Built >= World.FacilityCost(f.Kind).years);
+        var goods = new Godot.Collections.Array();
+        foreach (var x in new[] { Good.Tools, Good.Cloth, Good.Fine, Good.Build, Good.Arms })
+            goods.Add(new Godot.Collections.Dictionary { ["good"] = (int)x, ["name"] = World.GoodName(x), ["locked"] = x == Good.Arms && !shop ? "공방 시설을 이 갈래에 배정해야" : "" });
+        var targets = new Godot.Collections.Array();
+        void T(int tid, string name, string what) => targets.Add(new Godot.Collections.Dictionary
+        {
+            ["target"] = tid, ["name"] = name, ["what"] = what, ["weight"] = (int)MathF.Round(g.Supply.Where(x => x.target == tid).Sum(x => x.weight) * 100f / MathF.Max(0.0001f, g.Supply.Sum(x => x.weight))),
+        });
+        T(-2, "시장", "직판: 15% 덜 받는다");
+        T(-1, "세력 곳간", "비축");
+        foreach (var u in w.Groups.Where(x => x.Alive && x.Id != g.Id && w.RootOf(x).Id == root.Id))
+            T(u.Id, u.Name, u.Tasks.Any(t => t.Verb == Verb.Trade) ? "납품: 장사 갈래가 판다" : World.IsSchool(u) ? "비품: 배우는 속도 +10%" : "보급: 무구는 갈래가, 다른 것은 조직원 집이");
+        e["product"] = (int)g.Product; e["manual"] = g.ProductManual; e["goods"] = goods; e["targets"] = targets;
+        e["store"] = string.Join(", ", Enumerable.Range(0, World.GoodCount).Where(k => root.Store[k] >= 0.5f).Select(k => $"{World.GoodName((Good)k)} {root.Store[k]:0}"));
+        return e;
+    }
+
+    /// <summary>만드는 것과 공급 선을 정한다. lines: [보낼 곳, 비중(0~100)].</summary>
+    public bool SetProduction(int id, int product, Godot.Collections.Array lines)
+    {
+        var g = Commandable(id);
+        if (g == null) return false;
+        g.Product = (Good)Math.Clamp(product, 0, World.GoodCount - 1);
+        g.ProductManual = true;
+        g.Supply.Clear();
+        foreach (var o in lines)
+        {
+            var a = o.AsGodotArray();
+            float wt = (float)a[1];
+            if (wt > 0f) g.Supply.Add(((int)a[0], wt));
+        }
+        _w!.Chronicle.Add((_w.Day, $"{g.Name}: {World.Obj(World.GoodName(g.Product))} 만든다"));
+        return true;
+    }
+
+    /// <summary>상근을 켜고 끈다.</summary>
+    public bool SetFullTime(int id, bool on)
+    {
+        var g = Commandable(id);
+        if (g == null || g.Home >= 0) return false;
+        g.FullTime = on;
+        _w!.Chronicle.Add((_w.Day, on ? $"{Topic(g.Name)} 상근으로 돌린다(세력이 먹이고, 집 농사를 하지 않는다)" : $"{Topic(g.Name)} 상근을 푼다"));
+        return true;
+    }
+
+    private static string Topic(string s) => World.Topic(s);
+
+    /// <summary>세력의 시설과 지을 수 있는 시설.</summary>
+    public Godot.Collections.Dictionary FacilityInfo(int id)
+    {
+        var e = new Godot.Collections.Dictionary();
+        var g = Commandable(id);
+        if (g == null) return e;
+        var w = _w!; var hh = w.Households;
+        var root = w.RootOf(g);
+        var have = new Godot.Collections.Array();
+        foreach (var f in w.Facilities.Where(f => f.Owner == root.Id))
+        {
+            var (cost, years, upkeep) = World.FacilityCost(f.Kind);
+            have.Add(new Godot.Collections.Dictionary
+            {
+                ["id"] = f.Id, ["name"] = World.FacilityName(f.Kind), ["village"] = $"{f.Village}번 마을",
+                ["state"] = f.Built < years ? $"짓는 중 {(int)f.Built}/{years}년" : f.Unpaid > 0 ? $"유지비 못 냄 {f.Unpaid}년" : "다 지음",
+                ["assigned"] = w.GroupById(f.Assigned)?.Name ?? "", ["effect"] = World.FacilityEffect(f.Kind), ["upkeep"] = upkeep,
+            });
+        }
+        var build = new Godot.Collections.Array();
+        int leader = FindAlive(root.LeaderUid);
+        int home = root.Home >= 0 ? root.Home : leader >= 0 ? w.People.Household[leader] : -1;
+        float money = root.Treasury + (hh.IsAlive(home) ? MathF.Max(0f, hh.Food[home] - hh.Need[home] * w.DaysToHarvestPublic) : 0f);
+        foreach (FacilityKind k in Enum.GetValues<FacilityKind>())
+        {
+            var (cost, years, upkeep) = World.FacilityCost(k);
+            build.Add(new Godot.Collections.Dictionary { ["kind"] = (int)k, ["name"] = World.FacilityName(k), ["cost"] = cost, ["years"] = years, ["upkeep"] = upkeep, ["effect"] = World.FacilityEffect(k), ["can"] = money >= cost });
+        }
+        var units = new Godot.Collections.Array();
+        foreach (var u in w.Groups.Where(x => x.Alive && w.RootOf(x).Id == root.Id)) units.Add(new Godot.Collections.Dictionary { ["id"] = u.Id, ["name"] = u.Name });
+        e["have"] = have; e["build"] = build; e["units"] = units; e["money"] = money; e["village"] = root.Village;
+        return e;
+    }
+
+    public string BuildFacility(int id, int kind)
+    {
+        var g = Commandable(id);
+        if (g == null) return "";
+        var f = _w!.BuildFacility(g, (FacilityKind)kind, _w.RootOf(g).Village);
+        return f == null ? "모자라서 지을 수 없다" : $"{World.Obj(World.FacilityName(f.Kind))} 짓기 시작했다";
+    }
+
+    public bool AssignFacility(int id, int facility, int unit)
+    {
+        var g = Commandable(id);
+        if (g == null) return false;
+        var f = _w!.Facilities.FirstOrDefault(x => x.Id == facility);
+        return f != null && _w.AssignFacility(f, unit >= 0 ? _w.GroupById(unit) : null);
     }
 
     public bool OrgAuto(int id)

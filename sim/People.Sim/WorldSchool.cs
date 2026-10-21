@@ -125,9 +125,15 @@ public sealed partial class World
             }
             if (teachers.Count == 0) continue;
             float tw = u.Tasks.Where(t => t.Verb == Verb.Teach).Sum(t => t.Weight);
-            int capacity = teachers.Sum(TeacherLoad);
+            bool hall = FacilityOf(root, FacilityKind.Hall, -1, u) != null;
+            int capacity = teachers.Sum(TeacherLoad) + (hall ? 4 * teachers.Count : 0);
             // 가르치기: 시간 = 가르침 무게 × 지휘 몫, 교사가 모자라면 그만큼 느리다
-            float speed = tw * u.CmdFactor * (students.Count > capacity ? capacity / (float)students.Count : 1f);
+            float speed = tw * u.CmdFactor * (students.Count > capacity ? capacity / (float)students.Count : 1f) * (hall ? 1.2f : 1f);
+            // 비품: 보급받은 재화가 학생 다섯에 하나 넘으면 +10%, 한 해에 다 쓴다
+            float kit = u.Kit.Sum();
+            if (students.Count > 0 && kit >= 0.2f * students.Count) speed *= 1.1f;
+            for (int k = 0; k < GoodCount; k++) u.Kit[k] = 0f;
+            bool chapel = FacilityOf(root, FacilityKind.Chapel, u.Village) != null;
             float wsum = SchoolSubjects.Sum(l => plan.Weights[(int)l]);
             if (wsum <= 0f) { plan.Weights[(int)Lesson.Letters] = 1f; wsum = 1f; }
             foreach (int st in students)
@@ -148,8 +154,9 @@ public sealed partial class World
                     {
                         // 교리: 신앙과 우두머리, 충성: 우두머리만. 교리만으로 광신까지는 가지 않는다(눈 60, 충성 80까지)
                         float limit = l == Lesson.Doctrine ? 60f : 80f;
-                        if (Social.Opinion(p, st, root.LeaderUid) < limit) Social.Add(p, st, root.LeaderUid, 40f * w * speed);
-                        if (l == Lesson.Doctrine) p.Piety[st] = MathF.Min(1f, p.Piety[st] + 0.12f * w * speed);
+                        float sp2 = speed * (l == Lesson.Doctrine && chapel ? 1.2f : 1f);
+                        if (Social.Opinion(p, st, root.LeaderUid) < limit) Social.Add(p, st, root.LeaderUid, 40f * w * sp2);
+                        if (l == Lesson.Doctrine) p.Piety[st] = MathF.Min(1f, p.Piety[st] + 0.12f * w * sp2);
                     }
                 }
                 // 교사와 동기 사이

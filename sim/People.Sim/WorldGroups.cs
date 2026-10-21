@@ -1,6 +1,6 @@
 namespace People.Sim;
 
-public enum GroupKind : byte { Watch, Bandits, Brotherhood, Army, Company, Sellswords, Brothel, School, Drill, Inspectors }
+public enum GroupKind : byte { Watch, Bandits, Brotherhood, Army, Company, Sellswords, Brothel, School, Drill, Inspectors, Workshop }
 
 /// <summary>
 /// 모임 하나. 섬김 나무와 따로, 사람들이 가로로 묶인다. 우두머리는 uid 로 적는다.
@@ -57,6 +57,13 @@ public sealed class Group
     public string NameFamily = "";                    // 이름에 쓰는 가문 이름(세울 때)
     public string IdentityName = "";                  // 비중으로 붙은 이름(무장 신도회 등)
     public string PendingName = "";                   // 이름도 두 해 연속 같아야 바뀐다
+    // 생산과 공급(plan_faction 4장)
+    public readonly float[] Store = new float[World.GoodCount];   // 세력 곳간의 재화(맨 위 조직)
+    public readonly float[] Kit = new float[World.GoodCount];     // 갈래가 보급받아 지닌 재화(무구)
+    public Good Product = Good.Tools;                 // 생산 갈래가 만드는 것
+    public bool ProductManual;                        // 플레이어가 정했다
+    public readonly List<(int target, float weight)> Supply = new();   // 보낼 곳: 갈래 id, -1 곳간(비축), -2 시장(직판)
+    public bool FullTime;                             // 상근: 집 농사를 하지 않고 세력이 먹인다
     public int PendingNameYears;
 }
 
@@ -73,7 +80,7 @@ public sealed partial class World
     public static string GroupKindName(GroupKind k) => k switch
     {
         GroupKind.Watch => "자경단", GroupKind.Bandits => "도적 떼", GroupKind.Army => "군대", GroupKind.Company => "상단",
-        GroupKind.Sellswords => "용병단", GroupKind.Brothel => "유곽", GroupKind.School => "학교", GroupKind.Drill => "수련단", GroupKind.Inspectors => "감찰대", _ => "신도회",
+        GroupKind.Sellswords => "용병단", GroupKind.Brothel => "유곽", GroupKind.School => "학교", GroupKind.Drill => "수련단", GroupKind.Inspectors => "감찰대", GroupKind.Workshop => "공방", _ => "신도회",
     };
 
     public Group? GroupById(int id) => id >= 0 && id < _groups.Count && _groups[id].Alive ? _groups[id] : null;
@@ -226,6 +233,8 @@ public sealed partial class World
                                             + (p.GetSkill(i, Skill.Letters) >= 0.5f ? 0.4f : 0f) : 0f,
             GroupKind.Drill => p.Male[i] && age >= 16 && age <= 40 ? 0.2f + 0.4f * p.Get(i, Trait.Aggression) + 0.3f * p.GetSkill(i, Skill.Arms) : 0f,
             GroupKind.Inspectors => age >= 18 ? 0.6f * p.Get(i, Trait.Perception) + 0.3f * p.Get(i, Trait.Caution) - 0.2f : 0f,
+            // 공방: 손재주 있는 장인과 목수
+            GroupKind.Workshop => age >= 16 ? (p.JobOf[i] is (byte)Job.Crafter or (byte)Job.Carpenter ? 0.5f : 0f) + 0.6f * MathF.Max(p.GetSkill(i, Skill.Craft), p.GetSkill(i, Skill.Carpentry)) - 0.05f : 0f,
             _ => age >= 16 ? MathF.Max(0f, p.Piety[i] - 0.6f) * 2.5f : 0f,
         };
     }
@@ -259,6 +268,7 @@ public sealed partial class World
                 (byGroup.TryGetValue(g.Id, out var l) ? l : byGroup[g.Id] = new()).Add(i);
             }
         }
+        foreach (var g in _groups) if (g.Alive) g.OwnStrength *= ForceFactor(g);   // 무구와 상근
         SumSubtrees();
         foreach (var g in _groups.ToList())
         {
@@ -321,7 +331,7 @@ public sealed partial class World
             int traders = 0, workers = 0;
             foreach (int i in folk) { if (p.JobOf[i] == (byte)Job.Trader) traders++; else if (p.JobOf[i] == (byte)Job.SexWorker) workers++; }
             int houses = VillageList.Households[v];
-            foreach (GroupKind kind in new[] { GroupKind.Watch, GroupKind.Bandits, GroupKind.Brotherhood, GroupKind.Company, GroupKind.Sellswords, GroupKind.Brothel, GroupKind.School, GroupKind.Drill, GroupKind.Inspectors })
+            foreach (GroupKind kind in new[] { GroupKind.Watch, GroupKind.Bandits, GroupKind.Brotherhood, GroupKind.Company, GroupKind.Sellswords, GroupKind.Brothel, GroupKind.School, GroupKind.Drill, GroupKind.Inspectors, GroupKind.Workshop })
             {
                 // 이 마을의 그 종류 모임(가장 큰 것)
                 Group? here = null;
@@ -342,6 +352,8 @@ public sealed partial class World
                         // 학교는 놀고 있는 배운 사람이 있는 큰 마을에서 선다. 수련단과 감찰대는 저절로 서지 않는다(세력이 만든다)
                         GroupKind.School => houses >= 15 && folk.Any(IsIdleScholar) ? 0.08f : 0f,
                         GroupKind.Drill or GroupKind.Inspectors => 0f,
+                        // 공방은 장인이 여럿인 큰 마을에서 선다
+                        GroupKind.Workshop => houses >= 15 && folk.Count(i => p.JobOf[i] is (byte)Job.Crafter or (byte)Job.Carpenter) >= 3 ? 0.05f : 0f,
                         _ => 0.25f,
                     };
                     if (!_rng.Chance(pressure)) continue;
@@ -449,7 +461,7 @@ public sealed partial class World
                 if (!g.Alive) continue;
                 foreach (var t in g.Tasks)
                     if (t.Verb == Verb.Guard)
-                        _watchPow[t.Village] = _watchPow.GetValueOrDefault(t.Village) + g.OwnStrength * t.Weight * WorkFactor(g) * g.CmdFactor * (g.Paid || g.Parent >= 0 || g.Sanction >= 0 ? 0.6f : 0.4f);
+                        _watchPow[t.Village] = _watchPow.GetValueOrDefault(t.Village) + g.OwnStrength * t.Weight * WorkFactor(g) * g.CmdFactor * (FacilityOf(RootOf(g), FacilityKind.Fort, t.Village) != null ? 1.5f : 1f) * (g.Paid || g.Parent >= 0 || g.Sanction >= 0 ? 0.6f : 0.4f);
             }
             foreach (var (mv, ms) in _mercGuard) _watchPow[mv] = _watchPow.GetValueOrDefault(mv) + 0.6f * ms;   // 용병 계약
             _watchPowDay = Day;

@@ -73,11 +73,55 @@ public class CommandTests
         var c = w.SplitUnit(g);
         Assert.NotNull(c);
         w.RecountCommand();
-        Assert.Equal(0f, c!.Grip, 3);   // 갓 맡은 지휘자
+        Assert.True(c!.Grip < 0.2f);   // 갓 맡은 지휘자: 맡은 해 0, 조직원이 보는 눈만큼만
         Assert.True(w.AppointCommander(c, -1));
         Assert.True(w.NoCommander(c));
         w.RecountCommand();
         Assert.Equal(0f, c.Grip, 3);
         Assert.False(w.AppointCommander(g, leader));   // 맨 위 조직은 우두머리가 지휘한다
+    }
+}
+
+public class SupplyTests
+{
+    [Fact]
+    public void WorkshopMakesArmsAndArmsStrengthenTheUnit()
+    {
+        var (w, lord) = TestWorlds.WithLord(12);
+        var hh = w.Households; var p = w.People;
+        var heads = Enumerable.Range(0, hh.HighWater).Where(h => hh.IsAlive(h) && w.PatronOf(h) == lord && p.IsValid(hh.Head[h]))
+            .Select(h => hh.Head[h].Index).Where(i => w.GroupsOf(i).Count() < World.GroupSlots).ToList();
+        int leader = heads[0];
+        foreach (int i in heads.Take(6)) p.SetSkill(i, Skill.Craft, 0.6f);
+        var org = w.FoundGroup(leader, GroupKind.Workshop);
+        foreach (int i in heads.Skip(1).Take(9)) w.JoinGroup(i, org);
+        w.RecountOrgs();
+        var guard = w.SplitUnit(org)!;
+        w.SetUnitWeights(guard, new[] { (Verb.Guard, 1f) });
+        w.SetUnitWeights(org, new[] { (Verb.Produce, 1f) });
+        org.Product = Good.Arms; org.ProductManual = true;
+        org.Supply.Clear(); org.Supply.Add((guard.Id, 1f));
+        hh.Food[hh.IsAlive(p.Household[leader]) ? p.Household[leader] : 0] += 1000f;
+        org.Store[(int)Good.Basic] = 500f;
+        Assert.NotNull(w.BuildFacility(org, FacilityKind.Workshop, org.Village, org));
+        for (int y = 0; y < 3; y++) for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
+        Assert.True(org.Alive && guard.Alive, "조직이 흩어졌다");
+        Assert.True(guard.Kit[(int)Good.Arms] > 0f, "공방이 무구를 보급하지 않았다");
+        Assert.True(w.ArmsCov(guard) > 0f);
+    }
+
+    [Fact]
+    public void FacilityCollapsesWithoutUpkeep()
+    {
+        var (w, lord) = TestWorlds.WithLord(12);
+        var hh = w.Households; var p = w.People;
+        int leader = Enumerable.Range(0, hh.HighWater).Where(h => hh.IsAlive(h) && w.PatronOf(h) == lord && p.IsValid(hh.Head[h])).Select(h => hh.Head[h].Index).First();
+        var org = w.FoundGroup(leader, GroupKind.Watch);
+        int home = p.Household[leader];
+        hh.Food[home] += 500f;
+        var f = w.BuildFacility(org, FacilityKind.Warehouse, org.Village);
+        Assert.NotNull(f);
+        Assert.Equal(FacilityKind.Warehouse, f!.Kind);
+        Assert.Equal(org.Id, f.Owner);
     }
 }

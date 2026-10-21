@@ -296,6 +296,7 @@ public sealed partial class World
                 float leak = 0.01f * MathF.Sqrt(g.Total) + 0.1f * low / n + 0.05f * dual / n + (g.Visibility == Visibility.Neutral ? 0.05f : 0f);
                 if (g.Visibility == Visibility.Hidden) leak *= 0.5f;
                 leak *= 1f - LiaisonGuard(g);   // 연락책이 입단속을 한다
+                if (_facilities.Any(f => f.Alive && f.Owner == g.Id && f.Kind == FacilityKind.Fort && Ready(f))) leak *= 0.7f;   // 요새 집
                 g.Leak += leak;
                 if (g.Leak >= 1f && g.Visibility < Visibility.Public)
                 {

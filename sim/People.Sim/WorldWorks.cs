@@ -32,6 +32,9 @@ public sealed partial class World
         switch (v)
         {
             case Verb.Guard: case Verb.Raid: case Verb.Charity: case Verb.Recruit: case Verb.Train: return true;
+            case Verb.Produce:
+                if (Subtree(root).SelectMany(MembersFast).Any(IsMaker)) return true;
+                why = "만들 줄 아는 사람(공예·목공 0.2)이 있어야"; return false;
             case Verb.Survey:
                 if (size >= 3) return true;
                 why = "조직원 3명부터"; return false;
@@ -180,7 +183,7 @@ public sealed partial class World
                 // 플레이어 조직의 해를 끼치는 일은 플레이어가 직접 정했을 때만 한다
                 if (playerAuto && t.Verb is Verb.Collect or Verb.Agitate) continue;
                 float cf = WorkFactor(g) * g.CmdFactor;   // 가르치는 몫만큼, 지휘 범위를 넘은 만큼 덜 한다
-                float effort = g.Members * t.Weight * cf, strength = g.OwnStrength * t.Weight * cf;
+                float effort = g.Members * t.Weight * cf * (g.FullTime ? 1.6f : 1f), strength = g.OwnStrength * t.Weight * cf;   // 상근은 일에 1.6배(힘은 이미 셌다)
                 if (effort <= 0.1f || !CanUseVerb(root, t.Verb, out _)) continue;
                 switch (t.Verb)
                 {
@@ -193,7 +196,8 @@ public sealed partial class World
                     case Verb.Brothel: BrothelCut(root, g, t.Village, t.Weight, leader); break;
                     case Verb.Agitate: Agitate(root, t.Village, effort); break;
                     case Verb.Recruit: for (int k = 0; k < Math.Min(6, (int)MathF.Ceiling(effort / 2f)); k++) RecruitOne(root, g); break;
-                    case Verb.Train: Drill(g, t.Weight * cf); break;
+                    case Verb.Train: Drill(g, t.Weight * cf * TrainBoost(g)); break;
+                    case Verb.Produce: Produce(root, g, t.Weight * cf); break;
                 }
             }
         }
@@ -313,6 +317,7 @@ public sealed partial class World
             float g = MathF.Min(10f, hh.Food[h] * 0.02f);
             hh.Food[h] -= g; gift += g;
         }
+        if (FacilityOf(root, FacilityKind.Chapel, v) != null) gift *= 1.3f;   // 예배당
         Earn(root, gift);
     }
 
@@ -332,6 +337,7 @@ public sealed partial class World
             p.SetSkill(m, Skill.Trade, s + 0.01f * (1f - s));
         }
         float profit = TradeGoods(v, capacity);
+        if (FacilityOf(root, FacilityKind.Inn, v) != null) profit *= 1.1f;   // 여관
         float escort = Subtree(root).Where(g => g.Tasks.Any(t => t.Verb == Verb.Escort)).Sum(g => g.OwnStrength);
         float robbed = Math.Clamp(0.1f + 0.2f * DangerAt(v) - 0.05f * escort, 0f, 0.6f);
         if (_rng.Chance(robbed))
@@ -584,6 +590,9 @@ public sealed partial class World
                 break;
             case GroupKind.Inspectors:
                 Add(Verb.Survey, 1.5f);
+                break;
+            case GroupKind.Workshop:
+                Add(Verb.Produce, 1.5f);
                 break;
         }
         if (list.Count == 0) Add(Verb.Guard, 1f);

@@ -530,7 +530,8 @@ public sealed partial class World
             float dil = p.Get(i, Trait.Diligence), str = MathF.Min(1f, p.Get(i, Trait.Strength));
             hh.Need[h] += NeedByAge(age) * (0.8f + 0.2f * dil + 0.2f * str);
             float lab = LaborByAge(age) * (0.7f + 0.6f * dil) * (0.8f + 0.4f * str);
-            if (_students.ContainsKey(p.Uid[i])) lab *= 0.75f;   // 배우는 동안 일손은 3/4(농번기에는 쉬는 반나절 공부)
+            if (_students.ContainsKey(p.Uid[i])) lab *= 0.75f;
+            if (_fullTimeUids.Contains(p.Uid[i])) lab = 0f;   // 상근은 집 농사를 하지 않는다   // 배우는 동안 일손은 3/4(농번기에는 쉬는 반나절 공부)
             if (p.JobOf[i] != 0) lab *= Config.JobFarmShare;
             hh.Labor[h] += lab;
         }
@@ -562,6 +563,8 @@ public sealed partial class World
     }
 
     /// <summary>잉여 식량 S = 창고 ÷ 다음 수확까지 먹을 양.</summary>
+    public int DaysToHarvestPublic => DaysToHarvest();
+
     public float Surplus(int h)
     {
         float need = Households.Need[h] * DaysToHarvest();

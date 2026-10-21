@@ -1,7 +1,7 @@
 namespace People.Sim;
 
 /// <summary>조직이 맡는 일(동사). 조직의 종류는 이름일 뿐이고, 하는 일은 이것으로 정한다.</summary>
-public enum Verb : byte { Guard, Chase, Raid, Attack, Collect, Charity, Teach, Preach, Trade, Escort, Mercenary, Brothel, Agitate, Kidnap, Recruit, Survey, Train }
+public enum Verb : byte { Guard, Chase, Raid, Attack, Collect, Charity, Teach, Preach, Trade, Escort, Mercenary, Brothel, Agitate, Kidnap, Recruit, Survey, Train, Produce }
 
 /// <summary>맡은 일 하나: 무엇을, 어느 마을에서, 얼마의 무게로.</summary>
 public struct OrgTask
@@ -23,7 +23,7 @@ public sealed partial class World
     {
         Verb.Guard => "지킴", Verb.Chase => "쫓기", Verb.Raid => "털기", Verb.Attack => "치기", Verb.Collect => "보호세", Verb.Charity => "돌봄",
         Verb.Preach => "설교", Verb.Trade => "교역", Verb.Escort => "호송", Verb.Mercenary => "용병", Verb.Brothel => "유곽", Verb.Agitate => "선동",
-        Verb.Kidnap => "납치", Verb.Recruit => "포섭", Verb.Survey => "감시", Verb.Train => "훈련", _ => "가르침",
+        Verb.Kidnap => "납치", Verb.Recruit => "포섭", Verb.Survey => "감시", Verb.Train => "훈련", Verb.Produce => "생산", _ => "가르침",
     };
 
     /// <summary>지금 하는 일로 붙는 이름.</summary>
@@ -36,7 +36,7 @@ public sealed partial class World
             Verb.Guard => g.Paid || g.Parent >= 0 || g.Sanction >= 0 ? "경비대" : "자경단",
             Verb.Raid => "도적 떼", Verb.Chase => "치안대", Verb.Attack => "군대", Verb.Collect => g.Home >= 0 || RootOf(g).Home >= 0 ? "징수대" : "보호세 패",
             Verb.Charity => "신도회", Verb.Preach => "교단", Verb.Trade => "상단", Verb.Escort => "호송대", Verb.Mercenary => "용병단",
-            Verb.Brothel => "유곽", Verb.Agitate => "선동대", Verb.Kidnap => "납치단", Verb.Recruit => "포섭조", Verb.Survey => "감찰대", Verb.Train => "수련단", _ => "학당",
+            Verb.Brothel => "유곽", Verb.Agitate => "선동대", Verb.Kidnap => "납치단", Verb.Recruit => "포섭조", Verb.Survey => "감찰대", Verb.Train => "수련단", Verb.Produce => "공방", _ => "학당",
         };
     }
 
@@ -91,7 +91,7 @@ public sealed partial class World
         {
             GroupKind.Bandits => Verb.Raid, GroupKind.Brotherhood => Verb.Charity, GroupKind.Company => Verb.Trade,
             GroupKind.Sellswords => Verb.Mercenary, GroupKind.Brothel => Verb.Brothel,
-            GroupKind.School => Verb.Teach, GroupKind.Drill => Verb.Train, GroupKind.Inspectors => Verb.Survey, _ => Verb.Guard,
+            GroupKind.School => Verb.Teach, GroupKind.Drill => Verb.Train, GroupKind.Inspectors => Verb.Survey, GroupKind.Workshop => Verb.Produce, _ => Verb.Guard,
         };
         g.Tasks.Add(new OrgTask { Verb = v, Village = g.Village, Weight = 1f });
     }
@@ -752,11 +752,13 @@ public sealed partial class World
         BuildMemberIndex();
         foreach (var g in _groups) if (g.Alive && IsTop(g)) PickInner(g);
         CommandYear();
+        SupplyYear();
         AuthorityYear();
         VisibilityYear();
         WorkYear();
         TeachYear();
         EducationYear();
+        FacilityYear();
         AuthorityStats();
         _memberIdx = null;
         IdentityYear();

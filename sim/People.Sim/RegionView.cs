@@ -58,8 +58,8 @@ public static class RegionView
             int tier = w.TierOf(h), top = w.TopOf(h);
             string topName = top >= 0 && top != h && top != patron && p.IsValid(hh.Head[top]) ? Names.Family(lin.FamilyOf(p.Uid[hh.Head[top].Index])) : "";
             int hv = hh.Village[h];
-            hinfo.Append($"\"goods\":[{w.GoodsOf(h, Good.Basic).ToString("0", inv)},{w.GoodsOf(h, Good.Fine).ToString("0", inv)},{w.GoodsOf(h, Good.Tools).ToString("0.0", inv)},{w.GoodsOf(h, Good.Cloth).ToString("0.0", inv)},{w.GoodsOf(h, Good.Build).ToString("0.0", inv)}],");
-            hinfo.Append($"\"prices\":[{w.PriceAt(hv, Good.Basic).ToString("0.0", inv)},{w.PriceAt(hv, Good.Fine).ToString("0.0", inv)},{w.PriceAt(hv, Good.Tools).ToString("0.0", inv)},{w.PriceAt(hv, Good.Cloth).ToString("0.0", inv)},{w.PriceAt(hv, Good.Build).ToString("0.0", inv)}],");
+            hinfo.Append($"\"goods\":[{w.GoodsOf(h, Good.Basic).ToString("0", inv)},{w.GoodsOf(h, Good.Fine).ToString("0", inv)},{w.GoodsOf(h, Good.Tools).ToString("0.0", inv)},{w.GoodsOf(h, Good.Cloth).ToString("0.0", inv)},{w.GoodsOf(h, Good.Build).ToString("0.0", inv)},{w.GoodsOf(h, Good.Arms).ToString("0.0", inv)}],");
+            hinfo.Append($"\"prices\":[{w.PriceAt(hv, Good.Basic).ToString("0.0", inv)},{w.PriceAt(hv, Good.Fine).ToString("0.0", inv)},{w.PriceAt(hv, Good.Tools).ToString("0.0", inv)},{w.PriceAt(hv, Good.Cloth).ToString("0.0", inv)},{w.PriceAt(hv, Good.Build).ToString("0.0", inv)},{w.PriceAt(hv, Good.Arms).ToString("0.0", inv)}],");
             hinfo.Append($"\"realm\":{J(w.RealmName(h))},\"topRealm\":{J(top >= 0 && top != h && top != patron ? w.RealmName(top) : "")},");
             hinfo.Append($"\"tier\":{J(World.TierName(tier))},\"below\":{w.BelowOf(h)},\"top\":{J(topName)},\"legit\":{J(tier >= 2 ? World.LegitName(w.LegitOf(h)) : "")},");
             hinfo.Append($"\"class\":{J(tier >= 1 ? World.TierName(tier) : World.ClassName(w.ClassOf(h)))},\"leasedOut\":{w.LeasedOutCount(h)},\"leasedIn\":{w.LeasedInCount(h)},\"lord\":{J(lordName)},\"debt\":{w.DebtOf(h).ToString("0", inv)}}}");

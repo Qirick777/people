@@ -306,7 +306,8 @@ func show_house(hd: Array, house: Dictionary, members: Array) -> void:
 	_row("식량", _food_word(house))
 	if house.has("goods"):
 		var gd: Array = house["goods"]
-		_row("재화", "도구 %s개 · 옷 %s벌 · 자재 %s짐 · 기초 재료 %s · 고급 재료 %s" % [gd[2], gd[3], gd[4], gd[0], gd[1]])
+		var arms := ("" if gd.size() < 6 or float(gd[5]) < 0.05 else " · 무구 %s" % gd[5])
+		_row("재화", "도구 %s개 · 옷 %s벌 · 자재 %s짐 · 기초 재료 %s · 고급 재료 %s%s" % [gd[2], gd[3], gd[4], gd[0], gd[1], arms])
 		var pr: Array = house["prices"]
 		_row("마을 값", "식량으로 도구 %s · 옷 %s · 자재 %s · 고급 재료 %s" % [pr[2], pr[3], pr[4], pr[1]])
 	if float(house.get("debt", 0)) > 0.5: _row("빚", "식량 %d" % int(float(house["debt"])))

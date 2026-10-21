@@ -27,6 +27,7 @@ public sealed partial class World
         Verb.Teach => GroupKind.School,
         Verb.Train => GroupKind.Drill,
         Verb.Survey => GroupKind.Inspectors,
+        Verb.Produce => GroupKind.Workshop,
         _ => null,
     };
 

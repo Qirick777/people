@@ -538,7 +538,9 @@ func _open_orgs() -> void:
 			tv.add_child(UI.label("지휘자 없음: 일이 저절로 내려가지 않고 가장 큰 일 하나만 한다", 12, UI.RISK))
 		if float(e["over"]) > 0.0:
 			tv.add_child(UI.label("지휘 범위를 %d%% 넘음: 일과 싸움 힘 %d%%, 해마다 사람이 떠난다. 갈래를 나누고 지휘자를 앉힌다" % [int(float(e["over"]) * 100.0), int(float(e["cmdFactor"]) * 100.0)], 12, UI.RISK))
-		elif depth > 0 and not e["vacant"]:
+		if float(e["arms"]) > 0.0 or e["fullTime"]:
+			tv.add_child(UI.label(("상근 · " if e["fullTime"] else "") + "무구 보급 %d%%" % int(float(e["arms"]) * 100.0), 12, UI.MUTED))
+		if depth > 0 and float(e["over"]) <= 0.0 and not e["vacant"]:
 			tv.add_child(UI.label("장악도 %d%%(거사 때 이만큼이 지휘자를 따른다)" % int(float(e["grip"]) * 100.0), 12, UI.MUTED))
 		var teach: String = "가르침: " + e["lesson"] + (" %d%%" % int(float(e["teachShare"]) * 100.0) if float(e["teachShare"]) > 0.0 else "")
 		if e["heir"] != "": teach += " · 후계자 %s(이음 %d%%)" % [e["heir"], int(float(e["inherit"]) * 100.0)]
@@ -574,6 +576,24 @@ func _open_orgs() -> void:
 				sb2.tooltip_text = "누구를 얼마 동안 무엇을 가르치고, 끝나면 어디로 보낼지"
 				sb2.pressed.connect(func(): _open_school(id, e["name"]))
 				r.add_child(_center(sb2))
+			if e["producer"]:
+				var pb := UI.ghost("생산")
+				pb.tooltip_text = "무엇을 만들어 어디로 보낼지(보급, 납품, 비축, 직판)"
+				pb.pressed.connect(func(): _open_production(id, e["name"]))
+				r.add_child(_center(pb))
+			var ftb := UI.ghost("상근 풀기" if e["fullTime"] else "상근")
+			ftb.tooltip_text = "상근: 집 농사를 하지 않고 이 갈래 일과 싸움에 1.6배로 나선다. 세력 곳간이 한 사람 한 해 식량 24를 대야 한다"
+			var ft_on: bool = not e["fullTime"]
+			ftb.pressed.connect(func():
+				host.SetFullTime(id, ft_on)
+				for line in host.DrainChronicle(): _log(line)
+				_open_orgs())
+			r.add_child(_center(ftb))
+			if depth == 0:
+				var fb := UI.ghost("시설")
+				fb.tooltip_text = "세력이 짓고 갈래에 배정하는 시설(학당, 공방, 방앗간, 여관, 예배당, 창고, 병영, 요새 집)"
+				fb.pressed.connect(func(): _open_facilities(id, e["name"]))
+				r.add_child(_center(fb))
 			var wb := UI.ghost("일 비중")
 			wb.tooltip_text = "여러 일을 고르고 비중을 나눈다. 비중이 정체(이름)를 정한다"
 			wb.pressed.connect(func(): _open_org_weights(id, e["name"]))
@@ -1220,6 +1240,129 @@ func _open_school(id: int, name: String) -> void:
 		for line in host.DrainChronicle(): _log(line)
 		_open_school(id, name))
 	org_box.add_child(apply)
+	_show_panel(org_panel)
+
+
+## 생산: 만드는 것과 공급 선.
+func _open_production(id: int, name: String) -> void:
+	var info: Dictionary = host.ProductionInfo(id)
+	if info.is_empty():
+		_open_orgs()
+		return
+	org_title.text = name + " · 생산"
+	for c in org_box.get_children(): c.queue_free()
+	var back := UI.ghost("← 조직으로")
+	back.pressed.connect(_open_orgs)
+	org_box.add_child(back)
+	var note := UI.label("장인(공예·목공 0.2)이 만든다. 재료는 세력 곳간, 모자라면 장인 집에서 쓴다. 무구는 공방을 이 갈래에 배정해야 만든다. 세력 곳간: " + (info["store"] if info["store"] != "" else "비어 있음"), 12, UI.MUTED)
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note.custom_minimum_size = Vector2(600, 0)
+	org_box.add_child(note)
+	var st := {"product": int(info["product"])}
+	var prow := HBoxContainer.new()
+	prow.add_theme_constant_override("separation", 0)
+	prow.add_child(_center(UI.label("만들 것 ", 12, UI.MUTED)))
+	var pbtns := []
+	var goods: Array = info["goods"]
+	for k in goods.size():
+		var b := Button.new()
+		b.text = goods[k]["name"] + (" (잠김)" if goods[k]["locked"] != "" else "")
+		b.tooltip_text = goods[k]["locked"]
+		b.disabled = goods[k]["locked"] != ""
+		b.add_theme_font_size_override("font_size", 12)
+		UI.segment(b, int(goods[k]["good"]) == int(info["product"]), k == 0, k == goods.size() - 1)
+		pbtns.append(b)
+		prow.add_child(b)
+	for k in pbtns.size():
+		var gk := int(goods[k]["good"])
+		var bk: Button = pbtns[k]
+		bk.pressed.connect(func():
+			st["product"] = gk
+			for j in pbtns.size(): UI.segment(pbtns[j], j == k, j == 0, j == pbtns.size() - 1))
+	org_box.add_child(prow)
+	org_box.add_child(UI.label("보낼 곳과 비중", 12, UI.MUTED, true))
+	var pick := {}
+	var steps := [0, 25, 50, 75, 100]
+	for tg in info["targets"]:
+		var tid := int(tg["target"])
+		pick[tid] = int(tg["weight"])
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 0)
+		var lab := UI.label("%s · %s " % [tg["name"], tg["what"]], 12, UI.INK)
+		lab.custom_minimum_size = Vector2(330, 0)
+		row.add_child(_center(lab))
+		var btns := []
+		var near: int = 0
+		for x in steps:
+			if abs(x - int(tg["weight"])) < abs(near - int(tg["weight"])): near = x
+		for k in steps.size():
+			var b := Button.new()
+			b.text = str(steps[k])
+			b.add_theme_font_size_override("font_size", 12)
+			UI.segment(b, steps[k] == near, k == 0, k == steps.size() - 1)
+			btns.append(b)
+			row.add_child(b)
+		for k in btns.size():
+			var val: int = steps[k]
+			var b2: Button = btns[k]
+			b2.pressed.connect(func():
+				pick[tid] = val
+				for j in btns.size(): UI.segment(btns[j], j == k, j == 0, j == btns.size() - 1))
+		org_box.add_child(row)
+	var apply := UI.action("이대로 정한다", "", -1.0, false)
+	apply.pressed.connect(func():
+		var lines := []
+		for t in pick.keys():
+			if int(pick[t]) > 0: lines.append([int(t), float(pick[t])])
+		host.SetProduction(id, int(st["product"]), lines)
+		for line in host.DrainChronicle(): _log(line)
+		_open_orgs())
+	org_box.add_child(apply)
+	_show_panel(org_panel)
+
+
+## 시설: 가진 것(배정 바꾸기)과 지을 것.
+func _open_facilities(id: int, name: String) -> void:
+	var info: Dictionary = host.FacilityInfo(id)
+	if info.is_empty():
+		_open_orgs()
+		return
+	org_title.text = name + " · 시설"
+	for c in org_box.get_children(): c.queue_free()
+	var back := UI.ghost("← 조직으로")
+	back.pressed.connect(_open_orgs)
+	org_box.add_child(back)
+	org_box.add_child(UI.label("쓸 수 있는 식량 %d(곳간과 우두머리 집의 남는 몫) · 짓는 곳 %d번 마을" % [int(float(info["money"])), int(info["village"])], 12, UI.MUTED))
+	var have: Array = info["have"]
+	if not have.is_empty():
+		org_box.add_child(UI.label("가진 시설", 13, UI.MUTED, true))
+		for f in have:
+			var row := HBoxContainer.new()
+			row.add_theme_constant_override("separation", 6)
+			var lab := UI.label("%s · %s · %s · 배정 %s · 유지 %d/해\n%s" % [f["name"], f["village"], f["state"], f["assigned"] if f["assigned"] != "" else "없음", int(float(f["upkeep"])), f["effect"]], 12, UI.INK)
+			lab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.add_child(lab)
+			var fid := int(f["id"])
+			var mb := MenuButton.new()
+			mb.text = "배정"
+			var units: Array = info["units"]
+			for k in units.size(): mb.get_popup().add_item(units[k]["name"], k)
+			mb.get_popup().add_item("배정 풀기", units.size())
+			mb.get_popup().id_pressed.connect(func(k):
+				host.AssignFacility(id, fid, int(units[k]["id"]) if k < units.size() else -1)
+				_open_facilities(id, name))
+			row.add_child(_center(mb))
+			org_box.add_child(row)
+	org_box.add_child(UI.label("지을 것", 13, UI.MUTED, true))
+	for b in info["build"]:
+		var btn := UI.action("%s 짓기 · 식량 %d, %d년, 유지 %d/해" % [b["name"], int(float(b["cost"])), int(b["years"]), int(float(b["upkeep"]))], b["effect"], -1.0, false)
+		btn.disabled = not b["can"]
+		var kk := int(b["kind"])
+		btn.pressed.connect(func():
+			_set_hint(host.BuildFacility(id, kk))
+			for line in host.DrainChronicle(): _log(line)
+			_open_facilities(id, name))
+		org_box.add_child(btn)
 	_show_panel(org_panel)
 
 
@@ -1877,6 +2020,9 @@ func _run_autotest() -> void:
 			await _snap("live_orgs_roles.png")
 			var o2: Dictionary = host.OrgPanel().filter(func(o): return int(o["id"]) == oid)[0]
 			print("autotest: 일 비중 ", o2["tasks"], " · 곳간지기 ", o2["treasurer"])
+			_open_facilities(oid, orgs[0]["name"])
+			await _snap("live_facilities.png")
+			print("autotest: 지을 수 있는 시설 ", host.FacilityInfo(oid)["build"].filter(func(b): return b["can"]).size())
 
 		org_panel.visible = false
 	# 재판: 주군이 없는 집이 당한 사건은 마을 자경단 우두머리가 맡는다. 방금 세운 자경단의 집으로 모든 사건을 직접 판결한다

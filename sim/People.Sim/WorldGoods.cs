@@ -1,7 +1,7 @@
 namespace People.Sim;
 
-/// <summary>재화. 기초 재료(나무, 섬유, 돌), 고급 재료(쇠, 다듬은 목재), 도구, 의류, 자재.</summary>
-public enum Good : byte { Basic, Fine, Tools, Cloth, Build, Count }
+/// <summary>재화. 기초 재료(나무, 섬유, 돌), 고급 재료(쇠, 다듬은 목재), 도구, 의류, 자재, 무구(무기와 갑옷, 공방에서만 만든다).</summary>
+public enum Good : byte { Basic, Fine, Tools, Cloth, Build, Arms, Count }
 
 /// <summary>
 /// E1 수공업과 재화. 물건 하나하나가 아니라 집마다의 양으로 다룬다.
@@ -12,10 +12,10 @@ public enum Good : byte { Basic, Fine, Tools, Cloth, Build, Count }
 public sealed partial class World
 {
     public const int GoodCount = (int)Good.Count;
-    public static readonly float[] BasePrice = { 1f, 6f, 4f, 3f, 3f };
+    public static readonly float[] BasePrice = { 1f, 6f, 4f, 3f, 3f, 8f };
     private const float ClothNeed = 0.4f;   // 한 사람이 한 해에 닳리는 옷
-    private static readonly float[] Wear = { 0.10f, 0.10f, 0.15f, 0f, 0.05f };   // 해마다 닳는 몫(의류는 입어서 쓴다)
-    private static readonly float[] Input = { 0f, 3f, 2f, 2f, 2f };              // 한 단위에 드는 기초 재료
+    private static readonly float[] Wear = { 0.10f, 0.10f, 0.15f, 0f, 0.05f, 0.2f };   // 해마다 닳는 몫(의류는 입어서 쓴다, 무구는 다섯 해)
+    private static readonly float[] Input = { 0f, 3f, 2f, 2f, 2f, 3f };          // 한 단위에 드는 기초 재료
 
     private float[] _goods = new float[256 * GoodCount];
     private float[] _clothShort = new float[256];
@@ -26,7 +26,7 @@ public sealed partial class World
 
     public static string GoodName(Good g) => g switch
     {
-        Good.Basic => "기초 재료", Good.Fine => "고급 재료", Good.Tools => "도구", Good.Cloth => "의류", _ => "자재",
+        Good.Basic => "기초 재료", Good.Fine => "고급 재료", Good.Tools => "도구", Good.Cloth => "의류", Good.Arms => "무구", _ => "자재",
     };
 
     private void EnsureGoods()
@@ -95,11 +95,11 @@ public sealed partial class World
     /// <summary>겨울에 의류가 모자란 정도(0~1).</summary>
     private float ClothShort(int h) => h >= 0 && h < _clothShort.Length && _goodsFounded[h] == Households.FoundedDay[h] ? _clothShort[h] : 0f;
 
-    /// <summary>지배자 군인의 무장(0~1): 군인 하나에 고급 재료 하나.</summary>
+    /// <summary>지배자 군인의 무장(0~1): 군인 하나에 고급 재료나 무구 하나.</summary>
     private float WeaponCov(int lord)
     {
         int s = _soldiersOf.GetValueOrDefault(lord);
-        return s == 0 || lord * GoodCount >= _goods.Length ? 0f : MathF.Min(1f, G(lord, Good.Fine) / s);
+        return s == 0 || lord * GoodCount >= _goods.Length ? 0f : MathF.Min(1f, (G(lord, Good.Fine) + G(lord, Good.Arms)) / s);
     }
 
     // ------------------------------------------------------------------ 해마다
@@ -195,7 +195,7 @@ public sealed partial class World
         }
         // 5) 나머지 시장
         foreach (var (v, list) in byVillage)
-            foreach (var g in new[] { Good.Tools, Good.Cloth, Good.Fine, Good.Build })
+            foreach (var g in new[] { Good.Tools, Good.Cloth, Good.Fine, Good.Build, Good.Arms })
                 Market(v, list, g);
         _buildWant.Clear();
     }
@@ -397,7 +397,9 @@ public sealed partial class World
     private float KeepOf(int h, Good g) => g switch
     {
         Good.Tools => Workers(h), Good.Cloth => 1.2f * ClothNeed * Households.Members[h], Good.Basic => CraftNeed(h),
-        Good.Fine => _soldiersOf.GetValueOrDefault(h) + (ClientCount(h) > 0 ? 1f : 0f), _ => 0f,
+        Good.Fine => _soldiersOf.GetValueOrDefault(h) + (ClientCount(h) > 0 ? 1f : 0f),
+        // 무구는 군인을 둔 지배자만 바란다(고급 재료로 채운 만큼은 빼고)
+        Good.Arms => MathF.Max(0f, _soldiersOf.GetValueOrDefault(h) - G(h, Good.Fine)), _ => 0f,
     };
 
     /// <summary>새 집은 본가에서 도구와 옷가지를 나눠 들고 나온다(본가 것의 절반, 하나까지).</summary>
