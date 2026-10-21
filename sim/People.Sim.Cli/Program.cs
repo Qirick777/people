@@ -511,6 +511,7 @@ switch (cmd)
         long fdm = 0, fmet = 0, fsl = 0, fic = 0, ficw = 0, fsp = 0, fpl = 0, frot = 0, fex = 0;
         long tsn = 0, twn = 0, tcd = 0, tcp = 0, tdf = 0, tco = 0, tsp = 0, spy = 0, dbl = 0;
         long off = 0, taken = 0, pl = 0, br = 0, sup = 0, supw = 0, raids = 0, won = 0, rd = 0, gang = 0, gt = 0, gn = 0; double loot = 0;
+        long ccap = 0, cfree = 0, cesc = 0, cexe = 0, cpl = 0, ccv = 0, crs = 0, catt = 0, ckill = 0;
         for (int y = 0; y < years; y++)
         {
             for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
@@ -529,6 +530,7 @@ switch (cmd)
             fdm += st.FactionDemands; fmet += st.DemandsMet; fsl += st.FactionSlanders; fic += st.InnerCoups; ficw += st.InnerCoupWins; fsp += st.FactionSplits; fpl += st.Placated; frot += st.CmdRotated; fex += st.Expelled;
             tsn += st.ThreatSeen; twn += st.ThreatWarned; tcd += st.ThreatConditions; tcp += st.ThreatComplied; tdf += st.ThreatDefied; tco += st.ThreatCoopt; tsp += st.ThreatSuppress; spy += st.SpiesFound; dbl += st.DoubleAgents;
             raids += st.Raids; won += st.RaidsWon; rd += st.RaidDeaths; gang += st.BanditRaids; gt += st.GangTries; gn += st.GangNoTarget; loot += st.GangLoot;
+            ccap += st.Captured; cfree += st.CaptivesFreed; cesc += st.CaptivesEscaped; cexe += st.CaptivesExecuted; cpl += st.CaptivesPlaced; ccv += st.CaptivesConverted; crs += st.Ransoms; catt += st.Attacks; ckill += st.ChaseKills;
             off += st.OrgOffers; taken += st.OrgOffersTaken; pl += st.OrgPledges; br += st.OrgBreaks; sup += st.OrgSuppressions; supw += st.OrgSuppressWins;
             if (y % 5 == 4)
             {
@@ -543,6 +545,7 @@ switch (cmd)
                 Console.WriteLine($"   신앙: 신도 {st.Believers}, 광신도 {st.Zealots}(올해 새로 {st.NewZealots}, 깨짐 {st.ZealotsBroken}), 믿음 평균 {st.MeanFaith:0.00}, 헌금 {st.TithePaid:0}(거절 {st.TitheRefused}), 바치기 {st.Offerings}번 {st.OfferingTotal:0} | 회칙 " +
                                   string.Join(" ", w.Groups.Where(g => g.Alive && World.IsTop(g) && w.IsFaith(g)).GroupBy(g => g.Tithe).Select(k => $"{World.TitheName(k.Key)} {k.Count()}")));
                 Console.WriteLine("   상단: " + string.Join(" | ", w.Groups.Where(g => g.Alive && World.IsTop(g) && g.Kind == GroupKind.Company).Select(g => $"{g.Name} {g.Total}명 곳간 {g.Treasury:0} 번 것 {g.LastIncome:0} 일 {string.Join("·", w.Groups.Where(u => u.Alive && w.RootOf(u).Id == g.Id).SelectMany(u => u.Tasks).Select(t => World.VerbName(t.Verb)).Distinct())} 땅 {g.FactionPlots.Count}")));
+                Console.WriteLine($"   붙잡기: 붙잡음 {ccap}, 풀어 줌 {cfree}, 달아남 {cesc}, 처형 {cexe}, 갈래에 둠 {cpl}, 전향 {ccv}, 몸값 {crs}, 지금 {st.CaptivesHeld} | 치기 {catt}, 쫓다 죽임 {ckill}");
                 Console.WriteLine($"   기득권: 위협 본 해 {tsn}, 경고 {twn}, 조건 {tcd}(따름 {tcp}, 거역 {tdf}), 끌어들이기 {tco}, 누르기 {tsp} | 첩자 들킴 {spy}, 이중 첩자 {dbl}");
                 var bels = Enumerable.Range(0, w.Households.HighWater).Where(h => w.Households.IsAlive(h) && w.PatronOf(h) >= 0 && w.ClientCount(h) == 0).Select(h => w.BelongOf(h, w.PatronOf(h))).ToList();
                 if (bels.Count > 0) Console.WriteLine($"   저울 평균: 보호 {bels.Average(b => b.Protect):0.00} 생계 {bels.Average(b => b.Living):0.00} 공포 {bels.Average(b => b.Fear):0.00} 충성 {bels.Average(b => b.Loyal):0.00} 혜택 {bels.Average(b => b.Benefit):0.00} 관습 {bels.Average(b => b.Habit):0.00} 부담 {bels.Average(b => b.Burden):0.00} = {bels.Average(b => b.Total):0.00}, 0.1 아래 {bels.Count(b => b.Total < 0.1f)}");

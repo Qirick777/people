@@ -574,6 +574,7 @@ public partial class SimHost : Node
                     ["faith"] = World.IsTop(g) && w.IsFaith(g),
                     ["producer"] = g.Tasks.Any(t => t.Verb == Verb.Produce),
                     ["recruiter"] = g.Tasks.Any(t => t.Verb == Verb.Recruit),
+                    ["captives"] = depth == 0 ? w.Captives.Count(c => c.Root == g.Id) : 0,
                     ["force"] = World.IsForce(g.Kind) || g.Tasks.Any(t => World.IsAttackVerb(t.Verb)),
                     ["fullTime"] = g.FullTime,
                     ["arms"] = w.ArmsCov(g),
@@ -1225,6 +1226,82 @@ public partial class SimHost : Node
             lords.Add(new Godot.Collections.Dictionary { ["house"] = l, ["name"] = w.RealmName(l), ["odds"] = w.ContractOdds(root, l, Good.Arms, World.BasePrice[(int)Good.Arms]) });
         e["lords"] = lords;
         return e;
+    }
+
+    /// <summary>붙잡힌 사람 창: 사람마다 상태, 햇수, 집, 배치, 할 수 있는 처리.</summary>
+    public Godot.Collections.Dictionary CaptiveInfo(int id)
+    {
+        var e = new Godot.Collections.Dictionary();
+        var g = Commandable(id);
+        if (g == null) return e;
+        var w = _w!; var p = w.People;
+        var root = w.RootOf(g);
+        int leader = FindAlive(root.LeaderUid);
+        var list = new Godot.Collections.Array();
+        foreach (var c in w.Captives.Where(c => c.Root == root.Id).ToList())
+        {
+            int i = FindAlive(c.Uid);
+            if (i < 0) continue;
+            int head = p.Household[i] >= 0 && w.Households.IsAlive(p.Household[i]) && p.IsValid(w.Households.Head[p.Household[i]]) ? w.Households.Head[p.Household[i]].Index : -1;
+            var ransom = new Godot.Collections.Array();
+            var rdef = w.Def(InteractionId.Ransom);
+            if (leader >= 0 && head >= 0 && head != i)
+                foreach (float amt in rdef.Amounts)
+                {
+                    var ctx = new InteractionContext { Actor = leader, Target = head, Third = -1, Amount = amt };
+                    if (w.CanOffer(rdef, ctx)) ransom.Add(new Godot.Collections.Dictionary { ["amount"] = amt, ["chance"] = w.AcceptChance(rdef, ctx) });
+                }
+            var units = new Godot.Collections.Array();
+            if (Age(i) >= 16)
+                foreach (var u in w.Subtree(root).Where(u => u.Alive && (u == root || w.RootOf(u).Id == root.Id) && u.Id != c.Placed && w.CanPlace(i, u, w.RoleDefOf(RoleKind.Member))))
+                    units.Add(new Godot.Collections.Dictionary { ["id"] = u.Id, ["name"] = $"{u.Name} · {w.UnitLabel(u)}" });
+            list.Add(new Godot.Collections.Dictionary
+            {
+                ["uid"] = c.Uid, ["name"] = Names.Full(w.Lineage, c.Uid), ["age"] = Age(i), ["kind"] = World.CaptiveKindName(c.Kind),
+                ["years"] = (w.Day - c.Since) / w.Config.DaysPerYear, ["head"] = head >= 0 && head != i ? Names.Full(w.Lineage, p.Uid[head]) : "",
+                ["placed"] = c.Placed >= 0 && w.GroupById(c.Placed) is { } pu ? pu.Name : "", ["comply"] = c.Comply,
+                ["adult"] = Age(i) >= 16, ["ransom"] = ransom, ["units"] = units,
+            });
+        }
+        e["list"] = list;
+        return e;
+    }
+
+    private int CaptiveIndex(Group root, int uid)
+    {
+        int i = FindAlive(uid);
+        return i >= 0 && _w!.CaptiveOf(i) is { } c && c.Root == _w.RootOf(root).Id ? i : -1;
+    }
+
+    /// <summary>붙잡힌 사람 처리: 0 풀어 줌, 1 처형, 2 갈래에 둠(unit).</summary>
+    public string CaptiveAct(int id, int uid, int act, int unit = -1)
+    {
+        var g = Commandable(id);
+        if (g == null) return "";
+        var w = _w!;
+        int i = CaptiveIndex(g, uid);
+        if (i < 0) return "붙잡힌 사람이 아니다";
+        switch (act)
+        {
+            case 0: w.Release(i); return "풀어 주었다";
+            case 1: return w.Execute(i) ? "처형했다" : "16세 아래는 처형하지 않는다";
+            default: return w.GroupById(unit) is { } u && w.Place(i, u) ? $"{u.Name}에 두었다" : "그 갈래에 둘 수 없다";
+        }
+    }
+
+    /// <summary>붙잡힌 사람의 집 가장에게 몸값을 청한다(세력 우두머리가).</summary>
+    public string CaptiveRansom(int id, int uid, float amount)
+    {
+        var g = Commandable(id);
+        if (g == null) return "";
+        var w = _w!; var p = w.People;
+        var root = w.RootOf(g);
+        int i = CaptiveIndex(g, uid), leader = FindAlive(root.LeaderUid);
+        if (i < 0 || leader < 0) return "";
+        int head = w.Households.IsAlive(p.Household[i]) && p.IsValid(w.Households.Head[p.Household[i]]) ? w.Households.Head[p.Household[i]].Index : -1;
+        if (head < 0 || head == i) return "몸값을 낼 가장이 없다";
+        var r = w.Interact(InteractionId.Ransom, new InteractionContext { Actor = leader, Target = head, Third = -1, Amount = amount });
+        return r.Accepted ? $"몸값 은화 {amount:0}을 받고 풀어 주었다" : "몸값을 거절했다";
     }
 
     /// <summary>무력 창: 포획·사살, 적대 세력(까닭), 지정할 만한 가까운 지배자.</summary>

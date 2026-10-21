@@ -521,19 +521,22 @@ public sealed partial class World
             // 두목이 잡혔으면 아이는 돌아오고 몸값은 없다
             if (c.Verdict is Verdict.Fine or Verdict.Flog or Verdict.Execute or Verdict.Pending) continue;
             bool victimAlive = p.IsAliveIndex(victim) && p.Uid[victim] == victimUid;
+            if (!victimAlive || !Capture(g, victim)) continue;   // 붙잡아 둔다(R10)
             if (_rng.Chance(Math.Clamp(pay, 0.1f, 0.95f)))
             {
                 hh.Food[target] -= ransom;
                 Stats.Ransoms++;
                 Earn(root, ransom);
+                if (AgeYears(victim) < 16) AddRepRoot(root, 0.02f, -0.2f, 0.03f);   // 아이 몸값은 평판을 크게 깎는다
                 if (head >= 0 && p.IsAliveIndex(head)) Social.Add(p, head, leaderUid, -40f, 30f);
+                Release(victim);
             }
-            else if (victimAlive && _rng.Chance(0.15f * aggr))
+            else if (AgeYears(victim) >= 16 && _rng.Chance(0.15f * aggr))
             {
                 Stats.KidnapKills++;
-                Die(victim, false);
+                Execute(victim);
             }
-            else if (head >= 0 && p.IsAliveIndex(head)) Social.Add(p, head, leaderUid, -30f);
+            else if (head >= 0 && p.IsAliveIndex(head)) Social.Add(p, head, leaderUid, -30f);   // 몸값을 내지 않았다: 붙잡혀 있다
         }
     }
 

@@ -57,8 +57,8 @@ public sealed partial class World
         Roles.Add(new RoleDef { Kind = RoleKind.Crafter, Name = "장인", AppliesTo = (w, u) => u.Tasks.Any(t => t.Verb == Verb.Produce),
             Holds = (w, i, u) => u.Tasks.Any(t => t.Verb == Verb.Produce) && w.IsMaker(i) });
         Roles.Add(new RoleDef { Kind = RoleKind.Member, Name = "조직원", AppliesTo = (w, u) => true, Holds = (w, i, u) => true });
-        // 붙잡힌 사람에게는 몸이 닿는 상호작용(성관계, 혼인)을 걸지 않는다
-        OfferRules.Add((w, def, c) => !((def.Sexual || def.Intimate) && (w.IsCaptive(c.Target) || (c.Third >= 0 && w.IsCaptive(c.Third)))));
+        // 붙잡힌 사람은 몸이 닿는 상호작용(성관계, 혼인)을 걸지도 받지도 않는다
+        OfferRules.Add((w, def, c) => !((def.Sexual || def.Intimate) && (w.IsCaptive(c.Actor) || w.IsCaptive(c.Target) || (c.Third >= 0 && w.IsCaptive(c.Third)))));
     }
 
     public RoleDef RoleDefOf(RoleKind k) => Roles.First(r => r.Kind == k);
@@ -70,9 +70,6 @@ public sealed partial class World
         foreach (var r in Roles) if (r.AppliesTo(this, u) && r.Holds(this, i, u)) return r;
         return null;
     }
-
-    /// <summary>붙잡혀 있는가(R10에서 채운다).</summary>
-    public bool IsCaptive(int i) => false;
 
     /// <summary>사람 i 를 갈래 u 의 직책 r 에 둘 수 있나: 생기는 갈래인가 → 최소 나이 → 예외 규칙.</summary>
     public bool CanPlace(int i, Group u, RoleDef r)

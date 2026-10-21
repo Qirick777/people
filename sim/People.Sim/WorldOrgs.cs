@@ -753,6 +753,7 @@ public sealed partial class World
         foreach (var g in _groups) if (g.Alive && IsTop(g)) PickInner(g);
         BudgetYear();
         ConscriptYear();
+        CaptiveYear();
         CommandYear();
         SupplyYear();
         FactionYear();

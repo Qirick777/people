@@ -609,6 +609,11 @@ func _open_orgs() -> void:
 				fb2.tooltip_text = "헌금 회칙과 바치기. 믿음이 깊은 신도는 광신도가 되어 떠나지 않고 굶어도 낸다"
 				fb2.pressed.connect(func(): _open_faith(id, e["name"]))
 				r.add_child(_center(fb2))
+			if int(e.get("captives", 0)) > 0:
+				var cpb := UI.ghost("붙잡힌 사람 %d" % int(e["captives"]))
+				cpb.tooltip_text = "가둬 둠, 갈래에 둠, 몸값, 풀어 줌, 처형"
+				cpb.pressed.connect(func(): _open_captives(id, e["name"]))
+				r.add_child(_center(cpb))
 			if e.get("force", false):
 				var fcb := UI.ghost("무력")
 				fcb.tooltip_text = "공격 뒤 포획·사살, 적대 세력 지정"
@@ -1511,6 +1516,61 @@ func _open_company(id: int, name: String) -> void:
 			for line in host.DrainChronicle(): _log(line)
 			_open_company(id, name))
 		org_box.add_child(cb)
+	_show_panel(org_panel)
+
+
+## 붙잡힌 사람: 사람마다 처리.
+func _open_captives(id: int, name: String) -> void:
+	var info: Dictionary = host.CaptiveInfo(id)
+	if info.is_empty():
+		_open_orgs()
+		return
+	org_title.text = name + " · 붙잡힌 사람"
+	for c in org_box.get_children(): c.queue_free()
+	var back := UI.ghost("← 조직으로")
+	back.pressed.connect(_open_orgs)
+	org_box.add_child(back)
+	org_box.add_child(UI.label("가둬 두면 한 사람 한 해 식량 12가 든다. 붙잡고 있는 동안 그 집 사람에게 거는 요구(사람 카드)가 잘 받아들여진다. 16세 아래는 가둬 둠·몸값·풀어 줌만 한다", 12, UI.MUTED))
+	if (info["list"] as Array).is_empty():
+		org_box.add_child(UI.label("없음", 12, UI.INK))
+	for c in info["list"]:
+		var uid := int(c["uid"])
+		var line := "%s · %d세 · %s %d년" % [c["name"], int(c["age"]), c["kind"], int(c["years"])]
+		if String(c["placed"]) != "": line += " · %s에 둠(순응 %d%%)" % [c["placed"], int(float(c["comply"]) * 100.0)]
+		if String(c["head"]) != "": line += " · 가장 " + String(c["head"])
+		org_box.add_child(UI.label(line, 13, UI.INK, true))
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 6)
+		var rel := UI.ghost("풀어 줌")
+		rel.pressed.connect(func():
+			_set_hint(host.CaptiveAct(id, uid, 0))
+			for l in host.DrainChronicle(): _log(l)
+			_open_captives(id, name))
+		row.add_child(rel)
+		for rs in c["ransom"]:
+			var amt: float = float(rs["amount"])
+			var rb := UI.ghost("몸값 %d (%d%%)" % [int(amt), int(float(rs["chance"]) * 100.0)])
+			rb.pressed.connect(func():
+				_set_hint(host.CaptiveRansom(id, uid, amt))
+				for l in host.DrainChronicle(): _log(l)
+				_open_captives(id, name))
+			row.add_child(rb)
+		if c["adult"]:
+			var ex := UI.ghost("처형")
+			ex.pressed.connect(func():
+				_set_hint(host.CaptiveAct(id, uid, 1))
+				for l in host.DrainChronicle(): _log(l)
+				_open_captives(id, name))
+			row.add_child(ex)
+		org_box.add_child(row)
+		for u in c["units"]:
+			var unit_id := int(u["id"])
+			var ub := UI.action("%s에 둔다" % u["name"], "순응이 0.7을 넘으면 스스로 남는다. 낮으면 달아난다")
+			ub.pressed.connect(func():
+				_set_hint(host.CaptiveAct(id, uid, 2, unit_id))
+				for l in host.DrainChronicle(): _log(l)
+				_open_captives(id, name))
+			org_box.add_child(ub)
 	_show_panel(org_panel)
 
 
@@ -2638,6 +2698,9 @@ func _run_autotest() -> void:
 				await _snap("live_budget.png")
 				org_panel.visible = false
 				print("autotest: 예산 갈래 ", (host.BudgetInfo(int(sorgs[0]["id"])).get("units", []) as Array).size())
+				_open_captives(int(sorgs[0]["id"]), sorgs[0]["name"])
+				await _snap("live_captives.png")
+				org_panel.visible = false
 				_open_force(int(sorgs[0]["id"]), sorgs[0]["name"])
 				await _snap("live_force.png")
 				org_panel.visible = false

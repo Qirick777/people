@@ -12,7 +12,7 @@ public enum NonPay : byte { Forgive, Debt, Seize, Detain, Harm, Expel }
 /// - 내지 않으면 지배자가 정한 미납 대응을 한다. 맡는 사람이 없는 집에는 아무것도 할 수 없다.
 ///   용서: 충성 0.6 넘는 가장은 충성 +0.03(용서받았다), 아니면 그대로. 빚: 밀린 것 + 10%가 빚이 된다(두 해 넘으면 땅을 가져간다).
 ///   압류: 밀린 것 + 20%를 곡식·은화로 가져간다. 충성 −0.05, 그 마을 다른 집은 해마다 본보기만큼 더 낸다.
-///   구금: 붙잡기(R10)가 오기 전까지는 압류에 공포 +0.01을 더한다. 해치기: 압류 + 충성 −0.15, 보는 눈 −30, 공포 +0.01, 평판 −0.01.
+///   구금: 가장을 붙잡아 두고 밀린 것 + 20%를 몸값으로 받는다(R10). 붙잡을 수 없으면 압류. 해치기: 압류 + 충성 −0.15, 보는 눈 −30, 공포 +0.01, 평판 −0.01.
 ///   내쫓기: 세력원에서 뺀다(공포 +0.01).
 /// - NPC 지배자: 아주 거칠면(공격성 0.8) 해치기, 거칠면(0.65) 압류, 그 밖은 용서(빚을 지우면 이자와 땅 빼앗기로 마을이 크게 마른다).
 /// </summary>
@@ -81,8 +81,16 @@ public sealed partial class World
                 if (owed > 0.5f) _debts.Add(new Debt { Debtor = h, DebtorFounded = hh.FoundedDay[h], Creditor = lord, CreditorFounded = hh.FoundedDay[lord], Owed = owed * 1.1f });
                 Stats.TaxDebts++;
                 break;
-            case NonPay.Seize:
             case NonPay.Detain:
+                // 가장을 붙잡아 두고 밀린 것을 몸값으로 받는다(붙잡을 수 없으면 압류)
+                if (head >= 0 && AgeYears(head) >= 16 && LordOrg(lord, false) is { } lo && Capture(lo, head, 2, owed * 1.2f))
+                {
+                    if (v >= 0) _example[v] = _example.GetValueOrDefault(v) + 1f;
+                    Stats.TaxSeized++;
+                    break;
+                }
+                goto case NonPay.Seize;
+            case NonPay.Seize:
             case NonPay.Harm:
                 {
                     float take = MathF.Min(owed * 1.2f, MathF.Max(0f, hh.Food[h] - hh.Need[h] * DaysToHarvest() * 0.5f));

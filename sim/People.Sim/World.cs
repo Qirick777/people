@@ -39,6 +39,7 @@ public sealed partial class World
         InitRoles();
         InitRep();
         InitDoctrineMods();
+        InitCaptiveRules();
     }
 
     public int SpawnX { get; private set; }
@@ -1263,6 +1264,7 @@ public sealed partial class World
         var husband = p.Husband[w];
         if (!p.IsValid(husband)) return;
         int m = husband.Index;
+        if (IsCaptive(w) || IsCaptive(m)) return;   // 붙잡혀 떨어져 있다
         int h = p.Household[w];
         if (!Households.IsAlive(h)) return;
         // 같이 사는 부부: 꾸준한 관계를 하루 단위로 묶어 날마다 판정한다.

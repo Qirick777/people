@@ -169,7 +169,10 @@ public sealed partial class World
             LootGoods(best, h);
             if (!war && p.IsValid(hh.Head[h]) && p.IsValid(hh.Head[best])) CommitCrime(CrimeType.Raid, hh.Head[h].Index, hh.Head[best].Index, take, false);
             int deadBefore = Stats.RaidDeaths;
-            if (raider < 0 || DoctrineOn(raider, Doctrine.NonViolence) <= 0f) Casualty(best, defense, KillMult(gang));   // 불살 교리: 죽이지 않는다
+            // 포획을 고른 떼는 맞선 어른 하나를 붙잡기도 한다
+            if (gang != null && !gang.Kill && _rng.Chance(0.25f) && MembersOf(best).Where(m => AgeYears(m) >= 16 && !IsCaptive(m)).OrderByDescending(FightPower).FirstOrDefault(-1) is int cv && cv >= 0)
+                Capture(gang, cv, war ? 1 : 0);
+            else if (raider < 0 || DoctrineOn(raider, Doctrine.NonViolence) <= 0f) Casualty(best, defense, KillMult(gang));   // 불살 교리: 죽이지 않는다
             // 떼의 평판: 털기 −0.05, 사람이 죽으면 −0.1 더. 이름과 공포는 오른다
             if (war) AddRepRoot(gang!, 0.03f, 0f, 0.02f);   // 적대 세력 치기는 평판을 깎지 않는다
             else if (gang != null) AddRepRoot(gang, 0.02f, Stats.RaidDeaths > deadBefore ? -0.15f : -0.05f, 0.03f);
