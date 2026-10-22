@@ -31,7 +31,7 @@ public sealed partial class World
         int size = root.Home >= 0 ? BelowOf(root.Home) + root.Total : root.Total;
         switch (v)
         {
-            case Verb.Guard: case Verb.Raid: case Verb.Charity: case Verb.Recruit: case Verb.Train: case Verb.Worship: return true;
+            case Verb.Guard: case Verb.Raid: case Verb.Charity: case Verb.Recruit: case Verb.Train: case Verb.Worship: case Verb.Nurture: return true;
             case Verb.Produce:
                 // 농사와 채집은 아무나, 물건을 만들려면 솜씨 있는 사람이 있어야
                 if (Subtree(root).Any(u => u.FarmFood || u.Product == Good.Basic) || Subtree(root).SelectMany(MembersFast).Any(IsMaker)) return true;

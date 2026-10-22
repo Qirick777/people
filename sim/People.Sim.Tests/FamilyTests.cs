@@ -39,7 +39,7 @@ public class FamilyTests
             if (before <= 0f) continue;
             p.ContraUntil[f] = w.Day + 10;
             float after = w.ConceptionFactor(f, p.Husband[f].Index);
-            Assert.True(after < before * 0.5f, $"전 {before}, 후 {after}");
+            Assert.Equal(before * 0.75f, after, 3);   // 약초는 25%만 줄인다(R12)
             return;
         }
         Assert.Fail("임신할 수 있는 아내가 없다");

@@ -159,7 +159,11 @@ public sealed class SimConfig
     public int SecretForgetYears { get; init; } = 15;        // 이만큼 지난 비밀은 묻힌다
     public float ArrangeWealth { get; init; } = 600f;
     // C 묶음: 첩, 약초꾼의 약, 몸 파는 일
-    public float ContraEffect { get; init; } = 0.6f;         // 피임 약이 임신 확률을 줄이는 몫(약초라 완전하지 않다)
+    public int NursingDays { get; init; } = 60;              // 오래 젖 먹이기로 늘어나는 터울(R12)
+    public int NursingChildren { get; init; } = 6;           // 아이가 이만큼이면 오래 젖을 먹인다
+    public int SpacingChildren { get; init; } = 5;           // 아이가 이만큼이고 형편이 모자라면 부부가 터울을 둔다
+    public float WithdrawalCut { get; init; } = 0.4f;        // 질외사정이 줄이는 몫
+    public float ContraEffect { get; init; } = 0.25f;        // 피임 약초가 임신 확률을 줄이는 몫(약초라 완전하지 않다, R12)
     public float ContraPrice { get; init; } = 5f;           // 한 해 치 값(식량)
     public float AbortionPrice { get; init; } = 15f;
     public float AbortionWorks { get; init; } = 0.7f;       // 낙태 약이 듣는 확률

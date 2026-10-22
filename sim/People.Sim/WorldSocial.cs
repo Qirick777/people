@@ -206,6 +206,7 @@ public sealed partial class World
         AddThreatDefs(d);
         AddFactionDefs(d);
         AddCaptiveDefs(d);
+        AddNurtureDefs(d);
         return d;
     }
 
@@ -234,7 +235,7 @@ public sealed partial class World
         int husband = p.IsValid(p.Husband[w]) ? p.Husband[w].Index : -1;
         int legal = husband >= 0 ? p.Uid[husband] : -1;
         bool preg = false;
-        for (int k = 0; k < acts && !preg; k++) preg = ActPregnancy(w, m, legal);
+        for (int k = 0; k < acts && !preg; k++) preg = ActPregnancy(w, m, legal, Withdrawal(m));   // 질외사정
         if (preg && legal != p.Uid[m])
         {
             if (legal >= 0) AddSecret(SecretType.HiddenFather, w, m);

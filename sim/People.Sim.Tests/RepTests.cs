@@ -8,7 +8,7 @@ public class RepTests
         var (w, lord) = TestWorlds.WithLord(12);
         var hh = w.Households; var p = w.People;
         var heads = Enumerable.Range(0, hh.HighWater).Where(h => hh.IsAlive(h) && w.PatronOf(h) == lord && p.IsValid(hh.Head[h]))
-            .Select(h => TestWorlds.Free(w, hh.Head[h].Index)).ToList();
+            .Select(h => TestWorlds.Free(w, hh.Head[h].Index)).OrderBy(i => w.ClientCount(p.Household[i]) > 0 ? 1 : 0).ToList();   // 따르는 집이 없는 가장이 이끈다
         var g = w.FoundGroup(heads[0], kind);
         foreach (int i in heads.Skip(1).Take(8)) w.JoinGroup(i, g);
         w.RecountOrgs();

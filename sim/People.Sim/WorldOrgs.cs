@@ -1,7 +1,7 @@
 namespace People.Sim;
 
 /// <summary>조직이 맡는 일(동사). 조직의 종류는 이름일 뿐이고, 하는 일은 이것으로 정한다.</summary>
-public enum Verb : byte { Guard, Chase, Raid, Attack, Collect, Charity, Teach, Preach, Trade, Escort, Mercenary, Brothel, Agitate, Kidnap, Recruit, Survey, Train, Produce, Worship, Lease, Lend }
+public enum Verb : byte { Guard, Chase, Raid, Attack, Collect, Charity, Teach, Preach, Trade, Escort, Mercenary, Brothel, Agitate, Kidnap, Recruit, Survey, Train, Produce, Worship, Lease, Lend, Nurture }
 
 /// <summary>맡은 일 하나: 무엇을, 어느 마을에서, 얼마의 무게로.</summary>
 public struct OrgTask
@@ -23,7 +23,7 @@ public sealed partial class World
     {
         Verb.Guard => "지킴", Verb.Chase => "공격: 범죄자", Verb.Raid => "공격: 민간인", Verb.Attack => "공격: 적대 세력", Verb.Collect => "보호세", Verb.Charity => "돌봄",
         Verb.Preach => "설교", Verb.Trade => "교역", Verb.Escort => "호송", Verb.Mercenary => "용병", Verb.Brothel => "유곽", Verb.Agitate => "선동",
-        Verb.Kidnap => "납치", Verb.Recruit => "포섭", Verb.Survey => "감시", Verb.Train => "훈련", Verb.Produce => "생산", Verb.Worship => "예배", Verb.Lease => "임대", Verb.Lend => "대부", _ => "가르침",
+        Verb.Kidnap => "납치", Verb.Recruit => "포섭", Verb.Survey => "감시", Verb.Train => "훈련", Verb.Produce => "생산", Verb.Worship => "예배", Verb.Lease => "임대", Verb.Lend => "대부", Verb.Nurture => "양육", _ => "가르침",
     };
 
     /// <summary>지금 하는 일로 붙는 이름.</summary>
@@ -36,7 +36,7 @@ public sealed partial class World
             Verb.Guard => g.Paid || g.Parent >= 0 || g.Sanction >= 0 ? "경비대" : "자경단",
             Verb.Raid => "도적 떼", Verb.Chase => "치안대", Verb.Attack => "군대", Verb.Collect => g.Home >= 0 || RootOf(g).Home >= 0 ? "징수대" : NonPayOf(LandHomeOf(RootOf(g))) switch { NonPay.Harm or NonPay.Detain => "보호세 패", NonPay.Forgive => "모금꾼", _ => "징수대" },
             Verb.Charity => "구휼회", Verb.Preach => "선교단", Verb.Worship => "교단", Verb.Lease => "상회", Verb.Lend => "전당", Verb.Trade => "상단", Verb.Escort => "호송대", Verb.Mercenary => "용병단",
-            Verb.Brothel => "유곽", Verb.Agitate => "선동대", Verb.Kidnap => "납치단", Verb.Recruit => RecruitLabel(g), Verb.Survey => "감찰대", Verb.Train => "수련단", Verb.Produce => g.FarmFood ? "농장" : g.Product == Good.Basic ? "채집단" : g.Product == Good.Build ? "목공소" : "공방", _ => SchoolLabel(g),
+            Verb.Brothel => "유곽", Verb.Agitate => "선동대", Verb.Kidnap => "납치단", Verb.Recruit => RecruitLabel(g), Verb.Nurture => NurseryLabel(g), Verb.Survey => "감찰대", Verb.Train => "수련단", Verb.Produce => g.FarmFood ? "농장" : g.Product == Good.Basic ? "채집단" : g.Product == Good.Build ? "목공소" : "공방", _ => SchoolLabel(g),
         };
     }
 
@@ -754,6 +754,7 @@ public sealed partial class World
         BudgetYear();
         ConscriptYear();
         CaptiveYear();
+        NurtureYear();
         CommandYear();
         SupplyYear();
         FactionYear();

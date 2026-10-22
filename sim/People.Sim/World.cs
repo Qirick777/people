@@ -1270,6 +1270,7 @@ public sealed partial class World
         // 같이 사는 부부: 꾸준한 관계를 하루 단위로 묶어 날마다 판정한다.
         float coupleK = 0.7f + 0.3f * Math.Clamp(p.CoupleScore[w], 0f, 1f);
         float prob = Config.ConceptionBasePerDay * coupleK * ConceptionFactor(w, m);
+        if (Spacing(w)) prob *= 1f - Withdrawal(m);   // 아이 많은 가난한 부부는 터울을 둔다
         if (_rng.Chance(prob)) Conceive(w, m, p.Uid[m]);
     }
 
@@ -1280,7 +1281,7 @@ public sealed partial class World
     {
         var p = People;
         int age = AgeYears(w);
-        if (age < 16 || age > 42 || p.PregnantUntil[w] >= 0 || Day < p.CooldownUntil[w]) return 0f;
+        if (age < 16 || age > 42 || p.PregnantUntil[w] >= 0 || Day < p.CooldownUntil[w] || Barren(w)) return 0f;
         if (Genetics.Expressed(p.Genome(w), Marker.DiseaseB, false) || Genetics.Expressed(p.Genome(m), Marker.DiseaseB, true)) return 0f;
         int h = p.Household[w];
         float ageK = age <= 30 ? 1f : 1f - 0.8f * (age - 30) / 12f;
@@ -1325,6 +1326,7 @@ public sealed partial class World
         p.PregnantUntil[w] = -1;
         float fert = p.Get(w, Trait.Fertility);
         p.CooldownUntil[w] = Day + (int)MathF.Round(Config.PostpartumCooldownDays * (Config.CooldownFertBase - Config.CooldownFertSlope * fert));
+        if (Lineage.Children(p.Uid[w]) >= Config.NursingChildren) p.CooldownUntil[w] += Config.NursingDays;   // 아이가 많으면 오래 젖을 먹인다
         int h = p.Household[w];
         float con = p.Get(w, Trait.Constitution);
         int n = 1;
@@ -1336,8 +1338,9 @@ public sealed partial class World
         for (int k = 0; k < n; k++)
         {
             if (_rng.Chance(Config.StillbirthBase * (1.5f - con) * (n > 1 ? 2f : 1f))) { Stats.Stillbirths++; continue; }
-            BirthChild(w, h);
+            var child = BirthChild(w, h);
             if (p.BirthsGiven[w] < 255) p.BirthsGiven[w]++;
+            PlaceNewborn(w, child);
         }
         float maternal = (1f - Config.HealerEffect * HealerSkillAt(p.Household[w])) * Config.MaternalDeathBase * (age >= 35 ? 2f : 1f) * (1.5f - con) * (p.BirthsGiven[w] >= 6 ? 1.5f : 1f) * (n > 1 ? 1.5f : 1f);
         if (_rng.Chance(maternal))

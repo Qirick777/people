@@ -114,7 +114,11 @@ public sealed partial class World
                     p.Honor[c.Actor] -= 0.05f;
                     int sp = w.SpouseOf(c.Actor);
                     if (sp >= 0) Social.Add(p, sp, p.Uid[c.Actor], -30f);
-                    if (w.AgeYears(c.Target) < 16 && !w.SameHouse(c.Actor, c.Target)) w.MoveTo(c.Target, p.Household[c.Actor]);
+                    // 어머니가 아버지를 좋게 보지 않으면 데려가는 것을 거부한다(인정은 된다)
+                    int mo = p.IsValid(p.Mother[c.Target]) ? p.Mother[c.Target].Index : -1;
+                    bool refuse = mo >= 0 && w.SameHouse(mo, c.Target) && w._rng.Chance(Math.Clamp(0.5f - Social.Opinion(p, mo, p.Uid[c.Actor]) / 100f, 0f, 0.9f));
+                    if (refuse) w.Stats.MotherRefused++;
+                    else if (w.AgeYears(c.Target) < 16 && !w.SameHouse(c.Actor, c.Target)) w.MoveTo(c.Target, p.Household[c.Actor]);
                 }
                 Social.AddFrom(p, c.Target, c.Actor, 30f);
                 w.Chron(c.Actor, $"{w.SubjName(c.Actor)} {Obj(Names.Full(w.Lineage, u))} 자식으로 인정했다");
@@ -222,7 +226,7 @@ public sealed partial class World
         };
         d[(int)InteractionId.BuyContraception] = new InteractionDef
         {
-            Id = InteractionId.BuyContraception, Name = "피임 약 사기", Category = InteractionCategory.Trade,
+            Id = InteractionId.BuyContraception, Name = "피임 약초 사기", Category = InteractionCategory.Trade,
             Can = (w, c) => w.Adult(c.Actor) && w.IsHealer(c.Target) && w.Households.IsAlive(w.People.Household[c.Actor])
                             && w.Households.Food[w.People.Household[c.Actor]] >= w.Config.ContraPrice,
             Accept = (w, c) => Math.Clamp(0.9f - 0.3f * w.People.Piety[c.Target], 0.3f, 0.95f),
@@ -230,6 +234,7 @@ public sealed partial class World
             {
                 w.Pay(c.Actor, c.Target, w.Config.ContraPrice);
                 w.People.ContraUntil[c.Actor] = w.Day + w.Config.DaysPerYear;
+                w.TookHerb(c.Actor);
                 w.Stats.ContraSold++;
             },
         };

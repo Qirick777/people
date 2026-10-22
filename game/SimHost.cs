@@ -397,7 +397,7 @@ public partial class SimHost : Node
         var w = _w!; var p = w.People; var hh = w.Households;
         var def = w.Def((InteractionId)id);
         var cands = new List<int>();
-        if (def.Id is InteractionId.ArrangeMatch or InteractionId.ForcedMatch or InteractionId.Apprentice)
+        if (def.Id is InteractionId.ArrangeMatch or InteractionId.ForcedMatch or InteractionId.Apprentice or InteractionId.Foster or InteractionId.EntrustNursery)
         {
             int h = p.Household[actor];
             if (hh.IsAlive(h)) cands.AddRange(w.MembersOf(h));
@@ -542,7 +542,7 @@ public partial class SimHost : Node
                     ["members"] = g.Members,
                     ["total"] = g.Total,
                     ["strength"] = g.Strength,
-                    ["tasks"] = tasks == "" ? "맡은 일 없음" : tasks,
+                    ["tasks"] = (tasks == "" ? "맡은 일 없음" : tasks) + (World.IsNursery(g) ? $" · 맡은 아이 {w.WardCount(g)}" : ""),
                     ["manual"] = g.Manual,
                     ["named"] = g.NameFixed,
                     ["visibility"] = depth == 0 ? (int)g.Visibility : -1,
@@ -714,7 +714,7 @@ public partial class SimHost : Node
         vs.Sort((x, y) => x.d.CompareTo(y.d));
         var root = _w.RootOf(g);
         var verbs = new[] { Verb.Guard, Verb.Chase, Verb.Attack, Verb.Charity, Verb.Preach, Verb.Recruit, Verb.Collect, Verb.Trade, Verb.Escort,
-                            Verb.Mercenary, Verb.Brothel, Verb.Agitate, Verb.Raid, Verb.Kidnap };
+                            Verb.Mercenary, Verb.Brothel, Verb.Agitate, Verb.Raid, Verb.Kidnap, Verb.Nurture };
         foreach (var verb in verbs)
         {
             bool harsh = verb is Verb.Raid or Verb.Kidnap or Verb.Agitate or Verb.Collect;
@@ -844,7 +844,7 @@ public partial class SimHost : Node
         var w = _w!;
         var root = w.RootOf(g);
         foreach (var v in new[] { Verb.Guard, Verb.Chase, Verb.Attack, Verb.Train, Verb.Survey, Verb.Teach, Verb.Preach, Verb.Charity, Verb.Trade, Verb.Escort,
-                                  Verb.Mercenary, Verb.Recruit, Verb.Collect, Verb.Brothel, Verb.Agitate, Verb.Raid, Verb.Kidnap })
+                                  Verb.Mercenary, Verb.Recruit, Verb.Collect, Verb.Brothel, Verb.Agitate, Verb.Raid, Verb.Kidnap, Verb.Nurture })
         {
             bool open = w.CanUseVerb(root, v, out var why);
             float cur = g.Tasks.Where(t => t.Verb == v).Sum(t => t.Weight);

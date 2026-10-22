@@ -52,7 +52,7 @@ public sealed partial class World
     public float Polish(int i, Lesson l) => People.IsAliveIndex(i) ? _polish.GetValueOrDefault((People.Uid[i], l)) : 0f;
 
     /// <summary>학교 갈래의 한 해 비용: 학생 수 × 질 단계 비용.</summary>
-    public float SchoolCost(Group u) => IsSchool(u) ? _students.Count(x => x.Value.unit == u.Id) * QualityCost[(int)PlanOf(u).Quality] : 0f;
+    public float SchoolCost(Group u) => IsSchool(u) ? SchoolCount(u).students * QualityCost[(int)PlanOf(u).Quality] : 0f;   // 지금 갈래에 있는 학생만
 
     /// <summary>졸업 뒤 갈 곳으로 붙는 학교 이름.</summary>
     public string SchoolLabel(Group g)
