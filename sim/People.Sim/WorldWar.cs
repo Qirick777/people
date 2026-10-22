@@ -15,7 +15,7 @@ public sealed partial class World
 
     public float WarOdds(int a, int t)
     {
-        float x = RealmPower(a), y = RealmPower(t);
+        float x = RealmPower(a) + PactAllyPower(a), y = RealmPower(t) + PactAllyPower(t);   // 동맹은 힘의 0.3을 보탠다(R14)
         return x * x / (x * x + y * y + 0.01f);
     }
 
@@ -23,7 +23,7 @@ public sealed partial class World
     {
         var hh = Households;
         float r = 4f * Config.ProtectRange;
-        return hh.IsAlive(a) && hh.IsAlive(t) && a != t && PatronOf(a) < 0 && PatronOf(t) < 0 && TierOf(a) >= 1 && TierOf(t) >= 1 && Dist2(a, t) <= r * r;
+        return hh.IsAlive(a) && hh.IsAlive(t) && a != t && PatronOf(a) < 0 && PatronOf(t) < 0 && TierOf(a) >= 1 && TierOf(t) >= 1 && Dist2(a, t) <= r * r && !HasPact(a, t);   // 약조를 맺은 사이는 싸우지 않는다(R14)
     }
 
     /// <summary>군인 가운데 frac 만큼이 죽는다.</summary>

@@ -159,6 +159,7 @@ public sealed class SimConfig
     public int SecretForgetYears { get; init; } = 15;        // 이만큼 지난 비밀은 묻힌다
     public float ArrangeWealth { get; init; } = 600f;
     // C 묶음: 첩, 약초꾼의 약, 몸 파는 일
+    public int NpcNations { get; init; } = 1;                // NPC가 나라를 세우나(0이면 아니다, 시험용)
     public int NursingDays { get; init; } = 60;              // 오래 젖 먹이기로 늘어나는 터울(R12)
     public int NursingChildren { get; init; } = 6;           // 아이가 이만큼이면 오래 젖을 먹인다
     public int SpacingChildren { get; init; } = 5;           // 아이가 이만큼이고 형편이 모자라면 부부가 터울을 둔다

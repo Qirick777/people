@@ -1586,6 +1586,67 @@ public partial class SimHost : Node
     /// <summary>
     /// 지배자 도구(플레이어 집이 따르는 집을 가질 때만): 세율과 내 땅의 조직 목록. 조직마다 쓸 수 있는 수(거두기 제안, 누르기).
     /// </summary>
+    /// <summary>건국 창: 요건, 나라, 작위·약조 후보.</summary>
+    public Godot.Collections.Dictionary NationInfo()
+    {
+        var e = new Godot.Collections.Dictionary();
+        if (!Ready) return e;
+        var w = _w!; var p = w.People; var hh = w.Households;
+        int h = w.PlayerHousehold;
+        if (!hh.IsAlive(h) || w.ClientCount(h) == 0 || !p.IsValid(hh.Head[h])) return e;
+        int me = hh.Head[h].Index;
+        e["actor"] = me;
+        var n = w.NationOf(h);
+        e["nation"] = n != null;
+        var reqs = new Godot.Collections.Array();
+        foreach (var (name, ok, now) in w.NationReqs(h)) reqs.Add(new Godot.Collections.Dictionary { ["name"] = name, ["ok"] = ok, ["now"] = now });
+        e["reqs"] = reqs;
+        e["canFound"] = w.CanFoundNation(h);
+        var rel = w.ReligionOf(me);
+        e["headReligion"] = rel?.Id ?? -1; e["headReligionName"] = rel?.Name ?? "";
+        if (n == null) return e;
+        e["name"] = n.Name; e["since"] = n.Since / w.Config.DaysPerYear; e["law"] = (int)n.BrothelLaw; e["short"] = n.Short;
+        e["religion"] = n.ReligionId >= 0 ? w.Religions.FirstOrDefault(r => r.Id == n.ReligionId)?.Name ?? "" : "";
+        var titles = new Godot.Collections.Array();
+        var tdef = w.Def(InteractionId.GrantTitle);
+        foreach (int c in Enumerable.Range(0, hh.HighWater).Where(x => hh.IsAlive(x) && w.PatronOf(x) == h && w.ClientCount(x) > 0 && p.IsValid(hh.Head[x])).Select(x => hh.Head[x].Index))
+            titles.Add(new Godot.Collections.Dictionary { ["target"] = c, ["name"] = $"{Names.Full(w.Lineage, p.Uid[c])} · {w.RealmName(p.Household[c])}", ["titled"] = w.IsTitled(p.Household[c]), ["can"] = w.CanOffer(tdef, new InteractionContext { Actor = me, Target = c, Third = -1 }) });
+        e["titles"] = titles;
+        var pacts = new Godot.Collections.Array();
+        var pdef = w.Def(InteractionId.NationPact);
+        foreach (int l in Enumerable.Range(0, hh.HighWater).Where(x => hh.IsAlive(x) && x != h && w.PatronOf(x) < 0 && w.TierOf(x) >= 1 && p.IsValid(hh.Head[x]))
+                     .OrderBy(x => (hh.X[x] - hh.X[h]) * (hh.X[x] - hh.X[h]) + (hh.Y[x] - hh.Y[h]) * (hh.Y[x] - hh.Y[h])).Take(5))
+        {
+            int lh = hh.Head[l].Index;
+            var c0 = new InteractionContext { Actor = me, Target = lh, Third = -1, Amount = 0f };
+            var c1 = new InteractionContext { Actor = me, Target = lh, Third = -1, Amount = 1f };
+            pacts.Add(new Godot.Collections.Dictionary
+            {
+                ["target"] = lh, ["name"] = w.RealmName(l) is { Length: > 0 } rn ? rn : Names.Full(w.Lineage, p.Uid[lh]), ["nation"] = w.NationOf(l)?.Name ?? "",
+                ["na"] = w.HasPact(h, l, PactKind.NonAggression), ["al"] = w.HasPact(h, l, PactKind.Alliance),
+                ["naChance"] = w.CanOffer(pdef, c0) ? w.AcceptChance(pdef, c0) : -1f, ["alChance"] = w.CanOffer(pdef, c1) ? w.AcceptChance(pdef, c1) : -1f,
+            });
+        }
+        e["pacts"] = pacts;
+        return e;
+    }
+
+    public string FoundNation(string name, bool stateReligion)
+    {
+        if (!Ready) return "";
+        var w = _w!;
+        int h = w.PlayerHousehold;
+        int me = h >= 0 && w.People.IsValid(w.Households.Head[h]) ? w.Households.Head[h].Index : -1;
+        if (me < 0) return "";
+        var n = w.FoundNation(h, name, stateReligion ? w.ReligionOf(me)?.Id ?? -1 : -1);
+        return n != null ? $"{n.Name}을 세웠다" : "건국 요건이 모자라다";
+    }
+
+    public void SetBrothelLaw(int law) { if (Ready) _w!.SetBrothelLaw(_w.PlayerHousehold, (BrothelLaw)Math.Clamp(law, 0, 2)); }
+
+    public int GrantTitleId => (int)InteractionId.GrantTitle;
+    public int NationPactId => (int)InteractionId.NationPact;
+
     public Godot.Collections.Dictionary LordTools()
     {
         var e = new Godot.Collections.Dictionary();

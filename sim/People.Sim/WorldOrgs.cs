@@ -755,6 +755,7 @@ public sealed partial class World
         ConscriptYear();
         CaptiveYear();
         NurtureYear();
+        NationYear();
         CommandYear();
         SupplyYear();
         FactionYear();

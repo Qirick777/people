@@ -207,6 +207,7 @@ public sealed partial class World
         AddFactionDefs(d);
         AddCaptiveDefs(d);
         AddNurtureDefs(d);
+        AddNationDefs(d);
         return d;
     }
 

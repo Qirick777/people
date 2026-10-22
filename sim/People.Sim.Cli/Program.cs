@@ -417,6 +417,7 @@ switch (cmd)
         if (gen) for (int h = 0; h < hh.HighWater; h++) if (hh.IsAlive(h) && w.TierOf(h) >= 1 && Fam0(h) >= 0) lordFams.Add(Fam0(h));   // 생성 때의 지배자 가문은 새 가문이 아니다
         int newLordFams = 0; double houseYears = 0;
         long plots = 0, exposed = 0, purges = 0, strikes = 0, wins = 0, wars = 0, fails = 0, declared = 0, supp = 0, nego = 0, letgo = 0, indep = 0;
+        long natF = 0, natR = 0, natO = 0, natL = 0, natSV = 0;
         // 독립 세력 표본: (해, 집, 세운 날, 아래 집 수)
         var samples = new List<(int year, int h, int founded, int below)>();
         int broken = 0, judged = 0;
@@ -425,6 +426,7 @@ switch (cmd)
         {
             for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
             var st = w.Stats;
+            natF += st.NationsFounded; natR += st.NationsRecognized; natO += st.NationsOpposed; natL += st.NationsLost; natSV += st.NationShortVill;
             plots += st.Plots; exposed += st.PlotsExposed; purges += st.Purges; strikes += st.CoupStrikes; wins += st.CoupWins; wars += st.CivilWars; fails += st.CoupFails;
             declared += st.Declared; supp += st.IndepSuppressed; nego += st.IndepNegotiated; letgo += st.IndepLetGo; indep += st.Independences;
             houseYears += hh.AliveCount;
@@ -495,6 +497,7 @@ switch (cmd)
         double perK = houseYears > 0 ? newLordFams / (houseYears / 1000.0) * 100.0 : 0;
         Console.WriteLine($"새로 영주가 된 가문(50년 뒤): {newLordFams} → 1,000집·100년당 {perK:F2} (목표 1~3)");
         Console.WriteLine($"100년 동안 꺾이거나 쪼개진 독립 세력: {broken}/{judged} = {(judged > 0 ? broken / (double)judged : 0):P0} (목표 15~40%)");
+        Console.WriteLine($"건국: 세움 {natF}, 승인 {natR}, 적대 {natO}, 잃음 {natL}(마을 모자람 해 {natSV}), 지금 {w.Nations.Count()}" + string.Join("", w.Nations.Select(n => $" | {n.Name}")));
         Console.WriteLine($"쿠데타: 꾸밈 {plots}, 들킴 {exposed}, 숙청 {purges}, 거사 {strikes} (자리 빼앗음 {wins}, 내전 {wars}, 실패 {fails})");
         Console.WriteLine($"독립: 선언 {declared}, 진압 {supp}, 협상 {nego}, 체념 {letgo}, 홀로 섬 {indep}");
         break;

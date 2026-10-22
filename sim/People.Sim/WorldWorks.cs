@@ -420,6 +420,8 @@ public sealed partial class World
         var p = People; var hh = Households;
         float value = _sexTradeByVillage.GetValueOrDefault(v);
         if (value <= 0f) return;
+        var law = BrothelLawAt(v);
+        if (law == BrothelLaw.Banned) { Stats.BrothelBanned++; return; }   // 나라가 금지한 곳에서는 영업하지 못한다(R14)
         float cut = (1f - unit.WorkerShare) * 0.4f * value * MathF.Min(1f, weight * 2f) * (0.5f + 0.25f * unit.BrothelQuality);
         // 몫은 이 조직에 든 일꾼(스스로 든 어른)의 집에서만 나간다. 대신 보호받아 우두머리를 좋게 본다
         var workers = new List<int>();
@@ -433,6 +435,7 @@ public sealed partial class World
             float take = MathF.Min(cut / workers.Count, MathF.Max(0f, hh.Food[h] * 0.3f));
             hh.Food[h] -= take;
             Stats.BrothelCut += take;
+            if (law == BrothelLaw.Licensed && NationOfVillage(v) is { } nat) { float fee = 0.2f * take; hh.Food[nat.House] += fee; take -= fee; }   // 허가: 20%를 나라에 낸다
             Earn(root, take);
         }
         BrothelYear(root, unit, v, workers.Where(w => InGroup(w, unit)).ToList(), leader);

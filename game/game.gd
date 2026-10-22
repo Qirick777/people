@@ -892,6 +892,7 @@ func _open_rise() -> void:
 	# 지배자 도구: 세율, 내 땅의 조직
 	var lt: Dictionary = host.LordTools()
 	if not lt.is_empty():
+		_nation_box()
 		var trow := HBoxContainer.new()
 		trow.add_theme_constant_override("separation", 0)
 		var tl := UI.label("세율 ", 13, UI.MUTED, true)
@@ -1696,6 +1697,79 @@ func _open_force(id: int, name: String) -> void:
 			_open_force(id, name))
 		org_box.add_child(cb)
 	_show_panel(org_panel)
+
+
+## 건국: 요건, 선포, 작위, 유곽 법, 약조. 다툼 창 지배자 도구 맨 위에 붙는다.
+func _nation_box() -> void:
+	var ni: Dictionary = host.NationInfo()
+	if ni.is_empty(): return
+	var actor := int(ni["actor"])
+	if not ni["nation"]:
+		rise_box.add_child(UI.label("건국 요건", 13, UI.MUTED, true))
+		for r in ni["reqs"]:
+			rise_box.add_child(UI.label(("● " if r["ok"] else "○ ") + "%s · %s" % [r["name"], r["now"]], 12, UI.INK if r["ok"] else UI.MUTED))
+		if ni["canFound"]:
+			var rel_name := String(ni["headReligionName"])
+			var fb := UI.action("나라를 세운다" + (" (국교 " + rel_name + ")" if rel_name != "" else ""), "이웃은 승인하거나 적대한다. 같은 종교 교단은 지지한다", -1.0, true)
+			fb.pressed.connect(func():
+				_set_hint(host.FoundNation("", rel_name != ""))
+				for line in host.DrainChronicle(): _log(line)
+				_open_rise())
+			rise_box.add_child(fb)
+		rise_box.add_child(HSeparator.new())
+		return
+	rise_box.add_child(UI.label("%s · %d년에 세움%s%s" % [ni["name"], int(ni["since"]), (" · 국교 " + String(ni["religion"])) if String(ni["religion"]) != "" else "", (" · 요건 모자람 %d년" % int(ni["short"])) if int(ni["short"]) > 0 else ""], 13, UI.INK, true))
+	var lrow := HBoxContainer.new()
+	lrow.add_theme_constant_override("separation", 0)
+	lrow.add_child(_center(UI.label("유곽 법 ", 12, UI.MUTED)))
+	var laws := ["자유", "허가", "금지"]
+	for k in 3:
+		var b := Button.new()
+		b.text = laws[k]
+		b.add_theme_font_size_override("font_size", 12)
+		UI.segment(b, int(ni["law"]) == k, k == 0, k == 2)
+		var kv := k
+		b.pressed.connect(func():
+			host.SetBrothelLaw(kv)
+			_open_rise())
+		lrow.add_child(b)
+	rise_box.add_child(lrow)
+	if not (ni["titles"] as Array).is_empty():
+		rise_box.add_child(UI.label("작위(바로 아래 봉신)", 12, UI.MUTED))
+		for t in ni["titles"]:
+			if t["titled"]:
+				rise_box.add_child(UI.label(String(t["name"]) + " · 작위 받음", 12, UI.INK))
+			elif t["can"]:
+				var tid := int(t["target"])
+				var tb := UI.action(String(t["name"]) + "에게 작위를 내린다", "충성 +0.1, 보는 눈 +20")
+				tb.pressed.connect(func():
+					_set_hint(host.Interact(int(host.GrantTitleId), actor, tid, -1, 0.0))
+					for line in host.DrainChronicle(): _log(line)
+					_open_rise())
+				rise_box.add_child(tb)
+	if not (ni["pacts"] as Array).is_empty():
+		rise_box.add_child(UI.label("약조(불가침이면 서로 싸우지 않고, 동맹이면 전쟁 힘을 보탠다)", 12, UI.MUTED))
+		for pc in ni["pacts"]:
+			var prow := HBoxContainer.new()
+			prow.add_theme_constant_override("separation", 6)
+			prow.add_child(_center(UI.label(String(pc["name"]) + ((" · " + String(pc["nation"])) if String(pc["nation"]) != "" else ""), 12, UI.INK)))
+			var ptid := int(pc["target"])
+			for kind in [0, 1]:
+				var has: bool = pc["na"] if kind == 0 else pc["al"]
+				var ch: float = float(pc["naChance"] if kind == 0 else pc["alChance"])
+				var label := ("불가침" if kind == 0 else "동맹")
+				if has:
+					prow.add_child(_center(UI.label(label + " 맺음", 12, UI.MUTED)))
+				elif ch >= 0.0:
+					var kb := UI.ghost("%s %d%%" % [label, int(ch * 100.0)])
+					var amt := float(kind)
+					kb.pressed.connect(func():
+						_set_hint(host.Interact(int(host.NationPactId), actor, ptid, -1, amt))
+						for line in host.DrainChronicle(): _log(line)
+						_open_rise())
+					prow.add_child(kb)
+			rise_box.add_child(prow)
+	rise_box.add_child(HSeparator.new())
 
 
 ## 모집: 데려갈 곳과 강제 징집.
