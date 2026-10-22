@@ -7,6 +7,7 @@ public sealed class Plot
     public readonly HashSet<int> Backers = new();   // 편든 사람 uid(봉신 가장, 갈래 우두머리, 측근)
     public readonly HashSet<int> Known = new();     // 아는 사람 uid(꾸미는 사람 포함)
     public bool Exposed;                            // 지배자가 알았다(플레이어 지배자의 답을 기다린다)
+    public bool Absorb;                             // 이기면 옛 조직을 흡수한다(아니면 계승, R13)
 }
 
 /// <summary>
@@ -89,8 +90,7 @@ public sealed partial class World
         var lo = LordOrg(lord, false);
         if (lo != null && IsZealot(p.Uid[c], lo)) return 0f;   // 지배자의 신앙 세력 광신도
         float pullP = po != null ? AuthorityPull(c, po) : 0.2f, pullL = lo != null ? AuthorityPull(c, lo) : 0.5f;
-        float s = 0.5f + (Social.Opinion(p, c, p.Uid[plotter]) - Social.Opinion(p, c, p.Uid[lh])) / 200f
-                  + 0.15f * (pullP - pullL) + 0.2f * (p.Get(c, Trait.Ambition) - 0.5f);
+        float s = SideLean(c, p.Uid[plotter], p.Uid[lh], lo, po) + 0.15f * (pullP - pullL);   // 갈라서기 편 고르기(R13) + 아는 권위
         if (p.LoyalUid[c] == p.Uid[lh]) s -= 0.1f + 0.5f * (p.Loyalty[c] - 0.5f);   // 섬기는 사람은 불만이 없으면 의무로 지킨다
         // 꾸미는 사람이 이끄는 조직의 조직원은 그를 따른다(양다리)
         // 그 지배자에게 붙은 조직이면 조직원의 마음이 갈린다(둘 다 섬긴다)
@@ -408,7 +408,7 @@ public sealed partial class World
             Stats.CoupWins++;
             Chron(pi, $"{SubjName(pi)} 거사를 일으켜 {ln}의 자리를 빼앗았다(편든 이 {mine.Count}명)");
             Chron(lh, $"{SubjName(lh)} {pn}의 거사에 자리를 빼앗겼다");
-            TakeSeat(pi, x.Lord, mine);
+            TakeSeat(pi, x.Lord, mine, x.Absorb);
         }
         else if (ratio >= 0.4f)
         {
@@ -430,7 +430,7 @@ public sealed partial class World
     }
 
     /// <summary>꾸민 사람 집이 L의 자리를 넘겨받는다: 따르는 집, 군인, 땅, 곡식, 성. L의 주군 아래 그 자리에 앉는다(찬탈).</summary>
-    private void TakeSeat(int pi, int lord, List<int> backers)
+    private void TakeSeat(int pi, int lord, List<int> backers, bool absorb = false)
     {
         var p = People; var hh = Households;
         int ph = p.Household[pi], lh = HeadIdx(lord);
@@ -441,7 +441,14 @@ public sealed partial class World
         var po = LordOrg(ph, false);
         InheritLordship(lord, ph);
         Stats.LordshipsInherited--;   // 물려받은 것이 아니다
-        if (lo != null)
+        if (lo != null && absorb && po != null && po != lo)
+        {
+            // 흡수: 옛 조직은 와해되고 사람들은 내 조직에 조직 충성 0.2로 들어온다(R13)
+            _lordOrg.Remove(lord);
+            lo.Home = -1; lo.HomeFounded = -1;
+            Absorb(lo, po);
+        }
+        else if (lo != null)
         {
             _lordOrg.Remove(lord);
             if (po != null && po != lo) { lo.Home = -1; lo.HomeFounded = -1; lo.Parent = po.Id; }
@@ -449,7 +456,7 @@ public sealed partial class World
             lo.Inner.Remove(p.Uid[pi]);
             lo.Shaken = MathF.Min(1f, lo.Shaken + 0.5f);
         }
-        if (liege >= 0 && liege != ph && hh.IsAlive(liege) && !WouldLoop(ph, liege)) { _patron[ph] = liege; _patronFounded[ph] = hh.FoundedDay[liege]; }
+        if (!absorb && liege >= 0 && liege != ph && hh.IsAlive(liege) && !WouldLoop(ph, liege)) { _patron[ph] = liege; _patronFounded[ph] = hh.FoundedDay[liege]; }
         EnsureRealmArrays();
         _legit[ph] = (byte)Legitimacy.Self;
         Resnap(ph);
@@ -478,6 +485,7 @@ public sealed partial class World
         _legit[ph] = (byte)Legitimacy.Self;
         var lo = LordOrg(lord, false);
         Group? po = null;
+        var taken = new List<Group>();
         foreach (int c in backers)
         {
             int ch = p.Household[c];
@@ -492,10 +500,13 @@ public sealed partial class World
                 po ??= LordOrg(ph);
                 if (po == null) break;
                 g.Parent = po.Id;
-                // 그 갈래의 군인은 이제 꾸민 집이 부린다
-                foreach (int m in Members(g)) if (_employer.TryGetValue(m, out int b) && b == lord) { _employer[m] = ph; _employerVer++; }
+                taken.Add(g);
             }
         }
+        // 지휘자를 따르지 않는 사람은 남고, 지휘자를 두고 넘어오는 사람도 있다(R13). 넘어온 군인은 꾸민 집이 부린다
+        if (lo != null && po != null) SortFollowers(lo, taken, po, p.Uid[pi], (m, toRebel) => { if (toRebel && _employer.TryGetValue(m, out int b) && b == lord) { _employer[m] = ph; _employerVer++; } });
+        foreach (var g in taken)
+            foreach (int m in Members(g)) if (_employer.TryGetValue(m, out int b) && b == lord) { _employer[m] = ph; _employerVer++; }
         for (int k = 0; k < 2; k++) { Casualty(lord, 0f); Casualty(ph, 0f); }
         if (p.IsAliveIndex(pi)) p.Notoriety[pi] += 0.2f;
         int lh = HeadIdx(lord);

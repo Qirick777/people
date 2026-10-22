@@ -357,7 +357,8 @@ public sealed partial class World
             Expel(root, f.Leader);
             return;
         }
-        float mine = f.Power, theirs = MathF.Max(0.1f, root.Strength - f.Power) * (0.8f + 0.4f * p.Get(leader, Trait.Aggression));
+        float turn = DefectorPower(root, f);   // 지휘자를 두고 넘어올 사람(R13)
+        float mine = f.Power + turn, theirs = MathF.Max(0.1f, root.Strength - f.Power - turn) * (0.8f + 0.4f * p.Get(leader, Trait.Aggression));
         float ratio = mine / (mine + theirs) + 0.2f * (_rng.NextFloat() - 0.5f);
         if (IsPlayer(leader)) _fork = true;
         string fn = Names.Full(Lineage, f.Leader), ln = Names.Full(Lineage, root.LeaderUid);
@@ -392,6 +393,7 @@ public sealed partial class World
         head.Home = -1; head.HomeFounded = -1;
         foreach (var u in units) if (u != head) u.Parent = head.Id;
         foreach (int uid in f.Members) _grievance.Remove((root.Id, uid));
+        SortFollowers(root, units, head, f.Leader);   // 지휘자를 따르지 않는 사람은 남고, 넘어오는 사람도 있다(R13)
         Stats.FactionSplits++;
         int leader = FindAlive(root.LeaderUid);
         if (leader >= 0)

@@ -859,20 +859,35 @@ func _open_rise() -> void:
 			if not cands.is_empty():
 				rise_box.add_child(UI.label("끌어들일 만한 사람(거절하면 지배자에게 알릴 수 있다)", 12, UI.MUTED))
 				var grid := GridContainer.new()
-				grid.columns = 3
+				grid.columns = 4
 				grid.add_theme_constant_override("h_separation", 6)
 				grid.add_theme_constant_override("v_separation", 6)
 				var pa := int(plot["actor"])
 				for c in cands:
-					var b := UI.action(c["name"], "", float(c["chance"]), true)
-					b.custom_minimum_size = Vector2(200, 44)
 					var ci := int(c["i"])
+					var known: bool = float(c["chance"]) >= 0.0
+					var b := UI.action(c["name"], "" if known else "떠보지 않아 모른다", float(c["chance"]), true)
+					b.custom_minimum_size = Vector2(200, 44)
 					b.pressed.connect(func():
 						_set_hint(host.Interact(_plot_recruit_id(), pa, ci, -1, 0.0))
 						for line in host.DrainChronicle(): _log(line)
 						_open_rise())
 					grid.add_child(b)
+					var pb := UI.ghost("떠보기")
+					pb.tooltip_text = "기울기를 어림한다. 떠볼수록 새어 나간다. 감찰대가 있으면 어림이 정확하다"
+					pb.pressed.connect(func():
+						_set_hint(host.PlotProbe(ci))
+						for line in host.DrainChronicle(): _log(line)
+						_open_rise())
+					grid.add_child(_center(pb))
 				rise_box.add_child(grid)
+				var ab_on: bool = not bool(plot.get("absorb", false))
+				var abb := UI.ghost("이기면: " + ("흡수" if not ab_on else "계승"))
+				abb.tooltip_text = "계승: 옛 세력의 조직·이름·지위를 이어받고 흔들린다. 흡수: 옛 조직은 와해되고 사람들은 내 조직에 낮은 충성으로 든다. 지위는 잃고 홀로 선다"
+				abb.pressed.connect(func():
+					host.PlotAbsorb(ab_on)
+					_open_rise())
+				rise_box.add_child(abb)
 		rise_box.add_child(HSeparator.new())
 	# 지배자 도구: 세율, 내 땅의 조직
 	var lt: Dictionary = host.LordTools()

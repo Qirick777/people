@@ -1755,9 +1755,14 @@ public partial class SimHost : Node
         e["exposed"] = x.Exposed;
         e["actor"] = FindAlive(x.Plotter);
         var cands = new Godot.Collections.Array();
-        foreach (var (c, ch) in w.PlotCandidates(x).Take(8))
-            cands.Add(new Godot.Collections.Dictionary { ["i"] = c, ["name"] = Names.Full(w.Lineage, p.Uid[c]), ["chance"] = ch });
+        // 끌어들일 확률은 떠본 사람만 어림으로 보인다(R13)
+        foreach (var (c, _) in w.PlotCandidates(x).Take(8))
+        {
+            float est = w.LeanEstimate(x, c);
+            cands.Add(new Godot.Collections.Dictionary { ["i"] = c, ["name"] = Names.Full(w.Lineage, p.Uid[c]), ["chance"] = est < 0f ? -1f : Math.Clamp((est - 0.35f) * 2.5f, 0.02f, 0.9f) });
+        }
         e["candidates"] = cands;
+        e["absorb"] = x.Absorb;
         return e;
     }
 
@@ -1770,6 +1775,17 @@ public partial class SimHost : Node
         int l = _w!.PatronOf(h);
         return l >= 0 && _w.Households.IsAlive(l) && _w.People.IsValid(_w.Households.Head[l]) ? _w.Households.Head[l].Index : -1;
     }
+
+    /// <summary>거사하는 사람이 c 를 떠본다(새어 나갈 수 있다).</summary>
+    public string PlotProbe(int c)
+    {
+        if (!Ready || _w!.PlayerPlot is not { } x) return "";
+        float est = _w.ProbeLean(x, c);
+        return $"{Names.Full(_w.Lineage, _w.People.Uid[c])}: 기울기 어림 {est:0.00}(0.6 넘으면 우리 편, 0.3 아래면 지배자 편)";
+    }
+
+    /// <summary>이기면 흡수(true)할지 계승(false)할지.</summary>
+    public void PlotAbsorb(bool absorb) { if (Ready && _w!.PlayerPlot is { } x) x.Absorb = absorb; }
 
     /// <summary>거사를 일으킨다(true) 또는 접는다(false).</summary>
     public void PlotAct(bool strike)
