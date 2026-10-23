@@ -113,8 +113,10 @@ public sealed partial class World
         var root = LordOrg(lord, false);
         if (root != null)
         {
+            var seen = new HashSet<int>();
             void Walk(Group g, int d)
             {
+                if (!seen.Add(g.Id)) return;
                 foreach (var t in g.Tasks)
                     if (t.Village == v) s += g.OwnStrength * t.Weight * (t.Verb == Verb.Chase ? 1f : t.Verb == Verb.Guard ? 0.3f : 0f);
                 if (d < 8) foreach (var c in ChildrenOf(g)) Walk(c, d + 1);

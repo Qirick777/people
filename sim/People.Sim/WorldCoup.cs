@@ -450,7 +450,11 @@ public sealed partial class World
         else if (lo != null)
         {
             _lordOrg.Remove(lord);
-            if (po != null && po != lo) { lo.Home = -1; lo.HomeFounded = -1; lo.Parent = po.Id; }
+            if (po != null && po != lo)
+            {
+                lo.Home = -1; lo.HomeFounded = -1;
+                if (po.Parent >= 0 && !SetParent(lo, po)) { po.Parent = -1; SetParent(lo, po); }   // 꾸민 조직이 옛 조직의 갈래였으면 먼저 떼어 낸다
+            }
             else { lo.Home = ph; lo.HomeFounded = hh.FoundedDay[ph]; _lordOrg[ph] = lo.Id; lo.LeaderUid = p.Uid[pi]; }
             lo.Inner.Remove(p.Uid[pi]);
             lo.Shaken = MathF.Min(1f, lo.Shaken + 0.5f);
@@ -498,8 +502,7 @@ public sealed partial class World
                 if (g == lo || g.LeaderUid != p.Uid[c]) continue;
                 po ??= LordOrg(ph);
                 if (po == null) break;
-                g.Parent = po.Id;
-                taken.Add(g);
+                if (SetParent(g, po)) taken.Add(g);
             }
         }
         // 지휘자를 따르지 않는 사람은 남고, 지휘자를 두고 넘어오는 사람도 있다(R13). 넘어온 군인은 꾸민 집이 부린다

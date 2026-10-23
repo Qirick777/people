@@ -477,6 +477,7 @@ public sealed partial class World
         Timed("해/ChooseFloods", ChooseFloods);
         Timed("해/RecountHouseholds", RecountHouseholds);
         Timed("해/DecayVacant", DecayVacant);
+        Timed("해/BreakOrgLoops", BreakOrgLoops);
         Timed("해/SocialYear", SocialYear);
         Timed("해/YearOfWork", YearOfWork);
         Timed("해/GoodsYear", GoodsYear);

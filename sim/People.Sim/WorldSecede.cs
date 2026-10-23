@@ -136,9 +136,9 @@ public sealed partial class World
         var p = People;
         foreach (var g in Subtree(lo).ToList())
         {
-            if (g == lo) continue;
+            if (g == lo || g == po) continue;
             if (RootOf(g).Id != lo.Id) continue;
-            g.Parent = po.Id;
+            if (!SetParent(g, po)) continue;
             foreach (int m in Members(g)) _orgLoyal[(po.Id, p.Uid[m])] = 0.2f;
         }
         foreach (int m in Members(lo).ToList())

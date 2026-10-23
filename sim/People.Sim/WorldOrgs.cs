@@ -76,6 +76,43 @@ public sealed partial class World
     /// <summary>제 회칙과 곳간을 가진 맨 위 조직인가(홀로 섰거나 붙은 조직).</summary>
     public static bool IsTop(Group g) => g.Parent < 0 || IsAttached(g);
 
+    /// <summary>g 를 up 아래에 붙인다. up 이 g 자신이거나 g 의 아래면 고리가 생기니 붙이지 않는다.</summary>
+    private bool SetParent(Group g, Group up)
+    {
+        for (Group? x = up; x != null; x = x.Parent >= 0 ? GroupById(x.Parent) : null)
+        {
+            if (x == g) return false;
+            if (x.Parent == x.Id) break;
+        }
+        g.Parent = up.Id;
+        return true;
+    }
+
+    /// <summary>해마다: 조직의 위아래에 고리가 있으면 끊는다(지킴이).</summary>
+    private void BreakOrgLoops()
+    {
+        foreach (var g in _groups)
+        {
+            if (!g.Alive || g.Parent < 0) continue;
+            var seen = new HashSet<int> { g.Id };
+            for (var x = GroupById(g.Parent); x != null; x = x.Parent >= 0 ? GroupById(x.Parent) : null)
+                if (!seen.Add(x.Id)) { g.Parent = -1; Stats.OrgLoopsBroken++; break; }
+        }
+    }
+
+    // 시험용
+    public bool HasOrgLoop()
+    {
+        foreach (var g in _groups)
+        {
+            if (!g.Alive || g.Parent < 0) continue;
+            var seen = new HashSet<int> { g.Id };
+            for (var x = GroupById(g.Parent); x != null; x = x.Parent >= 0 ? GroupById(x.Parent) : null)
+                if (!seen.Add(x.Id)) return true;
+        }
+        return false;
+    }
+
     public IEnumerable<Group> ChildrenOf(Group g)
     {
         foreach (var c in _groups) if (c.Alive && c.Parent == g.Id) yield return c;

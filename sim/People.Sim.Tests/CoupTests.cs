@@ -24,6 +24,7 @@ public class CoupTests
             while (x >= 0 && n < 40) { x = w.PatronOf(x); n++; }
             Assert.True(n < 40, "섬김에 고리가 생겼다");
         }
+        Assert.False(w.HasOrgLoop(), "조직 위아래에 고리가 생겼다");
     }
 
     [Fact]

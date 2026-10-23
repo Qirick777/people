@@ -502,7 +502,7 @@ public sealed partial class World
                 _lordOrg[to] = old.Id;
                 if (People.IsValid(hh.Head[to])) old.LeaderUid = People.Uid[hh.Head[to].Index];
             }
-            else foreach (var c in ChildrenOf(old).ToList()) c.Parent = mine.Id;
+            else foreach (var c in ChildrenOf(old).ToList()) SetParent(c, mine);
         }
         foreach (var g in _groups)
             if (g.Alive && g.Sanction == from && g.SanctionFounded == hh.FoundedDay[from]) { g.Sanction = to; g.SanctionFounded = hh.FoundedDay[to]; }
