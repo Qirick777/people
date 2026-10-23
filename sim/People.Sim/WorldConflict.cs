@@ -193,12 +193,12 @@ public sealed partial class World
         }
         Chron(pi, $"{SubjName(pi)} 거사를 일으켰다(우리 {c.A.Fighters.Count}명, 지배자 곁 {c.D.Fighters.Count}명, 어림 {est:0.00}, 실제 {pa0 / MathF.Max(0.01f, pa0 + pd0):0.00})");
         Chron(lh, $"{Names.Full(Lineage, x.Plotter)}의 무리가 거사를 일으켰다(저쪽 {c.A.Fighters.Count}명, 곁 {c.D.Fighters.Count}명)");
-        // 감찰대가 거사를 미리 알아채면 기습이 없다(C5): 0.1 × 감시 세기, 많아야 0.5
-        float eye = LordOrg(x.Lord, false) is { } lo1 ? SurveyOf(lo1) : 0f;
-        if (_rng.Chance(MathF.Min(0.5f, 0.1f * eye)))
+        // 감찰대가 거사를 미리 알아채면 기습이 없다(C5): 0.5 × 감시 몫
+        float eye = EyeShare(LordOrg(x.Lord, false));
+        if (_rng.Chance(0.5f * eye))
         {
             Stats.CoupForewarned++;
-            Note(c, $"감찰대가 미리 알아채 기습이 먹히지 않았다(감시 세기 {eye:0.0})");
+            Note(c, $"감찰대가 미리 알아채 기습이 먹히지 않았다(감시 몫 {eye:0.00})");
             Chron(lh, $"{SubjName(lh)} 감찰대의 귀띔으로 거사를 미리 알고 대비했다");
             Snap(c, false);
         }

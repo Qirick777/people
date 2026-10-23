@@ -240,8 +240,8 @@ public sealed partial class World
             }
             // 새어 나감: 아는 사람 한 명당 4%, 신중한 꾸미는 사람은 덜
             float susp = RivalOf(x.Lord, x.PlotterHouse)?.Suspicion ?? 0f;   // 의심하는 지배자는 더 잘 알아챈다
-            float eye = LordOrg(x.Lord, false) is { } lo0 ? SurveyOf(lo0) : 0f;   // 감찰대가 있으면 더 잘 캔다
-            float leak = MathF.Min(0.5f, 0.025f * x.Known.Count * (1.2f - 0.5f * p.Get(pi, Trait.Caution)) + susp / 1000f + 0.05f * eye);   // 감찰대 세기만큼 더 새어 나간다(C5)
+            float eye = EyeShare(LordOrg(x.Lord, false));   // 감찰대가 있으면 더 잘 캔다
+            float leak = MathF.Min(0.5f, 0.025f * x.Known.Count * (1.2f - 0.5f * p.Get(pi, Trait.Caution)) + susp / 1000f + 0.15f * eye);   // 감찰대 몫만큼 더 새어 나간다(많아야 +0.15, C5)
             if (_rng.Chance(leak)) { Expose(x); continue; }
             if (IsPlayer(pi)) continue;   // 플레이어는 거사할 때를 스스로 고른다
             int years = (Day - x.Since) / Config.DaysPerYear;

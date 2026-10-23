@@ -351,7 +351,7 @@ public sealed partial class World
             foreach (int uid in f.Members) if (uid != f.Leader) { x.Backers.Add(uid); x.Known.Add(uid); }
             return;
         }
-        if (_rng.Chance(MathF.Min(0.6f, 0.1f * SurveyOf(root))))
+        if (_rng.Chance(0.6f * EyeShare(root)))
         {
             Chron(leader, $"{Names.Full(Lineage, f.Leader)}의 무리가 거사를 꾸미는 것을 미리 캐냈다");
             Expel(root, f.Leader);

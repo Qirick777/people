@@ -280,8 +280,8 @@ public sealed partial class World
             foreach (var (m, other, unit, _) in Agents(root))
             {
                 if (_doubleAgents.Contains(p.Uid[m])) continue;
-                float eye = SurveyOf(other) * (1f - LiaisonGuard(root));
-                if (eye <= 0f || !_rng.Chance(MathF.Min(0.5f, 0.02f * eye))) continue;
+                float eye = EyeShare(other) * (1f - LiaisonGuard(root));
+                if (eye <= 0f || !_rng.Chance(0.3f * eye)) continue;
                 Stats.SpiesFound++;
                 // 그쪽 우두머리를 더 좋게 보면 돌아선다(이중 첩자), 아니면 쫓겨난다
                 if (Social.Opinion(p, m, other.LeaderUid) > Social.Opinion(p, m, root.LeaderUid) + 20f)

@@ -205,6 +205,9 @@ public sealed partial class World
         return li < 0 ? 0f : 0.25f * (People.Get(li, Trait.Charisma) + People.Get(li, Trait.Perception));
     }
 
+    /// <summary>감시 세기를 0~1 몫으로: 세기 ÷ (세기 + 5). 감찰대 열 명이면 0.6쯤(C5).</summary>
+    public float EyeShare(Group? g) { float e = g != null ? SurveyOf(g) : 0f; return e / (e + 5f); }
+
     /// <summary>조직 g 나무의 감시 세기.</summary>
     public float SurveyOf(Group g)
     {

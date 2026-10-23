@@ -690,8 +690,8 @@ public sealed partial class World
                 // 웬만큼 더 떼는 건 눈감는 관행이다. 야망이 0.6을 넘는 몫만 빼돌리기로 친다
                 float excess = collected * 0.15f * MathF.Max(0f, (p.Get(c, Trait.Ambition) - 0.6f) / 0.4f) * SkimFactor(c);
                 var lh = hh.Head[lord];
-                float eye = LordOrg(lord, false) is { } lo ? SurveyOf(lo) : 0f;   // 감찰대
-                if (excess > 1f && p.IsValid(lh) && hh.IsAlive(ch) && _rng.Chance(MathF.Min(0.9f, 0.1f + 0.4f * p.Get(lh.Index, Trait.Perception) + 0.02f * eye)))
+                float eye = EyeShare(LordOrg(lord, false));   // 감찰대
+                if (excess > 1f && p.IsValid(lh) && hh.IsAlive(ch) && _rng.Chance(MathF.Min(0.9f, 0.1f + 0.4f * p.Get(lh.Index, Trait.Perception) + 0.3f * eye)))
                     CommitCrime(CrimeType.Embezzle, c, lh.Index, excess, false);
             }
             Stats.Uncollected += list.Count - idx;
