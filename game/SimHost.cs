@@ -1824,6 +1824,7 @@ public partial class SimHost : Node
         }
         e["candidates"] = cands;
         e["absorb"] = x.Absorb;
+        e["canStrike"] = w.CanStrike(x);
         return e;
     }
 

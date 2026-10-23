@@ -123,6 +123,8 @@ public sealed partial class World
         if (pi >= 0) { pf += SidePower(pi, x.Lord); if (PlotterOrg(pi) is { Home: < 0 } po) pf += 0.5f * po.Strength; }
         var lo = LordOrg(x.Lord, false);
         float lf = HouseholdPower(x.Lord);
+        // 친위대는 언제나 지배자 편이다(분쟁 C1). 지배자 조직에 바로 든 군인은 아래에서 따로 센다
+        foreach (int g in GuardOf(x.Lord)) if (lo == null || !Members(lo).Contains(g)) lf += FightPower(g);
         var insiders = RealmInsiders(x.Lord);
         // 지배자 조직에 바로 딸린 군인과 사람들도 한 사람씩 편을 고른다(갈래의 군인은 갈래 우두머리를 따른다)
         if (lo != null)
@@ -243,11 +245,13 @@ public sealed partial class World
             if (_rng.Chance(leak)) { Expose(x); continue; }
             if (IsPlayer(pi)) continue;   // 플레이어는 거사할 때를 스스로 고른다
             int years = (Day - x.Since) / Config.DaysPerYear;
-            var (ratio, _, _) = StrikeOdds(x, false);
+            float ratio = StrikeEstimate(x).ratio;   // NPC도 흔들린 어림으로 정한다
+            if (Day - x.Since < Config.DaysPerYear) continue;   // 마음먹은 해에는 일으키지 못한다
             float need = 0.55f + 0.15f * p.Get(pi, Trait.Caution) - 0.1f * p.Get(pi, Trait.Ambition);
             // 오래 끌수록 새어 나갈 위험이 커진다: 야심가는 덜 확실해도 일으킨다
             float amb = p.Get(pi, Trait.Ambition);
-            if (ratio >= need || (years >= 3 && ratio >= 0.45f - 0.1f * amb) || (years >= 5 && amb > 0.7f && ratio >= 0.3f)) Strike(x);
+            // 오래 끌면 덜 확실해도 일으키지만, 지는 싸움에 뛰어들지는 않는다(분쟁 C1: 진압군이 실제로 막는다)
+            if (ratio >= need || (years >= 3 && ratio >= 0.5f - 0.05f * amb)) Strike(x);
             else if (years >= 7) { _plots.Remove(x); Chron(pi, $"{SubjName(pi)} 거사를 접었다"); }
         }
         // 3) 독립 선언(NPC 봉신)
@@ -397,42 +401,16 @@ public sealed partial class World
 
     // ------------------------------------------------------------------ 거사
 
-    /// <summary>거사: 편이 갈리고 힘을 겨룬다. 0.6 넘으면 자리를 빼앗고, 0.4~0.6이면 내전 끝에 떨어져 나가고, 그 아래면 진다.</summary>
+    /// <summary>거사를 일으킨다(마음먹은 해에는 못 한다). 결말은 분쟁이 정한다(WorldConflict).</summary>
     public void Strike(Plot x)
     {
-        var p = People; var hh = Households;
-        if (!PlotLive(x)) return;
+        // 거사는 이제 분쟁이다(plan_conflict C1): 첫날 기습, 소집, 교전, 결말이 열흘마다 이어진다
+        if (!CanStrike(x)) return;
         _plots.Remove(x);
         Stats.CoupStrikes++;
         int pi = FindAlive(x.Plotter), lh = HeadIdx(x.Lord);
         if (pi < 0 || lh < 0) return;
-        var (ratio, mine, theirs) = StrikeOdds(x, true);
-        if (IsPlayer(pi) || IsPlayer(lh)) _fork = true;
-        string pn = Names.Full(Lineage, x.Plotter), ln = Names.Full(Lineage, p.Uid[lh]);
-        if (ratio >= 0.6f)
-        {
-            Stats.CoupWins++;
-            Chron(pi, $"{SubjName(pi)} 거사를 일으켜 {ln}의 자리를 빼앗았다(편든 이 {mine.Count}명)");
-            Chron(lh, $"{SubjName(lh)} {pn}의 거사에 자리를 빼앗겼다");
-            TakeSeat(pi, x.Lord, mine, x.Absorb);
-        }
-        else if (ratio >= 0.4f)
-        {
-            Stats.CivilWars++;
-            Chron(pi, $"{SubjName(pi)} 거사를 일으켰으나 {With(ln)} 맞서 내전이 되었고, 편든 이들과 떨어져 나왔다");
-            Chron(lh, $"{pn}의 거사로 내전이 벌어졌고, 그가 편든 이들과 떨어져 나갔다");
-            Split(pi, x.Lord, mine);
-        }
-        else
-        {
-            Stats.CoupFails++;
-            Chron(lh, $"{pn}의 거사를 꺾었다");
-            foreach (int c in mine) { Social.Add(p, lh, p.Uid[c], -40f); Social.Add(p, c, p.Uid[lh], -20f, 30f); }
-            PunishPlotter(x, pi, lh, "거사에 실패해");
-        }
-        // 지배자를 지킨 사람은 더 믿음을 얻는다
-        if (p.IsAliveIndex(lh)) foreach (int c in theirs) Social.Add(p, lh, p.Uid[c], 10f);
-        RecountClients(); RecountTree();
+        StartCoup(x, pi, lh);
     }
 
     /// <summary>꾸민 사람 집이 L의 자리를 넘겨받는다: 따르는 집, 군인, 땅, 곡식, 성. L의 주군 아래 그 자리에 앉는다(찬탈).</summary>

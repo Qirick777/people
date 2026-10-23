@@ -38,8 +38,13 @@ public class CoupTests
         var plot = w.Plots.Single(x => x.PlotterHouse == v);
         int below = w.ClientCount(lord);
         int w0 = w.Stats.CoupWins, c0 = w.Stats.CivilWars, f0 = w.Stats.CoupFails;
+        Assert.False(w.CanStrike(plot));   // 마음먹은 해에는 일으키지 못한다
+        plot.Since -= w.Config.DaysPerYear;
         w.Strike(plot);
         Assert.Empty(w.Plots.Where(x => x.PlotterHouse == v));
+        // 거사는 분쟁이 되어 열흘마다 이어진다. 반년이면 끝난다
+        for (int k = 0; k < 20 && w.Conflicts.Any(c => !c.Over); k++) w.TickConflicts();
+        Assert.All(w.Conflicts, c => Assert.True(c.Over));
         NoLoops(w);
         var st = w.Stats;
         Assert.Equal(1, st.CoupWins - w0 + st.CivilWars - c0 + st.CoupFails - f0);

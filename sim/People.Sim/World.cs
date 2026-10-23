@@ -455,6 +455,7 @@ public sealed partial class World
             KidnapSeason();
         }
         if (cal.DayOfSeason == 0) Timed("곡물 장터", GrainSeason);
+        if (Day % 10 == 0 && _conflicts.Count > 0) Timed("분쟁", ConflictTick);
         Timed("식량 소비", Consume);
         Timed("삶(사망·임신·출산)", Life);
         if (doy == Config.HarvestDayOfYear) Timed("수확", Harvest);

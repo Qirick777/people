@@ -840,8 +840,10 @@ func _open_rise() -> void:
 		else:
 			var prow := HBoxContainer.new()
 			prow.add_theme_constant_override("separation", 6)
-			var sb := UI.action("거사를 일으킨다", "", ratio, true)
+			var can_strike: bool = plot.get("canStrike", true)
+			var sb := UI.action("거사를 일으킨다", "" if can_strike else "마음먹은 해에는 일으키지 못한다", ratio, true)
 			sb.custom_minimum_size = Vector2(200, 44)
+			sb.disabled = not can_strike
 			sb.pressed.connect(func():
 				host.PlotAct(true)
 				for line in host.DrainChronicle(): _log(line)
