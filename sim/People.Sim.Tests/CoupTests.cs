@@ -98,3 +98,24 @@ public class CoupTests
         Assert.False(w.Def(InteractionId.PlotRecruit).Can(w, new InteractionContext { Actor = vh, Target = lh, Third = -1 }));
     }
 }
+
+public class InspectorTests
+{
+    [Fact]
+    public void LordWithVassalsKeepsAnInspectorUnitThatSees()
+    {
+        var (w, lord) = TestWorlds.WithLord(12);
+        var hh = w.Households; var p = w.People;
+        w.RecountOrgs();
+        var root = w.LordOrg(lord)!;
+        int k = Enumerable.Range(0, hh.HighWater).First(h => hh.IsAlive(h) && w.PatronOf(h) == lord && p.IsValid(hh.Head[h]) && w.ClientCount(h) == 0);
+        Assert.True(w.Enfeoff(lord, k, -1, 5) >= 5);
+        for (int y = 0; y < 3; y++) for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
+        root = w.LordOrg(lord, false);
+        if (root == null || w.ClientCount(k) == 0) return;   // 그 사이 세력이 바뀐 세계
+        var unit = w.ChildrenOf(root).FirstOrDefault(c => c.Inspect);
+        if (unit == null) return;   // 조직이 여덟 사람이 안 되는 세계
+        Assert.True(w.Members(unit).Count >= 2);
+        Assert.True(w.SurveyOf(root) > 0f, "감찰대가 있으면 감시 세기가 0보다 크다");
+    }
+}

@@ -427,10 +427,7 @@ public sealed partial class World
                 float heat = CrimeHeat(v);
                 if (heat > 0.5f) list.Add(new OrgTask { Verb = Verb.Chase, Village = v, Weight = heat * 1.5f * (0.5f + aggr) });
             }
-            // 봉신을 거느린 지배자는 제 마을에 감찰대를 둔다(거사와 빼돌림을 캔다). 신중할수록 크게
-            int vassals = DirectClients(root.Home).Count(c => Households.IsAlive(c) && ClientCount(c) > 0);
-            int hv = Households.Village[root.Home];
-            if (vassals > 0 && hv >= 0) list.Add(new OrgTask { Verb = Verb.Survey, Village = hv, Weight = (1f + vassals) * (0.3f + caution) });
+            // 감찰은 따로 선 감찰대 갈래가 맡는다(C5, EnsureInspectors)
         }
         else
         {
@@ -457,6 +454,7 @@ public sealed partial class World
         foreach (var c in children.Where(c => IsAttached(c) && !c.Manual).ToList()) DefaultTask(c);
         children = children.Where(c => !IsAttached(c)).ToList();
         // 일은 지휘자가 있는 갈래로 저절로 내려간다(플레이어가 정한 조직의 일도). 지휘자가 빈 갈래는 가장 큰 일 하나만 한다
+        children = children.Where(c => !c.Inspect).ToList();   // 감찰대는 제 일만 한다
         foreach (var c in children)
         {
             if (c.Manual) continue;
@@ -516,7 +514,7 @@ public sealed partial class World
         foreach (var c in ChildrenOf(g).ToList())
         {
             // 갓 뗀 갈래는 두 해 동안 합치지 않는다(사람이 잠깐 빠져도 갈래를 지킨다)
-            if (c.Members < 2 && !ChildrenOf(c).Any() && !c.Manual && Day - c.Founded >= 2 * Config.DaysPerYear)
+            if (c.Members < 2 && !ChildrenOf(c).Any() && !c.Manual && !c.Inspect && Day - c.Founded >= 2 * Config.DaysPerYear)
             {
                 var ms = Members(c);
                 MergeInto(c, g, ms);
@@ -538,6 +536,65 @@ public sealed partial class World
     }
 
     /// <summary>바로 딸린 사람의 절반으로 새 갈래를 만든다. 갈래 우두머리는 우두머리를 가장 따르고 힘 있는 사람.</summary>
+    /// <summary>
+    /// 감찰대(C5): 봉신을 거느리거나 나라를 세운 지배자 조직은 감찰대 갈래를 하나 둔다.
+    /// 사람 수 = 조직 나무 사람의 8%(나라 12%, 신중한 우두머리는 더), 둘 이상 열둘 이하. 눈치와 신중이 높은 조직원을 바로 딸린 사람부터 뽑는다.
+    /// 감찰대는 지배자 집 마을을 감시하는 일만 한다(지킴·쫓기를 넘겨받지 않는다).
+    /// </summary>
+    private void EnsureInspectors(Group root)
+    {
+        var p = People; var hh = Households;
+        int lord = root.Home;
+        var unit = ChildrenOf(root).FirstOrDefault(c => c.Inspect);
+        bool nation = NationOf(lord) != null;
+        bool vassals = DirectClients(lord).Any(c => hh.IsAlive(c) && ClientCount(c) > 0);
+        int total = SubtreeMembers(root);
+        if ((!vassals && !nation) || total < 8)
+        {
+            if (unit != null) MergeInto(unit, root, Members(unit));
+            return;
+        }
+        int leader = FindAlive(root.LeaderUid);
+        float caution = leader >= 0 ? p.Get(leader, Trait.Caution) : 0.5f;
+        int want = Math.Clamp((int)MathF.Round(total * (nation ? 0.12f : 0.08f) * (0.7f + 0.6f * caution)), 2, 12);
+        if (unit == null)
+        {
+            unit = new Group { Id = _groups.Count, Kind = root.Kind, LeaderUid = -1, Founded = Day, Village = root.Village, Parent = root.Id, Inspect = true };
+            _groups.Add(unit);
+            Stats.InspectorUnits++;
+        }
+        unit.Tasks.Clear();
+        int hv = hh.Village[lord];
+        unit.Tasks.Add(new OrgTask { Verb = Verb.Survey, Village = hv, Weight = 1f });
+        var have = Members(unit);
+        if (have.Count < want)
+        {
+            // 바로 딸린 사람, 그다음 갈래의 지휘자 아닌 사람에서 뽑는다
+            var pool = Members(root).Where(m => !IsLeader(m, root) && Adult(m) && p.Household[m] != lord).Select(m => (m, from: root))
+                .Concat(ChildrenOf(root).Where(c => !c.Inspect && !c.Manual).SelectMany(c => Members(c).Where(m => !IsLeader(m, c) && Adult(m)).Select(m => (m, from: c))))
+                .OrderByDescending(x => p.Get(x.m, Trait.Perception) + 0.5f * p.Get(x.m, Trait.Caution) + Polish(x.m, Lesson.Espionage)).ToList();
+            foreach (var (m, from) in pool)
+            {
+                if (have.Count >= want) break;
+                if (have.Contains(m)) continue;
+                LeaveGroup(m, from); JoinGroup(m, unit); have.Add(m);
+            }
+        }
+        if (FindAlive(unit.LeaderUid) is int ul && ul >= 0 && have.Contains(ul)) { }
+        else if (have.Count > 0) unit.LeaderUid = p.Uid[have.OrderByDescending(m => p.Get(m, Trait.Perception) + p.Get(m, Trait.Caution)).First()];
+        AutoName(unit);
+    }
+
+    private int SubtreeMembers(Group root)
+    {
+        int n = 0;
+        foreach (var u in Subtree(root)) n += Members(u).Count;
+        return n;
+    }
+
+    // 시험용
+    public void InspectorsNow(Group root) => EnsureInspectors(root);
+
     public Group? SplitUnit(Group g)
     {
         var p = People;
@@ -783,6 +840,7 @@ public sealed partial class World
             var needs = g.Manual && g.Tasks.Count > 0 ? g.Tasks.ToList() : Needs(g);
             if (needs.Count == 0) { if (g.Tasks.Count == 0) DefaultTask(g); needs = g.Tasks.ToList(); }
             PlanUnit(g, needs, 0);
+            if (g.Home >= 0 && !g.Manual) EnsureInspectors(g);
         }
         _domainVillages = null;
         DelegationYear();

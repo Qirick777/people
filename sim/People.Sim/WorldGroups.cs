@@ -23,6 +23,7 @@ public sealed class Group
     public int Parent = -1;                           // 위 조직(없으면 독립)
     public int Home = -1, HomeFounded = -1;           // 이 조직이 붙은 지배자 집(세력의 조직이면)
     public bool Paid;                                 // 품삯 받는 군인 갈래(지배자가 고용한 사람들)
+    public bool Inspect;                              // 지배자 조직의 감찰대 갈래(C5): 감시만 한다
     public bool Manual;                               // 플레이어가 맡은 일을 정했다(AI 가 바꾸지 않는다)
     public bool NameFixed;                            // 지은 이름(단계가 바뀌어도 그대로 간다)
     public int BranchNo, BranchParent = -1;           // 갈래 번호(형 갈래가 사라져도 바뀌지 않는다)와 번호를 받을 때의 위 조직
