@@ -72,13 +72,13 @@ public class CoupTests
         var (w, lord, v) = WithVassal();
         var hh = w.Households;
         int vh = hh.Head[v].Index, lh = hh.Head[lord].Index;
-        var r = w.Interact(InteractionId.Declare, new InteractionContext { Actor = vh, Target = lh, Third = -1 });
+        w.Interact(InteractionId.Declare, new InteractionContext { Actor = vh, Target = lh, Third = -1 });
+        // 주군이 진압을 고르면 분쟁이 선다(C2): 한 해 안에 끝난다
+        for (int k = 0; k < 30 && w.Conflicts.Any(c => !c.Over); k++) w.TickConflicts();
+        Assert.All(w.Conflicts, c => Assert.True(c.Over));
         NoLoops(w);
-        if (r.Accepted)
-        {
-            Assert.Equal(-1, w.PatronOf(v));
-            Assert.Equal(Legitimacy.Self, w.LegitOf(v));
-        }
+        // 끝나면 홀로 섰거나(정당성: 스스로 섬) 여전히 주군 아래다
+        if (w.PatronOf(v) == -1) Assert.Equal(Legitimacy.Self, w.LegitOf(v));
         else Assert.Equal(lord, w.PatronOf(v));
     }
 

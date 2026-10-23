@@ -532,6 +532,21 @@ public sealed partial class World
         return (sup, neg, let, rebelWins, negHolds);
     }
 
+    /// <summary>NPC 주군의 대응: 체념, 협상, 진압 가운데 무게대로 고른다. 진압이면 분쟁이 선다(C2).</summary>
+    private void RespondDeclare(int rh, int lh)
+    {
+        int a = People.Household[rh], t = People.Household[lh];
+        var (sup, neg, let, _, hold) = DeclareOdds(a, t);
+        float r = _rng.NextFloat() * (sup + neg + let);
+        if (r < let) { Stats.IndepLetGo++; GoFree(rh, lh, "주군이 체념해"); }
+        else if (r < let + neg)
+        {
+            if (_rng.Chance(hold)) Negotiated(rh, lh);
+            else GoFree(rh, lh, "협상이 깨져");
+        }
+        else if (!InConflict(a)) StartIndependence(a, t);
+    }
+
     private float FreeOdds(int rebel, int lord)
     {
         var (sup, neg, let, win, hold) = DeclareOdds(rebel, lord);
@@ -642,33 +657,20 @@ public sealed partial class World
                 return w.HeadIdx(a) == c.Actor && w.HeadIdx(t) == c.Target && w.PatronOf(a) == t && w.ClientCount(a) > 0;
             },
             Accept = (w, c) => w.FreeOdds(H(w, c.Actor), H(w, c.Target)),
+            // 주군의 대응: 체념(놓아줌), 협상(선물로 붙잡거나 깨짐), 진압(분쟁 C2). 받아들일 확률은 결국 홀로 서게 될 어림이다
             Success = (w, c, _) =>
             {
                 int a = H(w, c.Actor), t = H(w, c.Target);
                 w.AddRepLord(a, 0.05f, -0.15f, 0f);   // 서약을 깼다
                 if (w.IsPlayer(c.Target)) { w.Stats.IndepLetGo++; w.GoFree(c.Actor, c.Target, "주군이 놓아주어"); return; }
-                var (sup, neg, let, win, hold) = w.DeclareOdds(a, t);
-                float r = w._rng.NextFloat() * (let + sup * win + neg * (1f - hold));
-                if (r < let) { w.Stats.IndepLetGo++; w.GoFree(c.Actor, c.Target, "주군이 체념해"); }
-                else if (r < let + sup * win) { w.Stats.Independences++; w.SuppressLost(c.Target, c.Actor); }
-                else w.GoFree(c.Actor, c.Target, "협상이 깨져");
+                w.RespondDeclare(c.Actor, c.Target);
             },
             Fail = (w, c) =>
             {
                 int a = H(w, c.Actor), t = H(w, c.Target);
                 w.AddRepLord(a, 0.05f, -0.15f, 0f);   // 서약을 깼다
-                if (w.IsPlayer(c.Target))
-                {
-                    // 플레이어 주군이 진압을 골랐다
-                    var (_, _, _, win, _) = w.DeclareOdds(a, t);
-                    if (w._rng.Chance(win)) { w.Stats.Independences++; w.SuppressLost(c.Target, c.Actor); }
-                    else { w.Stats.IndepSuppressed++; w.SuppressWon(c.Target, c.Actor); }
-                    return;
-                }
-                var (sup, neg, _, win2, hold) = w.DeclareOdds(a, t);
-                float r = w._rng.NextFloat() * (sup * (1f - win2) + neg * hold);
-                if (r < neg * hold) w.Negotiated(c.Actor, c.Target);
-                else { w.Stats.IndepSuppressed++; w.SuppressWon(c.Target, c.Actor); }
+                if (w.IsPlayer(c.Target)) { if (!w.InConflict(a)) w.StartIndependence(a, t); return; }   // 플레이어 주군이 진압을 골랐다
+                w.RespondDeclare(c.Actor, c.Target);
             },
         };
     }
