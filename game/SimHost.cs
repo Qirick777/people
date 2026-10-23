@@ -1707,7 +1707,7 @@ public partial class SimHost : Node
             if (!hh.IsAlive(t) || t == h || !p.IsValid(hh.Head[t])) continue;
             var c = new InteractionContext { Actor = me, Target = hh.Head[t].Index, Third = -1 };
             if (!wdef.Can(w, c)) continue;
-            wars.Add(new Godot.Collections.Dictionary { ["id"] = (int)InteractionId.War, ["name"] = $"{Names.Full(w.Lineage, p.Uid[hh.Head[t].Index])}({w.RealmName(t)}, 아래 {w.BelowOf(t)})", ["chance"] = w.AcceptChance(wdef, c), ["actor"] = me, ["target"] = hh.Head[t].Index });
+            wars.Add(new Godot.Collections.Dictionary { ["id"] = (int)InteractionId.War, ["name"] = $"{Names.Full(w.Lineage, p.Uid[hh.Head[t].Index])}({w.RealmName(t)}, 아래 {w.BelowOf(t)})", ["chance"] = w.WarOdds(h, t), ["actor"] = me, ["target"] = hh.Head[t].Index });
         }
         e["wars"] = wars;
         return e;

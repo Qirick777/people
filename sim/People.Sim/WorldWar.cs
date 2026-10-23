@@ -1,8 +1,9 @@
 namespace People.Sim;
 
 /// <summary>
-/// 홀로 선 지배자끼리의 전쟁. 이기면 상대가 내 봉신이 되고(땅과 아래 집은 그대로 거느린다), 지면 내 이름이 깎이고 경계의 집 몇이 상대에게 간다.
-/// 두 쪽 다 군인을 잃는다. 힘 = 제 힘 + 바로 아래 봉신 힘의 0.6. 이길 확률은 힘의 제곱 비.
+/// 홀로 선 지배자끼리의 전쟁. 선포하면 분쟁이 서고(C3, WorldConflict), 싸움으로 결말이 난다.
+/// 이기면 상대가 내 봉신이 되고(땅과 아래 집은 그대로 거느린다), 지면 내 이름이 깎이고 경계의 집 몇이 상대에게 간다. 한 해를 끌면 휴전(다섯 해).
+/// WarOdds(힘 = 제 힘 + 바로 아래 봉신 힘의 0.6, 동맹 0.3, 제곱 비)는 이제 NPC가 싸움을 걸지 정하는 어림이다.
 /// </summary>
 public sealed partial class World
 {
@@ -23,25 +24,18 @@ public sealed partial class World
     {
         var hh = Households;
         float r = 4f * Config.ProtectRange;
-        return hh.IsAlive(a) && hh.IsAlive(t) && a != t && PatronOf(a) < 0 && PatronOf(t) < 0 && TierOf(a) >= 1 && TierOf(t) >= 1 && Dist2(a, t) <= r * r && !HasPact(a, t);   // 약조를 맺은 사이는 싸우지 않는다(R14)
+        return hh.IsAlive(a) && hh.IsAlive(t) && a != t && PatronOf(a) < 0 && PatronOf(t) < 0 && TierOf(a) >= 1 && TierOf(t) >= 1 && Dist2(a, t) <= r * r && !HasPact(a, t)   // 약조를 맺은 사이는 싸우지 않는다(R14)
+            && !InTruce(a, t) && !InConflict(a) && !InConflict(t);   // 휴전 중이거나 이미 싸우는 중이면 못 건다(C3)
     }
 
-    /// <summary>군인 가운데 frac 만큼이 죽는다.</summary>
-    private int WarLosses(int lord, float frac)
-    {
-        var p = People;
-        var dead = StaffOf(lord).Where(i => p.IsAliveIndex(i) && p.JobOf[i] == (byte)Job.Soldier && _employer.GetValueOrDefault(i, -1) == lord && _rng.Chance(frac)).ToList();
-        foreach (int i in dead) { Stats.RaidDeaths++; Die(i, false); }
-        return dead.Count;
-    }
+    private readonly Dictionary<(int, int), int> _truce = new();
+    private bool InTruce(int a, int b) => _truce.TryGetValue((Math.Min(a, b), Math.Max(a, b)), out int d) && Day - d < 5 * Config.DaysPerYear;
 
-    private void WarResult(int ah, int th, bool won)
+    /// <summary>전쟁의 결말(C3: 분쟁이 끝난 뒤). 사람은 싸움에서 이미 잃었다. won: 일으킨 쪽이 이겼다.</summary>
+    private void WarResult(int ah, int th, bool won, string sum)
     {
         var hh = Households; var p = People;
         int a = p.Household[ah], t = p.Household[th];
-        Stats.Wars++;
-        MarkWar(a, t);   // 다섯 해 동안 서로 적대 세력이다
-        int la = WarLosses(a, won ? 0.1f : 0.25f), lt = WarLosses(t, won ? 0.25f : 0.1f);
         var c = new InteractionContext { Actor = ah, Target = th };
         if (won)
         {
@@ -50,7 +44,7 @@ public sealed partial class World
             if (!WouldLoop(t, a)) { _patron[t] = a; _patronFounded[t] = hh.FoundedDay[a]; EnsureRealmArrays(); _legit[t] = 0; Resnap(t); }
             if (p.IsAliveIndex(th)) { Social.Add(p, th, p.Uid[ah], -40f, 40f); p.Honor[th] -= 0.2f; }
             RecountClients(); RecountTree();
-            RiseChron(c, x => $"{x}와 싸워 이겼다. {Subj(x)} 봉신이 되었다(군인 {la}명을 잃음)", x => $"{x}와 싸워 져서 그의 봉신이 되었다(군인 {lt}명을 잃음)");
+            RiseChron(c, x => $"{x}와 싸워 이겼다. {Subj(x)} 봉신이 되었다{sum}", x => $"{x}와 싸워 져서 그의 봉신이 되었다{sum}");
         }
         else
         {
@@ -65,8 +59,18 @@ public sealed partial class World
                 moved++;
             }
             RecountClients();
-            RiseChron(c, x => $"{x}에게 싸움을 걸었다가 졌다(군인 {la}명, 집 {moved}곳을 잃음)", x => $"{x}의 침공을 물리쳤다(군인 {lt}명을 잃음)");
+            RiseChron(c, x => $"{x}에게 싸움을 걸었다가 졌다(집 {moved}곳을 잃음){sum}", x => $"{x}의 침공을 물리쳤다{sum}");
         }
+    }
+
+    /// <summary>휴전: 다섯 해 동안 서로 싸움을 걸지 않는다.</summary>
+    private void Truce(int a, int t, string sum)
+    {
+        Stats.WarTruces++;
+        _truce[(Math.Min(a, t), Math.Max(a, t))] = Day;
+        int ah = HeadIdx(a), th = HeadIdx(t);
+        if (ah >= 0) Chron(ah, $"한 해를 싸우고도 결판이 나지 않아 휴전했다{sum}");
+        if (th >= 0) Chron(th, $"한 해를 버텨 휴전을 받아 냈다{sum}");
     }
 
     /// <summary>해마다: 거친 지배자가 가까운 약한 지배자에게 드물게 싸움을 건다.</summary>
@@ -96,12 +100,11 @@ public sealed partial class World
         int H(World w, int i) => w.People.Household[i];
         d[(int)InteractionId.War] = new InteractionDef
         {
-            // 받아들임 = 이겼다
+            // 선포하면 분쟁이 선다(C3). 결말은 싸움으로 정해진다
             Id = InteractionId.War, Name = "전쟁", Category = InteractionCategory.Rule, Harsh = true,
             Can = (w, c) => w.HeadIdx(H(w, c.Actor)) == c.Actor && w.HeadIdx(H(w, c.Target)) == c.Target && w.CanWar(H(w, c.Actor), H(w, c.Target)),
-            Accept = (w, c) => w.WarOdds(H(w, c.Actor), H(w, c.Target)),
-            Success = (w, c, _) => w.WarResult(c.Actor, c.Target, true),
-            Fail = (w, c) => w.WarResult(c.Actor, c.Target, false),
+            Accept = (w, c) => 1f,
+            Success = (w, c, _) => w.StartWar(H(w, c.Actor), H(w, c.Target)),
         };
     }
 }

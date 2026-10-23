@@ -618,7 +618,7 @@ switch (cmd)
         });
         var json = System.Text.Json.JsonSerializer.Serialize(list, new System.Text.Json.JsonSerializerOptions { WriteIndented = false, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
         File.WriteAllText(SArg("--out", "conflicts.json"), json);
-        foreach (var c in w.ConflictLog) Console.WriteLine($"#{c.Id} {(c.Kind == ConflictKind.Independence ? "독립 진압" : "거사")} {c.Since / w.Config.DaysPerYear}년 {c.AName} → {c.DName}({c.Realm}): {c.Outcome}, 기록 {c.Frames.Count}장, 죽음 {c.ADead + c.DDead}");
+        foreach (var c in w.ConflictLog) Console.WriteLine($"#{c.Id} {(c.Kind == ConflictKind.Independence ? "독립 진압" : c.Kind == ConflictKind.War ? "전쟁" : "거사")} {c.Since / w.Config.DaysPerYear}년 {c.AName} → {c.DName}({c.Realm}): {c.Outcome}, 기록 {c.Frames.Count}장, 죽음 {c.ADead + c.DDead}");
         break;
     }
     case "strategy":

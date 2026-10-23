@@ -1,0 +1,22 @@
+using People.Sim;
+using Xunit;
+
+public class WarTests
+{
+    [Fact]
+    public void WarIsFoughtAndEndsOneOfThreeWays()
+    {
+        var (w, lord) = TestWorlds.WithLord(12);
+        var hh = w.Households; var p = w.People;
+        // 지배자 나무 밖의 아무 집을 상대로 삼는다
+        int t = Enumerable.Range(0, hh.HighWater).First(h => hh.IsAlive(h) && h != lord && w.PatronOf(h) < 0 && w.TopOf(h) != w.TopOf(lord) && p.IsValid(hh.Head[h]));
+        int w0 = w.Stats.WarWins, tr0 = w.Stats.WarTruces;
+        w.StartWarNow(lord, t);
+        Assert.True(w.InConflict(lord) && w.InConflict(t));
+        Assert.False(w.CanWarNow(lord, t));   // 싸우는 중에는 다시 걸지 못한다
+        for (int k = 0; k < 30 && w.Conflicts.Any(c => !c.Over); k++) w.TickConflicts();
+        Assert.All(w.Conflicts, c => Assert.True(c.Over));
+        if (w.Stats.WarWins > w0 && hh.IsAlive(t)) Assert.Equal(lord, w.PatronOf(t));
+        if (w.Stats.WarTruces > tr0) Assert.False(w.CanWarNow(lord, t));   // 휴전 다섯 해
+    }
+}

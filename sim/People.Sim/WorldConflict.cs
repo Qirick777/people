@@ -275,6 +275,7 @@ public sealed partial class World
             {
                 case ConflictKind.Coup: CoupTick(c); break;
                 case ConflictKind.Independence: IndepTick(c); break;
+                case ConflictKind.War: WarTick(c); break;
             }
         }
     }
@@ -447,6 +448,130 @@ public sealed partial class World
         Battle(c, 24);   // 한 해
     }
 
+    // ------------------------------------------------------------------ 전쟁(C3)
+
+    /// <summary>
+    /// 홀로 선 지배자 a 가 t 에게 싸움을 건다. 일으킨 쪽 = a(쳐들어감), 막는 쪽 = t(제 거점에서 버틴다).
+    /// 양쪽 다 집안과 군인 전부로 시작한다. 처음 두 번(한 달)은 양쪽 봉신을 부르고, 동맹(나라 약조)에게 손을 벌린다. 막는 쪽 아래 보통 집은 향병을 낸다.
+    /// 한 해(24번)가 지나면 휴전(다섯 해 서로 싸움을 걸지 않는다)이다.
+    /// </summary>
+    private void StartWar(int a, int t)
+    {
+        var p = People; var hh = Households;
+        int ah = HeadIdx(a), th = HeadIdx(t);
+        if (ah < 0 || th < 0) return;
+        var c = new Conflict { Id = ++_conflictIds, Kind = ConflictKind.War, Since = Day };
+        c.A.House = a; c.A.HouseFounded = hh.FoundedDay[a]; c.A.LeaderUid = p.Uid[ah];
+        c.D.House = t; c.D.HouseFounded = hh.FoundedDay[t]; c.D.LeaderUid = p.Uid[th];
+        _conflicts.Add(c);
+        Stats.Conflicts++; Stats.Wars++;
+        MarkWar(a, t);   // 다섯 해 동안 서로 적대 세력이다
+        EnlistHouse(c, c.A, a, true);
+        EnlistHouse(c, c.D, t, true);
+        if (IsPlayer(ah) || IsPlayer(th)) _fork = true;
+        if (KeepConflictLog)
+        {
+            c.AName = Names.Full(Lineage, p.Uid[ah]); c.DName = Names.Full(Lineage, p.Uid[th]); c.Realm = RealmName(t);
+            ConflictLog.Add(c);
+            Note(c, $"{c.AName}이(가) {c.DName}에게 싸움을 걸었다(쳐들어가는 쪽 {c.A.Fighters.Count}명, 막는 쪽 {c.D.Fighters.Count}명, 어림 {WarOdds(a, t):0.00})");
+        }
+        Chron(ah, $"{SubjName(ah)} {Obj(Names.Full(Lineage, p.Uid[th]))} 치러 나섰다(우리 {c.A.Fighters.Count}명, 저쪽 {c.D.Fighters.Count}명)");
+        Chron(th, $"{Names.Full(Lineage, p.Uid[ah])}이(가) 쳐들어왔다(저쪽 {c.A.Fighters.Count}명, 우리 {c.D.Fighters.Count}명)");
+        Snap(c, false);
+    }
+
+    /// <summary>지배자 lord 의 바로 아래 봉신에게 소집을 묻는다(한 번씩). 응하면 가장 집안과 군인이 side 로 온다.</summary>
+    private void Levy(Conflict c, ConflictSide side, int lord, string label)
+    {
+        var p = People; var hh = Households;
+        int head = HeadIdx(lord);
+        foreach (int v in DirectClients(lord).ToList())
+        {
+            if (!hh.IsAlive(v) || PatronOf(v) != lord || ClientCount(v) == 0) continue;
+            int vh = HeadIdx(v);
+            if (vh < 0 || !c.Asked.Add(v)) continue;
+            float answer = (head >= 0 && p.LoyalUid[vh] == p.Uid[head] ? p.Loyalty[vh] : 0.3f) + (IsTitled(v) ? 0.2f : 0f) + (NationOf(lord) != null ? 0.1f : 0f)
+                           - 0.3f * MathF.Min(1f, MathF.Sqrt(Dist2(v, lord)) / Config.VassalRange);
+            float pr = Math.Clamp(answer, 0f, 0.95f);
+            if (!_rng.Chance(pr)) { Note(c, $"{label} 봉신 {VassalName(v, vh)}은(는) 소집에 응하지 않았다(응할 확률 {pr:0.00})"); continue; }
+            int n0 = side.Fighters.Count;
+            EnlistHouse(c, side, v, true);
+            if (side.Fighters.Count == n0) { Note(c, $"{label} 봉신 {VassalName(v, vh)}은(는) 응했지만 보낼 사람이 없었다"); continue; }
+            Stats.LeviesAnswered++;
+            Note(c, $"{label} 봉신 {VassalName(v, vh)}이(가) 왔다(+{side.Fighters.Count - n0}명, 응할 확률 {pr:0.00})");
+        }
+    }
+
+    /// <summary>동맹(나라 약조)에게 손을 벌린다. 동맹 가장은 0.5 + 보는 눈 ÷ 200 확률로 군인 절반을 보낸다. 친위대는 남긴다.</summary>
+    private void CallAllies(Conflict c, ConflictSide side, int lord, int foe, string label)
+    {
+        var p = People; var hh = Households;
+        int head = HeadIdx(lord);
+        foreach (var x in _pacts.ToList())
+        {
+            if (x.k != PactKind.Alliance) continue;
+            int o = x.a == lord ? x.b : x.b == lord ? x.a : -1;
+            if (o < 0 || o == foe || !hh.IsAlive(o) || InConflict(o) || !c.Asked.Add(o)) continue;
+            int oh = HeadIdx(o);
+            if (oh < 0 || head < 0) continue;
+            float pr = Math.Clamp(0.5f + Social.Opinion(p, oh, p.Uid[head]) / 200f, 0.05f, 0.95f);
+            string on = RealmName(o) is { Length: > 0 } rn ? rn : Names.Full(Lineage, p.Uid[oh]);
+            if (!_rng.Chance(pr)) { Note(c, $"{label} 동맹 {on}은(는) 오지 않았다(올 확률 {pr:0.00})"); continue; }
+            var guard = GuardOf(o).ToHashSet();
+            int n0 = side.Fighters.Count;
+            foreach (int sd in SoldiersOf(o)) if (!guard.Contains(sd) && _rng.Chance(0.5f)) Enlist(c, side, sd);
+            if (side.Fighters.Count == n0) { Note(c, $"{label} 동맹 {on}은(는) 보낼 군인이 없었다"); continue; }
+            Stats.AlliesJoined++;
+            MarkWar(o, foe);
+            Note(c, $"{label} 동맹 {on}이(가) 군인을 보냈다(+{side.Fighters.Count - n0}명, 올 확률 {pr:0.00})");
+            Chron(oh, $"{SubjName(oh)} 동맹을 도우러 군인 {side.Fighters.Count - n0}명을 보냈다");
+        }
+    }
+
+    /// <summary>향병: 쳐들어온 적을 맞아 지배자 바로 아래의 보통 집(봉신이 아닌 집)이 싸울 남자를 낸다. 0.3 + 0.5 × 충성 확률로, 보호 거리 두 배 안만.</summary>
+    private void Militia(Conflict c, ConflictSide side, int lord)
+    {
+        var p = People; var hh = Households;
+        int head = HeadIdx(lord);
+        float r = 2f * Config.ProtectRange;
+        int n0 = side.Fighters.Count, houses = 0;
+        foreach (int h in DirectClients(lord).ToList())
+        {
+            if (!hh.IsAlive(h) || ClientCount(h) > 0 || Dist2(h, lord) > r * r) continue;
+            int hd = HeadIdx(h);
+            float loy = hd >= 0 && head >= 0 && p.LoyalUid[hd] == p.Uid[head] ? p.Loyalty[hd] : 0f;
+            if (!_rng.Chance(0.3f + 0.5f * loy)) continue;
+            int k0 = side.Fighters.Count;
+            foreach (int m in MembersOf(h)) Enlist(c, side, m);
+            if (side.Fighters.Count > k0) houses++;
+        }
+        if (side.Fighters.Count > n0) { Stats.MilitiaRaised += side.Fighters.Count - n0; Note(c, $"막는 쪽 아래 집 {houses}곳이 향병 {side.Fighters.Count - n0}명을 냈다"); }
+    }
+
+    private void WarTick(Conflict c)
+    {
+        var p = People; var hh = Households;
+        int a = c.A.House, t = c.D.House;
+        if (!hh.IsAlive(a) || hh.FoundedDay[a] != c.A.HouseFounded) { EndConflict(c, false); return; }
+        if (!hh.IsAlive(t) || hh.FoundedDay[t] != c.D.HouseFounded || !MembersOf(t).Any(m => AgeYears(m) >= 16 && !IsCaptive(m))) { EndConflict(c, true); return; }
+        if (HeadIdx(a) is int ah && ah >= 0) c.A.LeaderUid = p.Uid[ah];
+        if (HeadIdx(t) is int th && th >= 0) c.D.LeaderUid = p.Uid[th];
+        if (c.Ticks <= 2)
+        {
+            Levy(c, c.A, a, "쳐들어가는 쪽");
+            Levy(c, c.D, t, "막는 쪽");
+            if (c.Ticks == 1) Militia(c, c.D, t);
+            CallAllies(c, c.A, a, t, "쳐들어가는 쪽");
+            CallAllies(c, c.D, t, a, "막는 쪽");
+        }
+        if (c.Ticks > 2 && SidePower(c.A) <= 0f)
+        {
+            if (SidePower(c.D) <= 0f) { Note(c, "양쪽 다 싸울 사람이 남지 않았다"); EndConflict(c, null); return; }
+            Note(c, "쳐들어간 쪽에 싸울 사람이 남지 않았다"); EndConflict(c, false); return;
+        }
+        Battle(c, 24);   // 한 해
+    }
+
     /// <summary>사기가 0.3 아래면 싸우는 사람이 0.2 × (1 − 조직 충성)으로 달아난다(광신도는 남는다).</summary>
     private void Desert(Conflict c, ConflictSide s)
     {
@@ -469,10 +594,14 @@ public sealed partial class World
     {
         if (c.Over) return;
         c.Over = true;
-        bool indep = c.Kind == ConflictKind.Independence;
-        c.Outcome = indep ? (attackerWon == true ? "진압" : attackerWon == false ? "독립" : "협상") : (attackerWon == true ? "찬탈" : attackerWon == false ? "진압" : "교착");
-        Note(c, indep ? (attackerWon == true ? "진압군이 이겼다" : attackerWon == false ? "봉신이 진압군을 물리치고 홀로 섰다" : "한 해가 지나 협상으로 끝났다")
-                      : (attackerWon == true ? "일으킨 쪽이 이겼다" : attackerWon == false ? "막는 쪽이 진압했다" : "반년이 지나 교착에 빠졌다"));
+        int ow = attackerWon == true ? 0 : attackerWon == false ? 1 : 2;
+        (c.Outcome, string end) = c.Kind switch
+        {
+            ConflictKind.Independence => (new[] { "진압", "독립", "협상" }[ow], new[] { "진압군이 이겼다", "봉신이 진압군을 물리치고 홀로 섰다", "한 해가 지나 협상으로 끝났다" }[ow]),
+            ConflictKind.War => (new[] { "승리", "격퇴", "휴전" }[ow], new[] { "쳐들어간 쪽이 이겼다", "막는 쪽이 물리쳤다", "한 해가 지나 휴전했다" }[ow]),
+            _ => (new[] { "찬탈", "진압", "교착" }[ow], new[] { "일으킨 쪽이 이겼다", "막는 쪽이 진압했다", "반년이 지나 교착에 빠졌다" }[ow]),
+        };
+        Note(c, end);
         Snap(c, false);
         var p = People;
         int pi = FindAlive(c.A.LeaderUid), lh = HeadIdx(c.D.House);
@@ -536,6 +665,18 @@ public sealed partial class World
                 Stats.Independences++;
             }
         }
+        else if (c.Kind == ConflictKind.War)
+        {
+            int ah = HeadIdx(c.A.House), th = HeadIdx(c.D.House);
+            if (IsPlayer(ah) || IsPlayer(th)) _fork = true;
+            string sum = $"(싸움 {c.Battles}번, 죽음 {c.Deaths}, 다침 {c.Wounded}, 달아남 {c.Deserted})";
+            if (ah >= 0 && th >= 0)
+            {
+                if (attackerWon == null) Truce(c.A.House, c.D.House, sum);
+                else WarResult(ah, th, attackerWon == true, sum);
+            }
+            else if (ah >= 0 && attackerWon == true) Chron(ah, $"싸움 끝에 상대 집이 끊겼다{sum}");
+        }
         RecountClients(); RecountTree();
     }
 
@@ -546,4 +687,5 @@ public sealed partial class World
 
     // 시험용
     public void TickConflicts() => ConflictTick();
+    public void StartWarNow(int a, int t) => StartWar(a, t);
 }
