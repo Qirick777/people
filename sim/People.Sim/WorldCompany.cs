@@ -180,8 +180,40 @@ public sealed partial class World
     public int LendNow(Group root, int v) => Lend(RootOf(root), RootOf(root), v, 1f);
 
     /// <summary>해마다: 계약대로 물건을 대고 값을 받는다. NPC 지배자가 무구 계약을 맺는다.</summary>
+    /// <summary>
+    /// 출자와 배당(R15): 곳간에 쌓는 상단은 해마다 넉넉한 조직원 집(형편 1.2 넘고 은화 20 넘음)이 은화의 5%(많아야 10)를 곳간에 넣는다(조직 충성 +0.02).
+    /// 곳간이 150을 넘으면 넘는 몫의 10%를 조직원 집에 고르게 나눈다.
+    /// </summary>
+    private void CompanyCapitalYear()
+    {
+        if (Config.CompanyCapital == 0) return;
+        var p = People; var hh = Households;
+        foreach (var root in _groups)
+        {
+            if (!root.Alive || !IsTop(root) || root.Kind != GroupKind.Company || root.ShareRule != ShareRule.Treasury) continue;
+            var houses = new HashSet<int>();
+            foreach (var u in Subtree(root)) if (u == root || RootOf(u).Id == root.Id) foreach (int m in MembersFast(u)) if (hh.IsAlive(p.Household[m]) && HeadIdx(p.Household[m]) == m) houses.Add(p.Household[m]);
+            foreach (int h in houses)
+            {
+                if (Surplus(h) < 1.2f || hh.Coin[h] < 20f) continue;
+                float put = MathF.Min(10f, 0.05f * hh.Coin[h]);
+                hh.Coin[h] -= put; root.Treasury += put;
+                if (HeadIdx(h) is int hd && hd >= 0) _orgLoyal[(root.Id, p.Uid[hd])] = MathF.Min(1f, OrgLoyalty(root, p.Uid[hd]) + 0.02f);
+                Stats.CapitalIn += put;
+            }
+            if (root.Treasury > 150f && houses.Count > 0)
+            {
+                float div = 0.1f * (root.Treasury - 150f);
+                root.Treasury -= div;
+                foreach (int h in houses) hh.Coin[h] += div / houses.Count;
+                Stats.Dividends += div;
+            }
+        }
+    }
+
     private void ContractYear()
     {
+        CompanyCapitalYear();
         var hh = Households;
         foreach (var c in _contracts.ToList())
         {

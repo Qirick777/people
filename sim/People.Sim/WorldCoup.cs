@@ -160,7 +160,13 @@ public sealed partial class World
     {
         if (!PlotLive(x)) return (0f, 0, 0);   // 그 사이 꾸미던 사람이 죽었거나 집이 바뀌었다
         var (r, m, t) = StrikeOdds(x, false);
-        return (r, m.Count, t.Count);
+        // 어림은 해마다 다르게 흔들린다(±0.15, 감찰대가 있으면 ±0.05). 참값은 아무도 모른다(R15)
+        uint hsh = (uint)(x.Id * 73856093) ^ (uint)((Day / Config.DaysPerYear) * 19349663);
+        hsh ^= hsh >> 13; hsh *= 0x5bd1e995; hsh ^= hsh >> 15;
+        float u = (hsh % 10000) / 5000f - 1f;
+        int pi = FindAlive(x.Plotter);
+        bool eyes = pi >= 0 && PlotterOrg(pi) is { } po && SurveyOf(po) > 0f;
+        return (Math.Clamp(r + u * (eyes ? 0.05f : 0.15f), 0f, 1f), m.Count, t.Count);
     }
 
     /// <summary>끌어들일 만한 사람: 세력 안 사람 가운데 아직 모르는 사람과 받아들일 확률.</summary>
@@ -439,8 +445,23 @@ public sealed partial class World
         // L의 조직(군대)도 넘어온다. 꾸민 집에 군대가 있으면 L의 군대가 그 갈래가 된다
         var lo = LordOrg(lord, false);
         var po = LordOrg(ph, false);
+        // 옛 지배자 집은 제 땅과 곡식의 절반을 지킨다(R15: 찬탈이 모든 것을 한 번에 넘겨받지 않게)
+        int keepPlots = hh.PlotCount[lord] / 2;
+        float keepFood = 0.5f * hh.Food[lord];
+        hh.Food[lord] -= keepFood;
         InheritLordship(lord, ph);
         Stats.LordshipsInherited--;   // 물려받은 것이 아니다
+        if (hh.IsAlive(lord)) { if (keepPlots > 0) Map.Transfer(ph, lord, keepPlots, hh); hh.Food[lord] += keepFood; }
+        else hh.Food[ph] += keepFood;
+        // 옛 지배자를 섬기던 집은 그 충성만큼 찬탈자를 떠난다(R15)
+        if (lh >= 0)
+            foreach (int x in DirectClients(ph).ToList())
+                if (hh.IsAlive(x) && x != ph && PatronOf(x) == ph && HeadIdx(x) is int xh && xh >= 0 && p.LoyalUid[xh] == p.Uid[lh] && _rng.Chance(0.5f * p.Loyalty[xh]))
+                {
+                    _patron[x] = -1;
+                    _clientsOf[ph] = Math.Max(0, _clientsOf.GetValueOrDefault(ph) - 1);
+                    Stats.UsurpLeft++;
+                }
         if (lo != null && absorb && po != null && po != lo)
         {
             // 흡수: 옛 조직은 와해되고 사람들은 내 조직에 조직 충성 0.2로 들어온다(R13)

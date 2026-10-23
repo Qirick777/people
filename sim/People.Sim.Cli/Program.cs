@@ -483,12 +483,22 @@ switch (cmd)
                 }
                 for (int h = 0; h < hh.HighWater; h++)
                     if (hh.IsAlive(h) && w.TierOf(h) >= 2 && w.PatronOf(h) < 0 && Fam(h) >= 0) samples.Add((y, h, Fam(h), w.BelowOf(h)));   // founded 칸에 가문을 적는다
-                // 큰 세력 셋의 몫
-                var tops = new List<int>();
-                for (int h = 0; h < hh.HighWater; h++) if (hh.IsAlive(h) && w.PatronOf(h) < 0 && w.BelowOf(h) > 0) tops.Add(w.BelowOf(h) + 1);
+                // 큰 세력 셋의 몫. 아래 집 수는 해 중간(지배자 셈)에 센 것이라, 그 뒤 떠난 봉신이 두 번 세지 않게 다시 센다
+                // 세계를 건드리지 않고 지금 나무를 따라 맨 위마다 센다
+                int staleTop = 0;
+                for (int h = 0; h < hh.HighWater; h++) if (hh.IsAlive(h) && w.PatronOf(h) < 0 && w.BelowOf(h) > 0) staleTop += w.BelowOf(h) + 1;
+                var under = new Dictionary<int, int>();
+                for (int h = 0; h < hh.HighWater; h++)
+                {
+                    if (!hh.IsAlive(h)) continue;
+                    int x = h;
+                    for (int d = 0; d < 32 && w.PatronOf(x) >= 0; d++) x = w.PatronOf(x);
+                    under[x] = under.GetValueOrDefault(x) + 1;
+                }
+                var tops = under.Values.Where(c => c > 1).ToList();
                 tops.Sort((a, b) => b.CompareTo(a));
                 double share = tops.Take(3).Sum() / (double)Math.Max(1, hh.AliveCount);
-                Console.WriteLine($"{y}년: 집 {hh.AliveCount}, 독립 세력(영주 이상) {samples.Count(s => s.year == y)}, 큰 셋 몫 {share:P0}, 단계 {st.Tier1}/{st.Tier2}/{st.Tier3}/{st.Tier4}");
+                Console.WriteLine($"{y}년: 집 {hh.AliveCount}, 독립 세력(영주 이상) {samples.Count(s => s.year == y)}, 큰 셋 몫 {share:P0}(다시 세기 전 맨 위 아래 집 합 {staleTop}), 단계 {st.Tier1}/{st.Tier2}/{st.Tier3}/{st.Tier4}");
             }
         }
         if (gen)
@@ -567,8 +577,24 @@ switch (cmd)
         var seeds = SArg("--seeds", "3,5,7,9,11,13").Split(',').Select(int.Parse).ToArray();
         int years = Arg("--years", 40), tries = Arg("--tries", 8), only = Arg("--only", -1);
         bool trace = Arg("--trace", 0) > 0;
-        string[] names = { "가만히", "도적 떼", "보호세", "신도회", "용병", "자리 청하기", "땅 모으기", "편입 뒤 쿠데타" };
-        var rows = new List<(int strat, int seed, bool alive, float wealth, int below, int tier, int org, int kin, string note)>();
+        string[] names = { "가만히", "도적 떼", "보호세", "신도회", "용병", "자리 청하기", "땅 모으기", "편입 뒤 쿠데타",
+                           "교단 창시", "상단 대부", "상단 임대", "농장", "공방", "학교", "유곽", "납치단", "포획 도적", "사살 도적",
+                           "치안대", "보호세 패", "신학원", "땅+자리", "구휼 보호세", "용병 모병" };
+        // 갈래 종류(없으면 조직을 세우지 않는다)와 맡길 일
+        GroupKind? KindOf(int s) => s switch
+        {
+            1 or 15 or 16 or 17 or 19 => GroupKind.Bandits, 3 or 8 or 20 => GroupKind.Brotherhood, 2 or 4 or 7 or 18 or 22 or 23 => GroupKind.Watch,
+            9 or 10 => GroupKind.Company, 11 or 12 => GroupKind.Workshop, 13 => GroupKind.School, 14 => GroupKind.Brothel, _ => null,
+        };
+        Verb[] VerbsOf(int s) => s switch
+        {
+            1 or 16 or 17 => new[] { Verb.Raid }, 2 => new[] { Verb.Guard, Verb.Collect }, 3 => new[] { Verb.Preach, Verb.Charity }, 4 => new[] { Verb.Mercenary, Verb.Guard },
+            8 => new[] { Verb.Worship, Verb.Preach, Verb.Charity }, 9 => new[] { Verb.Trade, Verb.Lend }, 10 => new[] { Verb.Trade, Verb.Lease },
+            11 or 12 => new[] { Verb.Produce }, 13 => new[] { Verb.Teach }, 14 => new[] { Verb.Brothel }, 15 => new[] { Verb.Kidnap, Verb.Raid },
+            18 => new[] { Verb.Chase, Verb.Guard }, 19 => new[] { Verb.Raid, Verb.Collect }, 20 => new[] { Verb.Worship, Verb.Teach },
+            22 => new[] { Verb.Guard, Verb.Collect, Verb.Charity }, 23 => new[] { Verb.Mercenary, Verb.Recruit }, _ => new[] { Verb.Guard },
+        };
+        var rows = new List<(int strat, int seed, bool alive, float wealth, int below, int tier, int org, int kin, string note, int desc, float standing, int zeal)>();
         foreach (int strat in Enumerable.Range(0, names.Length))
         {
             if (only >= 0 && strat != only) continue;
@@ -583,6 +609,7 @@ switch (cmd)
                 int Men(int h) { int n = 0; for (int k = hh.FirstMember[h]; k >= 0; k = p.HhNext[k]) if (p.Male[k] && Age(k) is >= 16 and <= 40) n++; return n; }
                 int me = Enumerable.Range(0, hh.HighWater).Where(h => hh.IsAlive(h) && w.ClassOf(h) == LandClass.Tenant && w.PatronOf(h) >= 0).OrderByDescending(h => Men(h) * 10 + hh.Members[h]).First();
                 w.PlayerHousehold = me;
+                int startUid = p.Uid[hh.Head[me].Index];
                 Group? org = null;
                 int kin = 0, acts = 0, ok = 0;
                 bool Try(InteractionId id, int actor, int target, int third = -1)
@@ -606,14 +633,20 @@ switch (cmd)
                     foreach (var dm in w.Demands.ToList()) w.AnswerDemand(dm.Id, dm.Kind == InteractionId.OrgOffer ? strat == 7 : null);
                     int lordH = w.PatronOf(h), lordHead = HeadOf(lordH);
                     var mine = w.MembersOf(h).ToList();
-                    if (strat is >= 1 and <= 4 or 7)
+                    if (KindOf(strat) != null)
                     {
                         // 남의 손에 넘어간 조직은 버리고 새로 세운다
                         if (org != null && org.Alive && (w.GroupById(org.Id) == null || !mine.Any(m => w.IsLeader(m, org)))) org = null;
                         if (org == null || !org.Alive)
                         {
-                            var kind = strat switch { 1 => GroupKind.Bandits, 3 => GroupKind.Brotherhood, _ => GroupKind.Watch };
+                            var kind = KindOf(strat)!.Value;
                             org = w.GroupsOf(head).FirstOrDefault(g => g.Kind == kind && w.IsLeader(head, g)) ?? w.FoundGroup(head, kind);
+                            if (strat is 8 or 18 or 22) w.SetVisibility(org, Visibility.Public);
+                            if (strat == 8) w.FoundReligion(org, "", new[] { (Doctrine.Charity, Strength.Mid), (Doctrine.Order, Strength.Mid), (Doctrine.Ancestors, Strength.Weak) });
+                            if (strat is 9 or 10) org.ShareRule = ShareRule.Treasury;
+                            if (strat == 11) org.FarmFood = true;
+                            if (strat is 15 or 16) org.Kill = false;
+                            if (strat is 17 or 19) org.Kill = true;
                             if (strat is 2 or 7) w.SetVisibility(org, Visibility.Public);
                             if (strat == 1) org.ShareRule = ShareRule.Even;
                             if (strat == 3) { w.SetVisibility(org, Visibility.Proclaimed); org.Lesson = Lesson.Doctrine; org.TeachShare = 0.2f; org.TeachManual = true; }
@@ -631,14 +664,14 @@ switch (cmd)
                         }
                         foreach (var (i, _) in cands.OrderByDescending(x => x.a).Take(tries)) Try(InteractionId.Recruit, ld, i);
                         var root = w.RootOf(org);
-                        var verbs = strat switch
+                        var verbs = VerbsOf(strat);
+                        // 붙잡은 사람은 해마다 몸값을 청한다(아이도)
+                        foreach (var cap in w.Captives.Where(c => c.Root == root.Id).ToList())
                         {
-                            1 => new[] { Verb.Raid },
-                            2 => new[] { Verb.Guard, Verb.Collect },
-                            3 => new[] { Verb.Preach, Verb.Charity },
-                            4 => new[] { Verb.Mercenary, Verb.Guard },
-                            _ => new[] { Verb.Guard },
-                        };
+                            int ci = Enumerable.Range(0, p.HighWater).FirstOrDefault(k => p.IsAliveIndex(k) && p.Uid[k] == cap.Uid, -1);
+                            int fh = ci >= 0 ? HeadOf(p.Household[ci]) : -1;
+                            if (fh >= 0 && fh != ci) Try(InteractionId.Ransom, ld, fh);
+                        }
                         org.Tasks.Clear();
                         foreach (var vb in verbs) if (w.CanUseVerb(root, vb, out _)) org.Tasks.Add(new OrgTask { Verb = vb, Village = v, Weight = 1f });
                         if (org.Tasks.Count == 0) org.Tasks.Add(new OrgTask { Verb = verbs[^1], Village = v, Weight = 1f });
@@ -659,14 +692,14 @@ switch (cmd)
                             }
                         }
                     }
-                    if (strat == 5 && lordHead >= 0)
+                    if (strat is 5 or 21 && lordHead >= 0)
                     {
                         foreach (int m in mine) if (p.Male[m]) Try(InteractionId.ServeSoldier, m, lordHead);
                         foreach (int m in mine) Try(InteractionId.ServeCollector, m, lordHead);
                         foreach (int m in w.MembersOf(h).ToList()) Try(InteractionId.AskInner, m, lordHead);
                         Try(InteractionId.PetitionFief, head, lordHead);
                     }
-                    if (strat is 5 or 6)
+                    if (strat is 5 or 6 or 21)
                     {
                         // 아이는 마을에서 일 가진 사람 가운데 가장 잘 받아 줄 사람에게 맡긴다
                         int v = hh.Village[h];
@@ -683,7 +716,7 @@ switch (cmd)
                             foreach (var (m, _) in masters.OrderByDescending(x => x.a).Take(2)) if (Try(InteractionId.Apprentice, head, m, kid)) break;
                         }
                     }
-                    if (strat == 6)
+                    if (strat is 6 or 21)
                     {
                         // 한 해 먹을 것을 남기고 살 수 있으면 산다(마을에서 팔 만한 집 셋에게 묻는다)
                         int v = hh.Village[h];
@@ -715,21 +748,45 @@ switch (cmd)
                 w.RecountOrgs();
                 var o2 = org != null && org.Alive ? w.RootOf(org) : null;
                 bool alive = hf >= 0 && hh.IsAlive(hf);
+                                // 살아 있는 후손(몇 대든)
+                var kids = w.Lineage.ChildrenIndex();
+                int desc = 0;
+                var q = new Queue<int>(); q.Enqueue(startUid);
+                var seen = new HashSet<int> { startUid };
+                while (q.Count > 0)
+                    foreach (int c1 in kids.GetValueOrDefault(q.Dequeue()) ?? new List<int>())
+                    {
+                        if (!seen.Add(c1)) continue;
+                        if (w.Lineage.Death(c1) < 0) desc++;
+                        q.Enqueue(c1);
+                    }
+                float standing = alive && w.ClientCount(hf) > 0 ? w.RepOfLord(hf).standing : o2 != null ? w.RepOfRoot(o2).standing : 0f;
+                int zeal = o2 != null ? w.Members(o2).Count(m => w.IsZealot(p.Uid[m], o2)) : 0;
                 rows.Add((strat, seed, alive, alive ? w.WealthOf(hf) + 30f * hh.PlotCount[hf] : 0f, alive ? w.BelowOf(hf) : 0, alive ? w.TierOf(hf) : -1, o2?.Total ?? 0, kin,
-                          alive ? $"{World.ClassName(w.ClassOf(hf))}{(w.MembersOf(hf).Any(m => p.JobOf[m] is (byte)Job.Soldier or (byte)Job.Collector) ? "+자리" : "")}{(w.PlayerPlot != null ? "+거사" : "")}" : "끊김"));
+                          alive ? $"{World.ClassName(w.ClassOf(hf))}{(w.MembersOf(hf).Any(m => p.JobOf[m] is (byte)Job.Soldier or (byte)Job.Collector) ? "+자리" : "")}{(w.PlayerPlot != null ? "+거사" : "")}" : "끊김", desc, standing, zeal));
                 var r = rows[^1];
-                Console.WriteLine($"[{names[strat]} {seed}] {(r.alive ? $"재산 {r.wealth:0}, 아래 {r.below}, 단계 {r.tier}, 조직 {r.org}, {r.note}" : "대가 끊김")}{(kin > 0 ? $", 혈족 집으로 {kin}번 옮김" : "")}, 수 {ok}/{acts}");
+                Console.WriteLine($"[{names[strat]} {seed}] {(r.alive ? $"재산 {r.wealth:0}, 아래 {r.below}, 단계 {r.tier}, 조직 {r.org}, 후손 {r.desc}, 평판 {r.standing:0.00}, 광신 {r.zeal}, {r.note}" : "대가 끊김")}{(kin > 0 ? $", 혈족 집으로 {kin}번 옮김" : "")}, 수 {ok}/{acts}");
             }
         }
         Console.WriteLine();
-        Console.WriteLine("길 | 살아남음 | 재산 중앙값(최소~최대) | 아래 집 평균(최대) | 단계 오른 판 | 조직 평균");
+        // 점수: 재산 ÷ 100 + 아래 집 ÷ 5 + 단계 × 3 + 조직 ÷ 5 + 후손 ÷ 2 (끊기면 0)
+        float Score((int strat, int seed, bool alive, float wealth, int below, int tier, int org, int kin, string note, int desc, float standing, int zeal) r) => r.alive ? r.wealth / 100f + r.below / 5f + Math.Max(0, r.tier) * 3f + r.org / 5f + r.desc / 2f : 0f;
+        Console.WriteLine("길 | 살아남음 | 재산 중앙값(최소~최대) | 아래 집 평균(최대) | 단계 오른 판 | 조직 평균 | 후손 평균 | 평판 평균 | 광신 평균 | 점수 중앙값 | 으뜸 판");
+        var best = rows.GroupBy(r => r.seed).ToDictionary(g => g.Key, g => g.OrderByDescending(r => Score(r)).First().strat);
+        var idle = rows.Where(r => r.strat == 0).Select(r => Score(r)).OrderBy(x => x).ToList();
+        float idleMed = idle.Count > 0 ? idle[idle.Count / 2] : 0f;
+        int better = 0;
         foreach (var g in rows.GroupBy(r => r.strat))
         {
             var l = g.ToList(); var al = l.Where(x => x.alive).ToList();
             var ws = al.Select(x => x.wealth).OrderBy(x => x).ToList();
-            string W = al.Count > 0 ? $"{ws[ws.Count / 2]:0}({ws[0]:0}~{ws[^1]:0}), 300 넘은 판 {ws.Count(x => x > 300)}" : "-";
-            Console.WriteLine($"{names[g.Key]} | {al.Count}/{l.Count} | {W} | {(al.Count > 0 ? al.Average(x => x.below) : 0):0.0}({(al.Count > 0 ? al.Max(x => x.below) : 0)}) | {al.Count(x => x.tier >= 1)} | {(l.Average(x => x.org)):0.0}");
+            var sc = l.Select(x => Score(x)).OrderBy(x => x).ToList();
+            float med = sc[sc.Count / 2];
+            if (g.Key != 0 && med > idleMed * 1.2f) better++;
+            string W = al.Count > 0 ? $"{ws[ws.Count / 2]:0}({ws[0]:0}~{ws[^1]:0})" : "-";
+            Console.WriteLine($"{names[g.Key]} | {al.Count}/{l.Count} | {W} | {(al.Count > 0 ? al.Average(x => x.below) : 0):0.0}({(al.Count > 0 ? al.Max(x => x.below) : 0)}) | {al.Count(x => x.tier >= 1)} | {(l.Average(x => x.org)):0.0} | {(al.Count > 0 ? al.Average(x => x.desc) : 0):0.0} | {(al.Count > 0 ? al.Average(x => x.standing) : 0):0.00} | {l.Average(x => x.zeal):0.0} | {med:0.0} | {best.Count(b => b.Value == g.Key)}");
         }
+        Console.WriteLine($"가만히(점수 중앙값 {idleMed:0.0})보다 20% 넘게 나은 길 {better}개, 시드별 으뜸: " + string.Join(" ", best.Select(b => $"{b.Key}:{names[b.Value]}")));
         break;
     }
     case "crimediag":
