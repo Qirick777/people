@@ -29,6 +29,7 @@ public sealed class Conflict
     public Plot? Plot;
     public readonly List<int> Backers = new();          // 거사에 편든 세력 안 사람(uid)
     public readonly HashSet<int> Asked = new();         // 소집을 이미 물은 봉신 집
+    public readonly List<(int uid, bool att, int back)> Hurt = new();   // 다친 사람: back 번째 진행에 돌아온다(C4)
     public int Deaths, Wounded, Deserted, Battles;
     public bool Over;
     public string Last = "";                            // 지난 교전 한 줄
@@ -58,6 +59,15 @@ public sealed partial class World
 {
     private readonly List<Conflict> _conflicts = new();
     private int _conflictIds;
+    private readonly Dictionary<int, float> _ravaged = new();   // 싸움터 마을: 그해 수확에서 깎는 몫(C4)
+
+    /// <summary>싸움터 피해: 마을 v 의 그해 수확을 cut 만큼 깎고(많아야 0.6) 위험을 올린다.</summary>
+    private void Ravage(int v, float cut, float danger)
+    {
+        if (v < 0) return;
+        _ravaged[v] = MathF.Min(0.6f, _ravaged.GetValueOrDefault(v) + cut);
+        if (v < _danger.Count) _danger[v] += danger;
+    }
 
     /// <summary>진단용: 켜면 분쟁마다 하루(약 보름) 단위 기록을 남기고, 끝난 분쟁도 ConflictLog 에 둔다.</summary>
     public bool KeepConflictLog;
@@ -259,7 +269,11 @@ public sealed partial class World
             side.Fighters.Remove(uid);
             bool att = side == c.A;
             if (_rng.Chance(0.4f)) { c.Deaths++; if (att) c.ADead++; else c.DDead++; Stats.ConflictDeaths++; Stats.RaidDeaths++; Die(i, false); }
-            else { c.Wounded++; if (att) c.AWounded++; else c.DWounded++; Stats.ConflictWounded++; }
+            else
+            {
+                c.Wounded++; if (att) c.AWounded++; else c.DWounded++; Stats.ConflictWounded++;
+                if (_rng.Chance(0.6f)) c.Hurt.Add((uid, att, c.Ticks + 6));   // 열에 여섯은 석 달 뒤 돌아온다
+            }
         }
         return removed;
     }
@@ -336,21 +350,49 @@ public sealed partial class World
     /// <summary>교전 한 번(공통): 막는 쪽은 밀리면 제 거점에서 버티고, 일으킨 쪽은 칠 만하면 친다. 포위, 탈영, 기록, 결말까지. maxTicks 가 지나면 교착.</summary>
     private void Battle(Conflict c, int maxTicks)
     {
-        var hh = Households;
+        var hh = Households; var p = People;
         int seat = c.D.House;
+        int sv = hh.IsAlive(seat) ? hh.Village[seat] : -1;
+        // 다친 사람이 돌아온다
+        int back = 0;
+        for (int k = c.Hurt.Count - 1; k >= 0; k--)
+        {
+            var (uid, att, when) = c.Hurt[k];
+            if (when > c.Ticks) continue;
+            c.Hurt.RemoveAt(k);
+            if (FindAlive(uid) is int i && i >= 0 && !IsCaptive(i)) { Enlist(c, att ? c.A : c.D, i); back++; }
+        }
+        if (back > 0) Note(c, $"다쳤던 {back}명이 돌아왔다");
         float pa = SidePower(c.A), pd = SidePower(c.D);
-        float fort = 1f + 0.3f * ResidenceOf(seat);
+        int level = ResidenceOf(seat);
+        float fort = 1f + 0.3f * level;
         c.D.Holding = pd < 0.8f * pa;
         float defend = pd * (c.D.Holding ? fort : 1f);
-        bool clashed = pa >= 0.6f * defend || !c.D.Holding;
-        if (c.D.Holding) Note(c, $"막는 쪽이 거점에서 버틴다(방어 ×{fort:0.00})");
-        if (clashed) Clash(c, c.D.Holding ? fort : 1f);
-        else Note(c, "일으킨 쪽은 칠 만하지 않아 둘러싸고 기다린다");
-        if (c.D.Holding)
+        // 거점 식량: 집 식구 밖에서 들어온 사람도 먹는다. 한 번(약 보름)에 하루 치씩 더 든다
+        float perMouth = hh.IsAlive(seat) && hh.Members[seat] > 0 ? hh.Need[seat] / hh.Members[seat] : 1f;
+        int outsiders = c.D.Fighters.Count(u => FindAlive(u) is int i && i >= 0 && p.Household[i] != seat);
+        float month = hh.IsAlive(seat) ? 2f * (hh.Need[seat] + outsiders * perMouth) : 1f;   // 한 달 = 이틀
+        bool starving = c.D.Holding && hh.IsAlive(seat) && hh.Food[seat] < month;
+        // 일으킨 쪽: 칠 만하면 친다. 신중한 우두머리는 거점 식량이 두 달 치 아래면 굶기며 기다린다
+        int al = FindAlive(c.A.LeaderUid);
+        bool wait = c.D.Holding && hh.IsAlive(seat) && hh.Food[seat] < 2f * month && al >= 0 && p.Get(al, Trait.Caution) > 0.5f;
+        bool clashed = !c.D.Holding || (pa >= 0.6f * defend && !wait);
+        if (c.D.Holding) Note(c, $"막는 쪽이 거점에서 버틴다(큰 집 {level}단계, 방어 ×{fort:0.00})");
+        if (clashed)
         {
-            hh.Food[seat] *= 0.95f;   // 포위: 거점 식량이 준다
-            if (hh.Food[seat] < hh.Need[seat] * 30f) { c.D.Morale -= 0.15f; Note(c, "거점 식량이 한 달 치 아래로 떨어져 사기가 꺾였다"); }
+            Clash(c, c.D.Holding ? fort : 1f);
+            Ravage(sv, c.D.Holding ? 0.03f : 0.08f, 0.2f);   // 들판 싸움은 밭을 더 짓밟는다
         }
+        else Note(c, wait ? "일으킨 쪽은 거점을 둘러싸고 굶기며 기다린다" : "일으킨 쪽은 칠 만하지 않아 둘러싸고 기다린다");
+        if (c.D.Holding && hh.IsAlive(seat))
+        {
+            Ravage(sv, 0.02f, 0.05f);   // 포위한 쪽이 둘레에서 먹을 것을 걷는다
+            hh.Food[seat] = MathF.Max(0f, hh.Food[seat] - (outsiders * perMouth));
+            if (hh.Food[seat] <= 0f) { c.D.Morale -= 0.25f; Stats.SiegeStarved++; Note(c, "거점 식량이 바닥나 굶주린다"); }
+            else if (starving) { c.D.Morale -= 0.1f; Note(c, "거점 식량이 한 달 치 아래로 떨어져 사기가 꺾였다"); }
+        }
+        // 오래 끌면 양쪽 다 지친다(반년 넘으면)
+        if (c.Ticks > 12) { c.A.Morale -= 0.02f; c.D.Morale -= 0.02f; }
         int da0 = c.ADeserted, dd0 = c.DDeserted;
         Desert(c, c.A); Desert(c, c.D);
         if (c.ADeserted > da0) Note(c, $"일으킨 쪽에서 {c.ADeserted - da0}명이 달아났다");
@@ -359,7 +401,7 @@ public sealed partial class World
         // 결말
         pa = SidePower(c.A); pd = SidePower(c.D) * (c.D.Holding ? fort : 1f);
         if (FindAlive(c.A.LeaderUid) < 0 || pa < 0.3f * pd || c.A.Morale < 0.15f) { EndConflict(c, false); return; }
-        if (pd < 0.3f * pa || c.D.Morale < 0.15f) { EndConflict(c, true); return; }
+        if (pd < 0.3f * pa || c.D.Morale < 0.15f) { if (c.D.Holding && c.D.Morale < 0.15f) Note(c, "거점이 버티지 못하고 문을 열었다"); EndConflict(c, true); return; }
         if (c.Ticks >= maxTicks) EndConflict(c, null);
     }
 
@@ -572,11 +614,14 @@ public sealed partial class World
         Battle(c, 24);   // 한 해
     }
 
-    /// <summary>사기가 0.3 아래면 싸우는 사람이 0.2 × (1 − 조직 충성)으로 달아난다(광신도는 남는다).</summary>
+    /// <summary>
+    /// 사기가 0.3 아래면 싸우는 사람이 0.2 × (1 − 조직 충성)으로 달아난다. 광신도와 우두머리 집 식구는 남는다.
+    /// 임금을 줄 식량이 한 달 치 아래인 집의 군인은 1.5배, 남의 집에서 온 사람(봉신 군사, 향병, 동맹)은 1.2배로 더 달아난다(C4).
+    /// </summary>
     private void Desert(Conflict c, ConflictSide s)
     {
         if (s.Morale >= 0.3f) return;
-        var p = People;
+        var p = People; var hh = Households;
         var root = LordOrg(s.House, false);
         foreach (int uid in s.Fighters.ToList())
         {
@@ -584,8 +629,13 @@ public sealed partial class World
             int i = FindAlive(uid);
             if (i < 0) { s.Fighters.Remove(uid); continue; }
             if (p.Fanatic[i] != 0 || (root != null && IsZealot(uid, root))) continue;
+            int home = p.Household[i];
+            if (home == s.House) continue;
             float loy = root != null ? OrgLoyalty(root, uid) : 0.3f;
-            if (_rng.Chance(0.2f * (1f - loy))) { s.Fighters.Remove(uid); c.Deserted++; if (s == c.A) c.ADeserted++; else c.DDeserted++; Stats.ConflictDeserted++; }
+            int boss = _employer.GetValueOrDefault(i, -1);
+            float mult = p.JobOf[i] == (byte)Job.Soldier && boss >= 0 && hh.IsAlive(boss) && hh.Food[boss] < 2f * hh.Need[boss] ? 1.5f
+                       : boss != s.House ? 1.2f : 1f;
+            if (_rng.Chance(0.2f * (1f - loy) * mult)) { s.Fighters.Remove(uid); c.Deserted++; if (s == c.A) c.ADeserted++; else c.DDeserted++; Stats.ConflictDeserted++; }
         }
     }
 
@@ -688,4 +738,6 @@ public sealed partial class World
     // 시험용
     public void TickConflicts() => ConflictTick();
     public void StartWarNow(int a, int t) => StartWar(a, t);
+    public void RavageNow(int v, float cut) => Ravage(v, cut, 0.2f);
+    public float RavagedAt(int v) => _ravaged.GetValueOrDefault(v);
 }

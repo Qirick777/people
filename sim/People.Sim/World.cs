@@ -647,6 +647,7 @@ public sealed partial class World
                 }
                 else yield += got;
             }
+            if (hv >= 0 && _ravaged.TryGetValue(hv, out float cut)) { Stats.RavagedLoss += (yield + tenantYield) * cut; yield *= 1f - cut; tenantYield *= 1f - cut; }   // 싸움터(C4)
             hh.Food[h] += yield + tenantYield;
             _incOwn[h] += yield;
             _incTenant[h] += tenantYield;
@@ -669,6 +670,7 @@ public sealed partial class World
             if (f >= map.BaseFert(plot)) _depleted.Remove(plot);
         }
         Stats.Harvest += total;
+        _ravaged.Clear();
     }
 
     // ------------------------------------------------------------------ 땅, 분가, 집

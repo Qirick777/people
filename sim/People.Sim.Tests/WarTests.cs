@@ -19,4 +19,19 @@ public class WarTests
         if (w.Stats.WarWins > w0 && hh.IsAlive(t)) Assert.Equal(lord, w.PatronOf(t));
         if (w.Stats.WarTruces > tr0) Assert.False(w.CanWarNow(lord, t));   // 휴전 다섯 해
     }
+
+    [Fact]
+    public void BattlefieldLosesHarvestAndGetsDangerous()
+    {
+        var (w, lord) = TestWorlds.WithLord(12);
+        int v = w.Households.Village[lord];
+        float d0 = w.DangerAt(v);
+        for (int k = 0; k < 20; k++) w.RavageNow(v, 0.1f);
+        Assert.Equal(0.6f, w.RavagedAt(v), 3);   // 많아야 0.6
+        Assert.True(w.DangerAt(v) > d0);
+        // 수확 때 깎고 지운다
+        for (int d = 0; d < w.Config.DaysPerYear + 1 && w.RavagedAt(v) > 0f; d++) w.Step();
+        Assert.Equal(0f, w.RavagedAt(v));
+        Assert.True(w.Stats.RavagedLoss > 0f || w.Stats.Harvest == 0f);
+    }
 }
