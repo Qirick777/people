@@ -712,6 +712,15 @@ public sealed partial class World
         var nat = NationAt(x.Lord);
         string weak = $"흔들림 {(lo?.Shaken ?? 0f):0.00}, 정당성 {LegitName(LegitOf(x.Lord))}, 나이 {AgeYears(lh)}, 명예 {p.Honor[lh]:0.00}";
         var (ratio, mine, theirs) = StrikeOdds(x, false);
-        return $"{Names.Full(Lineage, x.Plotter)}({AgeYears(pi)}세, {role}{(chon > 0 && chon <= 6 ? $", {chon}촌" : "")}) → {Names.Full(Lineage, p.Uid[lh])}({RealmName(x.Lord)}, 단계 {TierOf(x.Lord)}, 아래 {BelowOf(x.Lord)}{(nat != null ? $", {nat.Name}{(nat.House == x.Lord ? " 주인" : " 안")}" : "")}) | 야망 {p.Get(pi, Trait.Ambition):0.00}, 공격성 {p.Get(pi, Trait.Aggression):0.00}, 신중 {p.Get(pi, Trait.Caution):0.00}, 충성 {(loy < 0 ? "섬기지 않음" : loy.ToString("0.00"))}, 지배자를 보는 눈 {Social.Opinion(p, pi, p.Uid[lh]):0} | 지배자: {weak} | 지금 힘의 몫 {ratio:0.00}(편 {mine.Count}, 맞섬 {theirs.Count})";
+        int sold = RetainerCount(x.Lord, Job.Soldier), sTheirs = 0, sMine = 0, sNeutral = 0;
+        if (lo != null)
+            foreach (int m in Members(lo))
+            {
+                if (m == pi || p.Household[m] == x.Lord) continue;
+                float l = Lean(m, pi, x.Lord);
+                if (l > 0.6f) sMine++; else if (l < 0.3f) sTheirs++; else sNeutral++;
+            }
+        float sv = lo != null ? SurveyOf(lo) : 0f;
+        return $"[군인 {sold}, 지배자 조직에 바로 든 사람 지배자 편 {sTheirs}·중립 {sNeutral}·거사 편 {sMine}, 감시 {sv:0.00}] {Names.Full(Lineage, x.Plotter)}({AgeYears(pi)}세, {role}{(chon > 0 && chon <= 6 ? $", {chon}촌" : "")}) → {Names.Full(Lineage, p.Uid[lh])}({RealmName(x.Lord)}, 단계 {TierOf(x.Lord)}, 아래 {BelowOf(x.Lord)}{(nat != null ? $", {nat.Name}{(nat.House == x.Lord ? " 주인" : " 안")}" : "")}) | 야망 {p.Get(pi, Trait.Ambition):0.00}, 공격성 {p.Get(pi, Trait.Aggression):0.00}, 신중 {p.Get(pi, Trait.Caution):0.00}, 충성 {(loy < 0 ? "섬기지 않음" : loy.ToString("0.00"))}, 지배자를 보는 눈 {Social.Opinion(p, pi, p.Uid[lh]):0} | 지배자: {weak} | 지금 힘의 몫 {ratio:0.00}(편 {mine.Count}, 맞섬 {theirs.Count})";
     }
 }
