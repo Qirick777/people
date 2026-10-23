@@ -96,8 +96,12 @@ public sealed partial class World
         return f;
     }
 
+    /// <summary>진단용: 설정하면 플레이어가 아닌 사람의 연대기도 받는다.</summary>
+    public Action<int, string>? StoryLog;
+
     private void Chron(int person, string text)
     {
+        StoryLog?.Invoke(Day, text);
         if (!IsPlayer(person)) return;
         Chronicle.Add((Day, text));
         if (Chronicle.Count > 2000) Chronicle.RemoveRange(0, 500);

@@ -571,6 +571,33 @@ switch (cmd)
         }
         break;
     }
+    case "coupstory":
+    {
+        // 거사 이야기: 장원 세계를 돌리며 거사가 시작될 때 처지를 적고, 거사·숙청·독립·건국 사건을 해마다 늘어놓는다
+        int seed = Arg("--seed", 4), years = Arg("--years", 150);
+        var map = WorldMap.Generate((uint)seed, Arg("--size", 48));
+        var w = new World((ulong)seed, map, Config());
+        w.GenerateSettled(new GenOptions { Rulers = Arg("--rulers", 5), VillagesPerRuler = Arg("--vpr", 10) });
+        var keys = new[] { "거사", "자리를 노리", "숙청", "독립", "세웠다", "인정하지 않았다", "나라 지위", "함께하기로", "끼기를 거절", "들켰다", "떨어져 나", "죽임을 당했다", "용서", "쫓겨", "내전" };
+        var seen = new HashSet<int>();
+        w.StoryLog = (day, text) =>
+        {
+            if (!keys.Any(text.Contains)) return;
+            Console.WriteLine($"  {day / w.Config.DaysPerYear}년: {text}");
+            // 거사가 시작되는 그 순간의 처지(같은 해에 바로 일으키는 거사도 남긴다)
+            if (text.Contains("자리를 노리기 시작했다"))
+                foreach (var x in w.Plots) if (seen.Add(x.Id)) Console.WriteLine($"* {day / w.Config.DaysPerYear}년 거사 #{x.Id} 시작: {w.PlotBrief(x)}");
+        };
+        for (int y = 0; y < years; y++)
+        {
+            for (int d = 0; d < w.Config.DaysPerYear; d++)
+            {
+                w.Step();
+                foreach (var x in w.Plots) if (seen.Add(x.Id)) Console.WriteLine($"* {w.Day / w.Config.DaysPerYear}년 거사 #{x.Id} 시작: {w.PlotBrief(x)}");
+            }
+        }
+        break;
+    }
     case "strategy":
     {
         // 플레이어 전략 실험(여덟 길): 장원 세계의 소작농 가족을 맡아 같은 수만 쓰며 years 년. 길과 시드마다 세계를 새로 만든다

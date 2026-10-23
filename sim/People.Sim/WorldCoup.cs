@@ -694,4 +694,24 @@ public sealed partial class World
             },
         };
     }
+
+    /// <summary>진단용: 거사 하나의 처지(꾸미는 사람의 자리와 마음, 노리는 지배자의 약함과 나라).</summary>
+    public string PlotBrief(Plot x)
+    {
+        var p = People; var hh = Households;
+        int pi = FindAlive(x.Plotter), lh = HeadIdx(x.Lord);
+        if (pi < 0 || lh < 0) return "";
+        int ph = p.Household[pi];
+        var lo = LordOrg(x.Lord, false);
+        string role = PatronOf(ph) == x.Lord && ClientCount(ph) > 0 && HeadIdx(ph) == pi ? $"봉신(아래 집 {BelowOf(ph)})"
+            : lo != null && lo.Inner.Contains(x.Plotter) ? "측근"
+            : lo != null && Subtree(lo).Any(g => g != lo && g.LeaderUid == x.Plotter) ? $"갈래 지휘자({string.Join(",", Subtree(lo).Where(g => g != lo && g.LeaderUid == x.Plotter).Select(g => $"{UnitLabel(g)} {g.Members}명"))})"
+            : "조직을 심어 둔 우두머리";
+        float loy = p.LoyalUid[pi] == p.Uid[lh] ? p.Loyalty[pi] : -1f;
+        int chon = Lineage.Chon(x.Plotter, p.Uid[lh]);
+        var nat = NationAt(x.Lord);
+        string weak = $"흔들림 {(lo?.Shaken ?? 0f):0.00}, 정당성 {LegitName(LegitOf(x.Lord))}, 나이 {AgeYears(lh)}, 명예 {p.Honor[lh]:0.00}";
+        var (ratio, mine, theirs) = StrikeOdds(x, false);
+        return $"{Names.Full(Lineage, x.Plotter)}({AgeYears(pi)}세, {role}{(chon > 0 && chon <= 6 ? $", {chon}촌" : "")}) → {Names.Full(Lineage, p.Uid[lh])}({RealmName(x.Lord)}, 단계 {TierOf(x.Lord)}, 아래 {BelowOf(x.Lord)}{(nat != null ? $", {nat.Name}{(nat.House == x.Lord ? " 주인" : " 안")}" : "")}) | 야망 {p.Get(pi, Trait.Ambition):0.00}, 공격성 {p.Get(pi, Trait.Aggression):0.00}, 신중 {p.Get(pi, Trait.Caution):0.00}, 충성 {(loy < 0 ? "섬기지 않음" : loy.ToString("0.00"))}, 지배자를 보는 눈 {Social.Opinion(p, pi, p.Uid[lh]):0} | 지배자: {weak} | 지금 힘의 몫 {ratio:0.00}(편 {mine.Count}, 맞섬 {theirs.Count})";
+    }
 }
