@@ -42,7 +42,7 @@ public class CoupTests
         plot.Since -= w.Config.DaysPerYear;
         w.Strike(plot);
         Assert.Empty(w.Plots.Where(x => x.PlotterHouse == v));
-        // 거사는 분쟁이 되어 열흘마다 이어진다. 반년이면 끝난다
+        // 거사는 분쟁이 되어 하루(약 보름)마다 이어진다. 반년(12번)이면 끝난다
         for (int k = 0; k < 20 && w.Conflicts.Any(c => !c.Over); k++) w.TickConflicts();
         Assert.All(w.Conflicts, c => Assert.True(c.Over));
         NoLoops(w);

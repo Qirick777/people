@@ -598,6 +598,29 @@ switch (cmd)
         }
         break;
     }
+    case "conflictdump":
+    {
+        // 분쟁 기록: 장원 세계를 돌리며 분쟁마다 하루(약 보름) 단위 기록을 남겨 JSON 으로 쓴다(재생 화면용)
+        int seed = Arg("--seed", 6), years = Arg("--years", 150);
+        var map = WorldMap.Generate((uint)seed, Arg("--size", 48));
+        var w = new World((ulong)seed, map, Config()) { KeepConflictLog = true };
+        w.GenerateSettled(new GenOptions { Rulers = Arg("--rulers", 5), VillagesPerRuler = Arg("--vpr", 10) });
+        for (int y = 0; y < years; y++) for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
+        var list = w.ConflictLog.Select(c => new
+        {
+            id = c.Id, kind = c.Kind.ToString(), year = c.Since / w.Config.DaysPerYear, attacker = c.AName, defender = c.DName, realm = c.Realm, outcome = c.Outcome,
+            frames = c.Frames.Select(f => new
+            {
+                tick = f.Tick, day = f.Day, an = f.AN, dn = f.DN, ap = MathF.Round(f.AP, 2), dp = MathF.Round(f.DP, 2), am = MathF.Round(f.AM, 2), dm = MathF.Round(f.DM, 2),
+                holding = f.Holding, clashed = f.Clashed, aDead = f.ADead, aWounded = f.AWounded, dDead = f.DDead, dWounded = f.DWounded,
+                aDeserted = f.ADeserted, dDeserted = f.DDeserted, food = MathF.Round(f.Food), notes = f.Notes,
+            }),
+        });
+        var json = System.Text.Json.JsonSerializer.Serialize(list, new System.Text.Json.JsonSerializerOptions { WriteIndented = false, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+        File.WriteAllText(SArg("--out", "conflicts.json"), json);
+        foreach (var c in w.ConflictLog) Console.WriteLine($"#{c.Id} {c.Since / w.Config.DaysPerYear}년 {c.AName} → {c.DName}({c.Realm}): {c.Outcome}, 기록 {c.Frames.Count}장, 죽음 {c.ADead + c.DDead}");
+        break;
+    }
     case "strategy":
     {
         // 플레이어 전략 실험(여덟 길): 장원 세계의 소작농 가족을 맡아 같은 수만 쓰며 years 년. 길과 시드마다 세계를 새로 만든다
