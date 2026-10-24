@@ -2887,7 +2887,6 @@ func _run_autotest() -> void:
 		var foe: String = host.DebugWar()
 		print("autotest: 싸움을 건 상대 ", foe)
 		if foe == "": break
-		host.Advance(1)
 		card.visible = false
 		_open_rise()
 		await _snap("live_conflict.png")
