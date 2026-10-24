@@ -420,6 +420,7 @@ switch (cmd)
         long natF = 0, natR = 0, natO = 0, natL = 0, natSV = 0;
         // 독립 세력 표본: (해, 집, 세운 날, 아래 집 수)
         var samples = new List<(int year, int h, int founded, int below)>();
+        var sampleDay = new Dictionary<(int year, int h), int>();   // 집의 세운 날(같은 집인지)
         int broken = 0, judged = 0;
         var whyBroken = new Dictionary<string, int>();
         int brokenBig = 0, judgedBig = 0;
@@ -492,7 +493,17 @@ switch (cmd)
                     if (gone)
                     {
                         broken++;
-                        if (bigR) brokenBig++;
+                        if (bigR)
+                        {
+                            brokenBig++;
+                            // 큰 세력이 어떻게 꺾였나: 그 집이 그대로인지, 가장의 가문, 지금 아래 집, 섬기는 곳
+                            int h0 = sm.h;
+                            bool same = hh.IsAlive(h0) && hh.FoundedDay[h0] == sampleDay[(sm.year, h0)];
+                            string now = same ? $"집 그대로, 가장 가문 {(Fam(h0) == fam ? "같음" : "바뀜")}, 아래 {w.BelowOf(h0)}/{sm.below}, {(w.PatronOf(h0) < 0 ? "홀로" : "섬김")}" : "집 없어짐";
+                            var famH = Enumerable.Range(0, hh.HighWater).Where(k => hh.IsAlive(k) && Fam(k) == fam).ToList();
+                            var bestF = famH.Where(k => w.PatronOf(k) < 0).OrderByDescending(k => w.BelowOf(k)).FirstOrDefault(-1);
+                            Console.WriteLine($"  큰 세력 꺾임({sm.year}→{y}년): {now} · 가문 집 {famH.Count}, 홀로 선 가문 집 가운데 가장 큰 아래 {(bestF >= 0 ? w.BelowOf(bestF) : 0)}");
+                        }
                         // 갈래: 가문 끊김 / 가문 집이 모두 남 아래 / 홀로 선 가문 집이 여럿(나뉨) / 하나뿐인데 줄어듦
                         var famHouses = Enumerable.Range(0, hh.HighWater).Where(k => hh.IsAlive(k) && Fam(k) == fam).ToList();
                         var freeF = famHouses.Where(k => w.PatronOf(k) < 0 && w.BelowOf(k) > 0).ToList();
@@ -502,7 +513,7 @@ switch (cmd)
                     }
                 }
                 for (int h = 0; h < hh.HighWater; h++)
-                    if (hh.IsAlive(h) && w.TierOf(h) >= 2 && w.PatronOf(h) < 0 && Fam(h) >= 0) samples.Add((y, h, Fam(h), w.BelowOf(h)));   // founded 칸에 가문을 적는다
+                    if (hh.IsAlive(h) && w.TierOf(h) >= 2 && w.PatronOf(h) < 0 && Fam(h) >= 0) { samples.Add((y, h, Fam(h), w.BelowOf(h))); sampleDay[(y, h)] = hh.FoundedDay[h]; }   // founded 칸에 가문을 적는다
                 // 큰 세력 셋의 몫. 아래 집 수는 해 중간(지배자 셈)에 센 것이라, 그 뒤 떠난 봉신이 두 번 세지 않게 다시 센다
                 // 세계를 건드리지 않고 지금 나무를 따라 맨 위마다 센다
                 int staleTop = 0;
