@@ -437,6 +437,7 @@ switch (cmd)
             flow["충성이 낮아 떠남"] = flow.GetValueOrDefault("충성이 낮아 떠남") + st.DisloyalLeft; flow["독립"] = flow.GetValueOrDefault("독립") + st.Independences;
             flow["전쟁 승리"] = flow.GetValueOrDefault("전쟁 승리") + st.WarWins; flow["새로 따름"] = flow.GetValueOrDefault("새로 따름") + st.NewClients;
             flow["찬탈 뒤 떠남"] = flow.GetValueOrDefault("찬탈 뒤 떠남") + st.UsurpLeft; flow["분가"] = flow.GetValueOrDefault("분가") + st.Splits;
+            flow["봉신이 조용히 떠남"] = flow.GetValueOrDefault("봉신이 조용히 떠남") + st.VassalDrift; flow["그 아래 집"] = flow.GetValueOrDefault("그 아래 집") + st.VassalDriftHouses;
             for (int h = 0; h < hh.HighWater; h++)
             {
                 if (!hh.IsAlive(h) || w.TierOf(h) < 2) continue;

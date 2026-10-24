@@ -310,7 +310,7 @@ public sealed partial class World
             {
                 // 세력원 집은 소속 저울로 판단한다(WorldBelong). 봉신(아래 집을 거느린 집)은 예전 규칙: 위험이 사라지면 그만두고, 충성이 무너지면 떠난다
                 if (ClientCount(h) == 0) BelongDecide(h, cur, lords);
-                else if (!Bound(h) && danger < 0.2f && _rng.Chance((0.1f + 0.3f * HeadTrait(h, Trait.Stubbornness)) * LeaveFactor(h) * (1f - 0.8f * Established(hh.Village[h])))) _patron[h] = -1;
+                else if (!Bound(h) && danger < 0.2f && _rng.Chance((0.1f + 0.3f * HeadTrait(h, Trait.Stubbornness)) * LeaveFactor(h) * (1f - 0.8f * Established(hh.Village[h])))) { _patron[h] = -1; Stats.VassalDrift++; Stats.VassalDriftHouses += BelowOf(h) + 1; }
                 else if (Disloyal(h)) { _patron[h] = -1; Stats.DisloyalLeft++; }
                 continue;
             }
