@@ -426,6 +426,14 @@ switch (cmd)
         int brokenBig = 0, judgedBig = 0;
         var flow = new Dictionary<string, long>();
         int Fam(int h) => p.IsValid(hh.Head[h]) ? w.Lineage.FamilyOf(p.Uid[hh.Head[h].Index]) : -1;
+        var ends = new Dictionary<string, int>();
+        w.LordHouseEnded = (h, heir, below) =>
+        {
+            if (below < 20) return;
+            string k = heir < 0 ? "이을 집 없음" : (Fam(heir) >= 0 && p.IsValid(hh.Head[h]) == false ? "혈족 집이 이음" : "혈족 집이 이음");
+            ends[k] = ends.GetValueOrDefault(k) + 1;
+            ends["아래 집 합"] = ends.GetValueOrDefault("아래 집 합") + below;
+        };
         for (int y = 1; y <= years; y++)
         {
             for (int d = 0; d < w.Config.DaysPerYear; d++) w.Step();
@@ -539,6 +547,7 @@ switch (cmd)
         Console.WriteLine($"새로 영주가 된 가문(50년 뒤): {newLordFams} → 1,000집·100년당 {perK:F2} (목표 1~3)");
         Console.WriteLine($"100년 동안 꺾이거나 쪼개진 독립 세력: {broken}/{judged} = {(judged > 0 ? broken / (double)judged : 0):P0} (목표 15~40%)");
         Console.WriteLine($"  그중 아래 집 100 넘던 세력: {brokenBig}/{judgedBig} = {(judgedBig > 0 ? brokenBig / (double)judgedBig : 0):P0}, 작은 세력: {broken - brokenBig}/{judged - judgedBig}");
+        Console.WriteLine($"  아래 20 넘는 지배자 집이 끊김: {string.Join(", ", ends.Select(x => $"{x.Key} {x.Value}"))}");
         Console.WriteLine($"  집의 흐름(모두 더함): {string.Join(", ", flow.Select(x => $"{x.Key} {x.Value}"))}");
         Console.WriteLine($"  꺾인 갈래: {string.Join(", ", whyBroken.OrderByDescending(x => x.Value).Select(x => $"{x.Key} {x.Value}"))}");
         Console.WriteLine($"건국: 세움 {natF}, 승인 {natR}, 적대 {natO}, 잃음 {natL}(마을 모자람 해 {natSV}), 지금 {w.Nations.Count()}" + string.Join("", w.Nations.Select(n => $" | {n.Name}")));

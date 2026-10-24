@@ -1386,6 +1386,9 @@ public sealed partial class World
         if (wasHead) Succession(h);
     }
 
+    /// <summary>진단용: 지배자 집이 끊길 때(집, 지배권을 이을 집 또는 -1, 그때 아래 집 수).</summary>
+    public Action<int, int, int>? LordHouseEnded;
+
     /// <summary>가장이 죽으면: 가장 나이 많은 어른 남자 → 어른 → 아무나. 어른이 없으면 아이들은 친척 집으로.</summary>
     private void Succession(int h)
     {
@@ -1416,6 +1419,7 @@ public sealed partial class World
         if (ClientCount(h) > 0 || ResidenceOf(h) > 0)
         {
             int lordHeir = FindLordHeir(h);
+            LordHouseEnded?.Invoke(h, lordHeir, BelowOf(h));
             if (lordHeir >= 0) keepHouse = InheritLordship(h, lordHeir);
         }
         // 어른이 없다: 아이들을 혈연이 가장 가까운 가구로 보내고 가구를 없앤다.
