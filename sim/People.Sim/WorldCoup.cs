@@ -527,9 +527,9 @@ public sealed partial class World
         int lh = HeadIdx(lord), rh = HeadIdx(rebel);
         float ratio = PowerRatio(lord, rebel);
         float agg = lh >= 0 ? p.Get(lh, Trait.Aggression) : 0.5f, cha = lh >= 0 ? p.Get(lh, Trait.Charisma) : 0.5f, cau = lh >= 0 ? p.Get(lh, Trait.Caution) : 0.5f;
-        float sup = 0.2f + 1.5f * agg * agg * Math.Clamp((ratio - 0.3f) * 3f, 0f, 1.5f);
+        float sup = 0.3f + 1.5f * agg * agg * Math.Clamp((ratio - 0.3f) * 3f, 0f, 1.5f);   // C7: 0.2 → 0.3
         float neg = 0.2f + 1.2f * cha * cha;
-        float let = 0.1f + 0.8f * cau * (1f - ratio);
+        float let = 0.05f + 0.4f * cau * (1f - ratio);   // C7: 주군은 쉽게 체념하지 않는다(0.1 + 0.8 → 0.05 + 0.4)
         float rebelWins = Math.Clamp(1.2f * (1f - ratio) - 0.1f, 0.05f, 0.95f);
         float negHolds = Math.Clamp(0.5f + 0.3f * (1f - (rh >= 0 ? p.Get(rh, Trait.Ambition) : 0.5f)) + Social.Opinion(p, rh >= 0 ? rh : 0, lh >= 0 ? p.Uid[lh] : -1) / 200f, 0.05f, 0.95f);
         return (sup, neg, let, rebelWins, negHolds);
