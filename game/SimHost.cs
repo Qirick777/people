@@ -1890,6 +1890,21 @@ public partial class SimHost : Node
         return e;
     }
 
+    /// <summary>마지막으로 끝난 플레이어 분쟁: 종류, 결말, 진행 수, 최근 일. 없으면 빈 것.</summary>
+    public Godot.Collections.Dictionary LastConflict()
+    {
+        var e = new Godot.Collections.Dictionary();
+        if (!Ready || _w!.LastPlayerConflict is not { } c) return e;
+        e["kind"] = c.Kind switch { ConflictKind.Coup => "거사", ConflictKind.Independence => "독립 진압", _ => "전쟁" };
+        e["outcome"] = c.Outcome;
+        e["tick"] = c.Ticks;
+        e["deaths"] = c.Deaths; e["wounded"] = c.Wounded; e["battles"] = c.Battles;
+        var rec = new Godot.Collections.Array();
+        foreach (var line in c.Recent) rec.Add(line);
+        e["recent"] = rec;
+        return e;
+    }
+
     /// <summary>분쟁 창의 수: "stance:N", "peace", "giveup", "levy:N"(0 나서지 않음, 1 부른 쪽, 2 맞은편). 한 줄 결과.</summary>
     public string ConflictAct(string act)
     {

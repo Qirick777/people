@@ -2041,7 +2041,17 @@ func _open_appoint(id: int, role: int, title: String) -> void:
 # 플레이어가 낀 분쟁(C6): 양쪽 진영, 거점, 최근 일, 고를 수
 func _conflict_section() -> void:
 	var cf: Dictionary = host.ConflictInfo()
-	if cf.is_empty(): return
+	if cf.is_empty():
+		var lc: Dictionary = host.LastConflict()
+		if lc.is_empty(): return
+		rise_box.add_child(UI.label("지난 분쟁 · %s · %s(%d번 진행, 싸움 %d번, 죽음 %d, 다침 %d)" % [lc["kind"], lc["outcome"], int(lc["tick"]), int(lc["battles"]), int(lc["deaths"]), int(lc["wounded"])], 13, UI.MUTED, true))
+		for line in lc["recent"]:
+			var l0 := UI.label(line, 12, UI.MUTED)
+			l0.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			l0.custom_minimum_size = Vector2(600, 0)
+			rise_box.add_child(l0)
+		rise_box.add_child(HSeparator.new())
+		return
 	rise_box.add_child(UI.label("분쟁 · %s · %d/%d번째 진행(한 번 약 보름)" % [cf["kind"], int(cf["tick"]), int(cf["max"])], 13, UI.MUTED, true))
 	var mine: String = cf["mine"]
 	for key in ["a", "d"]:
@@ -2887,6 +2897,10 @@ func _run_autotest() -> void:
 		await _snap("live_conflict2.png")
 		var cf: Dictionary = host.ConflictInfo()
 		print("autotest: 분쟁 %s, 진행 %d, 최근 %d줄" % [cf.get("kind", "끝남"), int(cf.get("tick", 0)), cf.get("recent", []).size()])
+		var lc: Dictionary = host.LastConflict()
+		if not lc.is_empty():
+			print("autotest: 끝난 분쟁 %s %s, 진행 %d" % [lc["kind"], lc["outcome"], int(lc["tick"])])
+			for line in lc["recent"]: print("autotest:   ", line)
 		rise_panel.visible = false
 		break
 	for e in gsc:

@@ -682,6 +682,7 @@ public sealed partial class World
         };
         Note(c, end);
         Snap(c, false);
+        if (PlayerIn(c)) LastPlayerConflict = c;
         var p = People;
         int pi = FindAlive(c.A.LeaderUid), lh = HeadIdx(c.D.House);
         if (c.Kind == ConflictKind.Coup && c.Plot is { } x)
@@ -780,6 +781,9 @@ public sealed partial class World
     }
 
     private bool PlayerIn(Conflict c) => _player >= 0 && (c.A.House == PlayerHousehold || c.D.House == PlayerHousehold || c.PlayerAsk.Any(x => x.house == PlayerHousehold));
+
+    /// <summary>플레이어가 낀 분쟁 가운데 마지막으로 끝난 것(분쟁 창이 결말을 보여 준다).</summary>
+    public Conflict? LastPlayerConflict;
 
     /// <summary>플레이어가 낀 진행 중인 분쟁(없으면 null).</summary>
     public Conflict? PlayerConflict => _player < 0 ? null : _conflicts.FirstOrDefault(c => !c.Over && PlayerIn(c));
