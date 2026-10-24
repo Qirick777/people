@@ -308,9 +308,10 @@ public sealed partial class World
             int cur = PatronOf(h);
             if (cur >= 0)
             {
-                // 세력원 집은 소속 저울로 판단한다(WorldBelong). 봉신(아래 집을 거느린 집)은 예전 규칙: 위험이 사라지면 그만두고, 충성이 무너지면 떠난다
+                // 세력원 집은 소속 저울로 판단한다(WorldBelong). 작은 봉신(아래 집 다섯 아래)은 예전 규칙: 위험이 사라지면 그만두고, 충성이 무너지면 떠난다.
+                // 봉토를 거느린 봉신(다섯 이상)은 조용히 떠나지 못한다. 그것은 반역이라 독립 선언(WorldCoup)으로만 떠난다(고증)
                 if (ClientCount(h) == 0) BelongDecide(h, cur, lords);
-                else if (!Bound(h) && danger < 0.2f && _rng.Chance((0.1f + 0.3f * HeadTrait(h, Trait.Stubbornness)) * LeaveFactor(h) * (1f - 0.8f * Established(hh.Village[h])))) { _patron[h] = -1; Stats.VassalDrift++; Stats.VassalDriftHouses += BelowOf(h) + 1; }
+                else if (ClientCount(h) < 5 && !Bound(h) && danger < 0.2f && _rng.Chance((0.1f + 0.3f * HeadTrait(h, Trait.Stubbornness)) * LeaveFactor(h) * (1f - 0.8f * Established(hh.Village[h])))) { _patron[h] = -1; Stats.VassalDrift++; Stats.VassalDriftHouses += BelowOf(h) + 1; }
                 else if (Disloyal(h)) { _patron[h] = -1; Stats.DisloyalLeft++; }
                 continue;
             }
