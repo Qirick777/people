@@ -119,3 +119,17 @@ public class InspectorTests
         Assert.True(w.SurveyOf(root) > 0f, "감찰대가 있으면 감시 세기가 0보다 크다");
     }
 }
+
+public class BelongExitTests
+{
+    [Fact]
+    public void LeavingALordHasACost()
+    {
+        var (w, lord) = TestWorlds.WithLord(12);
+        var hh = w.Households;
+        var clients = Enumerable.Range(0, hh.HighWater).Where(h => hh.IsAlive(h) && w.PatronOf(h) == lord && w.ClientCount(h) == 0).ToList();
+        Assert.NotEmpty(clients);
+        // 떠날 때 내는 값과 길의 위험(0.1)은 언제나 든다
+        Assert.All(clients, h => Assert.True(w.ExitCost(h, lord) >= 0.1f));
+    }
+}

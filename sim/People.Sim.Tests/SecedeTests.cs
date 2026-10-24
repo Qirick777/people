@@ -63,7 +63,8 @@ public class SecedeTests
     {
         var (w, g, _, heads) = WithSplit();
         var p = w.People;
-        int boss = heads.Last(i => !w.GroupsOf(i).Any());
+        // 옛 조직 나무 밖의 어른 하나가 새 조직을 세운다
+        int boss = TestWorlds.Free(w, Enumerable.Range(0, p.HighWater).Last(i => p.IsAliveIndex(i) && Age(w, i) >= 16 && !w.GroupsOf(i).Any(x => w.RootOf(x).Id == g.Id)));
         var mine = w.FoundGroup(boss, GroupKind.Watch);
         var olds = w.Members(g).ToList();
         w.AbsorbNow(g, mine);

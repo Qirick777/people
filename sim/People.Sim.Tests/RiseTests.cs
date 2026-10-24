@@ -16,6 +16,8 @@ public class RiseTests
         int lh = hh.Head[lord].Index, kh = hh.Head[k].Index;
         // 스스로 서약하기(떨어져 나간 뒤라 주군이 나쁘게 본다. 받아 줄 만큼 풀어 둔다)
         Social.Add(p, lh, p.Uid[kh], 90f);
+        // 떼어 준 뒤 주군 쪽이 서약을 받을 만큼 크지 않은 세계(남은 집 셋 아래)는 건너뛴다
+        if (!w.Def(InteractionId.RiseSwear).Can(w, new InteractionContext { Actor = kh, Target = lh, Third = -1 })) return;
         for (int t = 0; t < 50 && w.PatronOf(k) != lord; t++)
             w.Interact(InteractionId.RiseSwear, new InteractionContext { Actor = kh, Target = lh, Third = -1 });
         Assert.Equal(lord, w.PatronOf(k));

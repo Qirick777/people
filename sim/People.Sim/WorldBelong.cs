@@ -101,8 +101,48 @@ public sealed partial class World
         return protect + like + 0.3f * RepOf(alt).credit - 4f * TaxRate(alt) - 0.2f;
     }
 
+    // ------------------------------------------------------------------ 떠남의 값(고증)
+    // 당대에 섬길 주인을 바꾸기 어려웠던 까닭을 저울에 넣는다.
+    // - 땅: 부치는 땅은 주인의 땅이다. 주인을 바꾸면 그 땅을 두고 떠나야 하고, 옛 주인 나무는 다섯 해 동안 그 집에 땅을 빌려주지 않는다.
+    // - 매인 몸: 대대로 매인 집(Bound)이 떠나면 도망이다. 옛 주인이 새 주인보다 세면 데려오고 벌한다.
+    // - 떠날 때 내는 값: 곳간의 20%를 옛 주인에게 두고 간다.
+    // - 서약: 같은 종교의 주인을 버리는 것은 맹세를 깨는 일이다. 신앙이 깊을수록 무겁고, 버리면 명예가 깎인다.
+    // - 친족과 마을: 같은 마을에서 같은 주인을 섬기는 3촌 안 친족 집을 두고 간다.
+    // - 받아 주는 쪽: 남의 사람을 받는 것은 그 주인과 원수지는 일이다. 옛 주인 힘의 0.7이 안 되는 영주는 받지 않는다. 받으면 옛 주인의 눈이 나빠진다.
+    private readonly Dictionary<int, (int lord, int founded, int day)> _leftLord = new();   // 집 → 떠나온 주인(다섯 해 동안 그 나무의 땅을 빌리지 못한다)
+
+    /// <summary>떠나온 주인 나무의 땅이라 빌릴 수 없나(다섯 해).</summary>
+    private bool Shunned(int t, int owner)
+    {
+        if (!_leftLord.TryGetValue(t, out var x) || Day - x.day >= 5 * Config.DaysPerYear) return false;
+        return owner == x.lord || InTreeOf(owner, x.lord);
+    }
+
+    /// <summary>집 h 가 주인 cur 을 떠나는 값(0~1.6쯤). 고증 까닭의 합.</summary>
+    public float ExitCost(int h, int cur)
+    {
+        var hh = Households; var p = People;
+        var lf = (_leaseFrom ??= BuildLeaseFromNow()).GetValueOrDefault(h);
+        float land = lf.all > 0 ? 0.5f * lf.fromLord / lf.all : 0f;
+        float bound = Bound(h) ? 0.4f : 0f;
+        int head = HeadIdx(h), lh = HeadIdx(cur);
+        float oath = head >= 0 && lh >= 0 && ReligionOf(head) is { } r && ReligionOf(lh)?.Id == r.Id ? 0.3f * p.Piety[head] : 0f;
+        int kin = 0;
+        int v = hh.Village[h];
+        if (head >= 0 && v >= 0)
+            foreach (int o in VillageHouses(v))
+            {
+                if (o == h || PatronOf(o) != cur) continue;
+                int oh = HeadIdx(o);
+                if (oh < 0) continue;
+                int c = Lineage.Chon(p.Uid[head], p.Uid[oh]);
+                if (c > 0 && c <= 3 && ++kin >= 5) break;
+            }
+        return land + bound + oath + 0.06f * kin + 0.1f;   // 0.1: 떠날 때 내는 값과 길의 위험
+    }
+
     /// <summary>
-    /// 세력원 집 h(지배자 cur)의 한 해 판단. 남을 까닭이 다른 길보다 0.1 넘게 모자라면 30% 확률로 움직인다.
+    /// 세력원 집 h(지배자 cur)의 한 해 판단. 다른 길의 값에서 떠남의 값을 뺀 것이 남을 까닭보다 0.1 넘게 크면 30% 확률로 움직인다.
     /// 아무도 섬기지 않는 길이면 납부를 끊고, 다른 지배자가 낫으면 그리로 옮긴다.
     /// </summary>
     private void BelongDecide(int h, int cur, List<int> lords)
@@ -110,18 +150,41 @@ public sealed partial class World
         var hh = Households;
         var b = BelongOf(h, cur);
         float stay = b.Total;
+        float exit = ExitCost(h, cur);
         float best = 0f; int to = -1;   // 아무도 섬기지 않음
+        float curPow = LordPower(cur);
         foreach (int l in lords)
         {
             if (l == h || l == cur || Restrained(l) || WouldLoop(h, l)) continue;
             float dx = hh.X[l] - hh.X[h], dy = hh.Y[l] - hh.Y[h];
             if (dx * dx + dy * dy > Config.ProtectRange * Config.ProtectRange) continue;
+            if (LordPower(l) < 0.7f * curPow) continue;   // 약한 영주는 남의 사람을 받아 원수지지 않는다
             float a = AltValue(h, l);
             if (a > best) { best = a; to = l; }
         }
-        if (best <= stay + 0.1f || !_rng.Chance(0.3f)) return;
+        if (best - exit <= stay + 0.1f || !_rng.Chance(0.3f)) return;
+        var p = People;
+        int head = HeadIdx(h), lh = HeadIdx(cur);
+        // 매인 집의 도망: 옛 주인이 새 주인보다 세면 뒤쫓아 데려온다
+        if (Bound(h) && to >= 0 && curPow > LordPower(to) && _rng.Chance(0.5f))
+        {
+            Stats.FugitivesReturned++;
+            Casualty(h, 0.5f * HouseholdPower(h));
+            if (head >= 0 && lh >= 0) { HeadsRelate(h, cur, -20f, 20f, 0f, MemoryType.Punished, -20); Chron(head, $"{SubjName(head)} {Obj(Names.Full(Lineage, p.Uid[lh]))} 떠나려다 붙잡혀 돌아왔다"); }
+            if (HeadIdx(to) is int th && th >= 0 && lh >= 0) Social.Add(p, lh, p.Uid[th], -10f);
+            return;
+        }
         Stats.BelongLeft++;
-        if (to >= 0) { _patron[h] = to; _patronFounded[h] = hh.FoundedDay[to]; Stats.BelongSwitched++; HeadsRelate(h, to, 5f, 0f, 0f, MemoryType.Protected, 5); }
+        // 떠날 때 내는 값, 서약을 깬 값
+        float fee = 0.2f * MathF.Max(0f, hh.Food[h]);
+        hh.Food[h] -= fee; hh.Food[cur] += fee;
+        if (head >= 0 && lh >= 0 && ReligionOf(head) is { } r && ReligionOf(lh)?.Id == r.Id) p.Honor[head] -= 0.05f;
+        _leftLord[h] = (cur, hh.FoundedDay[cur], Day);
+        if (to >= 0)
+        {
+            _patron[h] = to; _patronFounded[h] = hh.FoundedDay[to]; Stats.BelongSwitched++; HeadsRelate(h, to, 5f, 0f, 0f, MemoryType.Protected, 5);
+            if (HeadIdx(to) is int th && th >= 0 && lh >= 0) Social.Add(p, lh, p.Uid[th], -10f);   // 내 사람을 받아 갔다
+        }
         else _patron[h] = -1;
         LeaveResponse(h, cur);
     }

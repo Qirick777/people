@@ -138,11 +138,15 @@ public sealed partial class World
                 for (; got < n && left > 0; got++)
                 {
                     int best = 0; long bd = long.MaxValue;
+                    bool shun = _leftLord.ContainsKey(t);
+                    best = -1;
                     for (int k = 0; k < left; k++)
                     {
+                        if (shun && Shunned(t, Map.Owner(pid[k]))) continue;   // 떠나온 주인 나무의 땅은 빌리지 못한다(고증)
                         long dx = px[k] - tx, dy = py[k] - ty, d = dx * dx + dy * dy;
                         if (d < bd) { bd = d; best = k; }
                     }
+                    if (best < 0) break;
                     int plot = pid[best];
                     left--;
                     pid[best] = pid[left]; px[best] = px[left]; py[best] = py[left];
