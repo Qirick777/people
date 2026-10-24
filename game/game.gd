@@ -117,7 +117,10 @@ func _process(dt: float) -> void:
 			acc -= days
 			if host.Advance(days):
 				_set_speed(0)
-				if int(host.DemandCount) > 0:
+				if not host.ConflictInfo().is_empty():
+					_set_hint("분쟁이 이어진다. 다툼 창에서 수를 고른다.")
+					_open_rise()
+				elif int(host.DemandCount) > 0:
 					_set_hint("지배자가 우리 집에 요구를 해 왔다. 다툼 창에서 답한다.")
 					_open_rise()
 				elif int(host.PendingCount) > 0:
@@ -780,6 +783,7 @@ func _refresh_judge_button() -> void:
 
 func _open_rise() -> void:
 	for c in rise_box.get_children(): c.queue_free()
+	_conflict_section()
 	var demands: Array = host.Demands()
 	if not demands.is_empty():
 		rise_box.add_child(UI.label("받은 요구", 13, UI.MUTED, true))
@@ -1044,7 +1048,7 @@ func _open_rise() -> void:
 				grid.add_child(b)
 			rise_box.add_child(grid)
 			rise_box.add_child(HSeparator.new())
-	if demands.is_empty() and rows.is_empty() and plot.is_empty() and int(pg.get("clients", 0)) == 0:
+	if host.ConflictInfo().is_empty() and demands.is_empty() and rows.is_empty() and plot.is_empty() and int(pg.get("clients", 0)) == 0:
 		rise_box.add_child(UI.label("지금은 다툼이 없다. 세를 늘리면 위의 지배자가 알아챌 수 있고, 내 아래에서 세를 늘리는 집이 생기면 여기에 나온다.", 13, UI.MUTED))
 	_show_panel(rise_panel)
 
@@ -2034,6 +2038,67 @@ func _open_appoint(id: int, role: int, title: String) -> void:
 
 
 ## '거사에 끌어들이기' 상호작용 번호(SimHost 가 이름으로 알려 준다).
+# 플레이어가 낀 분쟁(C6): 양쪽 진영, 거점, 최근 일, 고를 수
+func _conflict_section() -> void:
+	var cf: Dictionary = host.ConflictInfo()
+	if cf.is_empty(): return
+	rise_box.add_child(UI.label("분쟁 · %s · %d/%d번째 진행(한 번 약 보름)" % [cf["kind"], int(cf["tick"]), int(cf["max"])], 13, UI.MUTED, true))
+	var mine: String = cf["mine"]
+	for key in ["a", "d"]:
+		var sd: Dictionary = cf[key]
+		var tag := "일으킨 쪽" if key == "a" else "막는 쪽"
+		if key == mine: tag += " (우리)"
+		var line := "%s · %s · %d명 · 힘 %.1f · 사기 %d%%" % [tag, sd["who"], int(sd["n"]), float(sd["power"]), int(float(sd["morale"]) * 100.0)]
+		rise_box.add_child(UI.label(line, 14, UI.INK, key == mine))
+	var seat := "거점 방어 ×%.2f · 식량 %.1f달 치 · %s" % [float(cf["fort"]), float(cf["food"]), "버티는 중" if cf["holding"] else "나와 있음"]
+	rise_box.add_child(UI.label(seat + " · 싸움 %d번, 죽음 %d, 다침 %d, 달아남 %d" % [int(cf["battles"]), int(cf["deaths"]), int(cf["wounded"]), int(cf["deserted"])], 12, UI.MUTED))
+	for line in cf["recent"]:
+		var l := UI.label(line, 12, UI.MUTED)
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.custom_minimum_size = Vector2(600, 0)
+		rise_box.add_child(l)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	var acts := []
+	if cf["levy"]:
+		var caller := "일으킨 쪽" if cf["levyForA"] else "막는 쪽"
+		rise_box.add_child(UI.label("%s에서 소집이 왔다. 나서지 않으면 부른 쪽의 눈이 나빠진다." % caller, 13, UI.RISK, true))
+		acts = [["부른 쪽에 선다", "levy:1"], ["맞은편에 선다", "levy:2"], ["나서지 않는다", "levy:0"]]
+	elif mine == "a":
+		var st := int(cf["a"]["stance"])
+		acts = [["%s스스로 정한다" % ("✓ " if st == 0 else ""), "stance:0"], ["%s친다" % ("✓ " if st == 1 else ""), "stance:1"], ["%s둘러싸고 굶긴다" % ("✓ " if st == 2 else ""), "stance:2"]]
+	elif mine == "d":
+		var st := int(cf["d"]["stance"])
+		acts = [["%s스스로 정한다" % ("✓ " if st == 0 else ""), "stance:0"], ["%s거점에서 버틴다" % ("✓ " if st == 3 else ""), "stance:3"], ["%s나가 싸운다" % ("✓ " if st == 4 else ""), "stance:4"]]
+	for a in acts:
+		var b := UI.ghost(a[0])
+		var code: String = a[1]
+		b.pressed.connect(func():
+			_set_hint(host.ConflictAct(code))
+			for line2 in host.DrainChronicle(): _log(line2)
+			_open_rise())
+		row.add_child(b)
+	if mine != "":
+		var pb := UI.ghost("화의를 청한다")
+		pb.disabled = cf["peaceTried"]
+		pb.tooltip_text = "상대 힘이 밀리거나 사기가 낮으면 받는다. 한 번 진행에 한 번"
+		pb.pressed.connect(func():
+			_set_hint(host.ConflictAct("peace"))
+			for line2 in host.DrainChronicle(): _log(line2)
+			_refresh_family()
+			_open_rise())
+		row.add_child(pb)
+		var gb := UI.ghost("물러난다")
+		gb.tooltip_text = "이 분쟁에서 진다"
+		gb.pressed.connect(func():
+			_set_hint(host.ConflictAct("giveup"))
+			for line2 in host.DrainChronicle(): _log(line2)
+			_refresh_family()
+			_open_rise())
+		row.add_child(gb)
+	rise_box.add_child(row)
+	rise_box.add_child(HSeparator.new())
+
 func _plot_recruit_id() -> int:
 	return int(host.PlotRecruitId)
 
@@ -2803,6 +2868,27 @@ func _run_autotest() -> void:
 	_open_showcase()
 	await _snap("live_gen_showcase.png")
 	show_panel.visible = false
+	# 분쟁 창(C6): 가장 큰 지배자를 맡아 이웃에게 싸움을 건다
+	for e in gsc:
+		if e["what"] != "가장 큰 지배자": continue
+		_take_house(int(e["id"]))
+		_on_player_changed()
+		_set_speed(0)
+		var foe: String = host.DebugWar()
+		print("autotest: 싸움을 건 상대 ", foe)
+		if foe == "": break
+		host.Advance(1)
+		card.visible = false
+		_open_rise()
+		await _snap("live_conflict.png")
+		print("autotest: ", host.ConflictAct("stance:2"))
+		host.Advance(1)
+		_open_rise()
+		await _snap("live_conflict2.png")
+		var cf: Dictionary = host.ConflictInfo()
+		print("autotest: 분쟁 %s, 진행 %d, 최근 %d줄" % [cf.get("kind", "끝남"), int(cf.get("tick", 0)), cf.get("recent", []).size()])
+		rise_panel.visible = false
+		break
 	for e in gsc:
 		if e["what"] == "소작농 가족":
 			_take_house(int(e["id"]))

@@ -34,4 +34,24 @@ public class WarTests
         Assert.Equal(0f, w.RavagedAt(v));
         Assert.True(w.Stats.RavagedLoss > 0f || w.Stats.Harvest == 0f);
     }
+
+    [Fact]
+    public void PlayerChoosesStanceAndCanGiveUp()
+    {
+        var (w, lord) = TestWorlds.WithLord(12);
+        var hh = w.Households; var p = w.People;
+        int t = Enumerable.Range(0, hh.HighWater).First(h => hh.IsAlive(h) && h != lord && w.PatronOf(h) < 0 && w.TopOf(h) != w.TopOf(lord) && p.IsValid(hh.Head[h]));
+        w.PlayerHousehold = lord;
+        w.StartWarNow(lord, t);
+        var c = w.PlayerConflict;
+        Assert.NotNull(c);
+        Assert.Same(c!.A, w.PlayerSide(c));
+        Assert.False(w.SetStance(c, Stance.Hold));    // 쳐들어가는 쪽은 버틸 수 없다
+        Assert.True(w.SetStance(c, Stance.Siege));
+        w.TakeFork();
+        w.TickConflicts();
+        if (!c.Over) Assert.True(w.TakeFork(), "플레이어가 낀 분쟁은 진행마다 멈춘다");
+        if (!c.Over) { Assert.True(w.GiveUp(c)); Assert.True(c.Over); Assert.Equal("격퇴", c.Outcome); }
+        Assert.Null(w.PlayerConflict);
+    }
 }

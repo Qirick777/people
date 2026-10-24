@@ -2,6 +2,9 @@ namespace People.Sim;
 
 public enum ConflictKind : byte { Coup, Independence, War }
 
+/// <summary>진영의 수(C6). Auto 는 NPC 규칙을 따른다. 일으킨 쪽은 Assault·Siege, 막는 쪽은 Hold·Sally 를 쓴다.</summary>
+public enum Stance : byte { Auto, Assault, Siege, Hold, Sally }
+
 /// <summary>분쟁의 한쪽 진영. 싸우는 사람은 uid 로 적는다.</summary>
 public sealed class ConflictSide
 {
@@ -9,6 +12,7 @@ public sealed class ConflictSide
     public readonly HashSet<int> Fighters = new();
     public float Morale = 0.7f;
     public bool Holding;               // 거점(성·저택)에서 버틴다
+    public Stance Stance;              // 플레이어가 고른 수(C6)
 }
 
 /// <summary>분쟁 기록 한 장(진단·재생용): 그 진행이 끝난 뒤의 양쪽 모습과 그때 일어난 일.</summary>
@@ -29,7 +33,9 @@ public sealed class Conflict
     public Plot? Plot;
     public readonly List<int> Backers = new();          // 거사에 편든 세력 안 사람(uid)
     public readonly HashSet<int> Asked = new();         // 소집을 이미 물은 봉신 집
-    public readonly List<(int uid, bool att, int back)> Hurt = new();   // 다친 사람: back 번째 진행에 돌아온다(C4)
+    public readonly List<(int uid, bool att, int back)> Hurt = new();
+    public readonly List<(int house, bool forA)> PlayerAsk = new();   // 플레이어 봉신 집에 온 소집(C6): 어느 쪽이 불렀나
+    public int PeaceTick = -1;                                      // 플레이어가 화의를 청한 진행(한 번에 한 번)   // 다친 사람: back 번째 진행에 돌아온다(C4)
     public int Deaths, Wounded, Deserted, Battles;
     public bool Over;
     public string Last = "";                            // 지난 교전 한 줄
@@ -37,6 +43,7 @@ public sealed class Conflict
     public string AName = "", DName = "", Realm = "", Outcome = "";
     public readonly List<ConflictFrame> Frames = new();  // 기록을 켰을 때만 쌓는다(KeepConflictLog)
     public readonly List<string> Notes = new();
+    public readonly List<string> Recent = new();         // 플레이어가 낀 분쟁의 최근 일(분쟁 창, C6)
 }
 
 /// <summary>
@@ -73,7 +80,11 @@ public sealed partial class World
     public bool KeepConflictLog;
     public readonly List<Conflict> ConflictLog = new();
 
-    private void Note(Conflict c, string s) { if (KeepConflictLog) c.Notes.Add(s); }
+    private void Note(Conflict c, string s)
+    {
+        if (KeepConflictLog) c.Notes.Add(s);
+        if (PlayerIn(c)) { c.Recent.Add($"{c.Ticks}번째: {s}"); if (c.Recent.Count > 10) c.Recent.RemoveAt(0); }
+    }
 
     private void Snap(Conflict c, bool clashed)
     {
@@ -294,6 +305,7 @@ public sealed partial class World
         {
             if (c.Over) { _conflicts.Remove(c); continue; }
             c.Ticks++;
+            if (PlayerIn(c)) _fork = true;   // 플레이어가 낀 분쟁은 진행마다 멈춘다(C6)
             switch (c.Kind)
             {
                 case ConflictKind.Coup: CoupTick(c); break;
@@ -321,6 +333,7 @@ public sealed partial class World
                 if (!hh.IsAlive(v) || PatronOf(v) != lord || ClientCount(v) == 0 || v == c.A.House) continue;
                 int vh = HeadIdx(v);
                 if (vh < 0 || !c.Asked.Add(v)) continue;   // 봉신마다 한 번만 묻는다
+                if (AskPlayer(c, v, vh, false)) continue;
                 float lean = Lean(vh, pi, lord);
                 if (lean > 0.6f) { int n0 = c.A.Fighters.Count; EnlistHouse(c, c.A, v, true); Note(c, $"봉신 {VassalName(v, vh)}이(가) 거사 쪽으로 일어섰다(+{c.A.Fighters.Count - n0}명)"); continue; }
                 float answer = (lh >= 0 && p.LoyalUid[vh] == p.Uid[lh] ? p.Loyalty[vh] : 0.3f) + (IsTitled(v) ? 0.2f : 0f) + (NationOf(lord) != null ? 0.1f : 0f)
@@ -375,7 +388,7 @@ public sealed partial class World
         float pa = SidePower(c.A), pd = SidePower(c.D);
         int level = ResidenceOf(seat);
         float fort = 1f + 0.3f * level;
-        c.D.Holding = pd < 0.8f * pa;
+        c.D.Holding = c.D.Stance switch { Stance.Hold => true, Stance.Sally => false, _ => pd < 0.8f * pa };
         float defend = pd * (c.D.Holding ? fort : 1f);
         // 거점 식량: 집 식구 밖에서 들어온 사람도 먹는다. 한 번(약 보름)에 하루 치씩 더 든다
         float perMouth = hh.IsAlive(seat) && hh.Members[seat] > 0 ? hh.Need[seat] / hh.Members[seat] : 1f;
@@ -385,7 +398,12 @@ public sealed partial class World
         // 일으킨 쪽: 칠 만하면 친다. 신중한 우두머리는 거점 식량이 두 달 치 아래면 굶기며 기다린다
         int al = FindAlive(c.A.LeaderUid);
         bool wait = c.D.Holding && hh.IsAlive(seat) && hh.Food[seat] < 2f * month && al >= 0 && p.Get(al, Trait.Caution) > 0.5f;
-        bool clashed = !c.D.Holding || (pa >= 0.6f * defend && !wait);
+        bool clashed = c.A.Stance switch
+        {
+            Stance.Assault => true,
+            Stance.Siege => !c.D.Holding,   // 둘러싸기만 한다. 막는 쪽이 나오면 싸운다
+            _ => !c.D.Holding || (pa >= 0.6f * defend && !wait),
+        };
         if (c.D.Holding) Note(c, $"막는 쪽이 거점에서 버틴다(큰 집 {level}단계, 방어 ×{fort:0.00})");
         if (clashed)
         {
@@ -470,6 +488,7 @@ public sealed partial class World
                 if (!hh.IsAlive(v) || PatronOf(v) != lord || ClientCount(v) == 0 || v == rebel) continue;
                 int vh = HeadIdx(v);
                 if (vh < 0 || !c.Asked.Add(v)) continue;
+                if (AskPlayer(c, v, vh, true)) continue;
                 float loy = head >= 0 && p.LoyalUid[vh] == p.Uid[head] ? p.Loyalty[vh] : 0.3f;
                 // 주군을 미워하고 독립하는 봉신을 좋게 보면 그쪽에 선다
                 if (head >= 0 && loy < 0.3f && Social.Opinion(p, vh, c.D.LeaderUid) > 20f && Social.Opinion(p, vh, p.Uid[head]) < 0f)
@@ -541,6 +560,7 @@ public sealed partial class World
             if (!hh.IsAlive(v) || PatronOf(v) != lord || ClientCount(v) == 0) continue;
             int vh = HeadIdx(v);
             if (vh < 0 || !c.Asked.Add(v)) continue;
+            if (AskPlayer(c, v, vh, side == c.A)) continue;
             float answer = (head >= 0 && p.LoyalUid[vh] == p.Uid[head] ? p.Loyalty[vh] : 0.3f) + (IsTitled(v) ? 0.2f : 0f) + (NationOf(lord) != null ? 0.1f : 0f)
                            - 0.3f * MathF.Min(1f, MathF.Sqrt(Dist2(v, lord)) / Config.VassalRange);
             float pr = Math.Clamp(answer, 0f, 0.95f);
@@ -743,6 +763,107 @@ public sealed partial class World
     public bool CanStrike(Plot x) => PlotLive(x) && Day - x.Since >= Config.DaysPerYear && !InConflict(x.Lord);
 
     private string VassalName(int v, int vh) => RealmName(v) is { Length: > 0 } r ? r : Names.Full(Lineage, People.Uid[vh]);
+
+    // ------------------------------------------------------------------ 플레이어의 수(C6)
+
+    /// <summary>플레이어 봉신 집에 온 소집이면 기록해 두고 true(답은 플레이어가 한다).</summary>
+    private bool AskPlayer(Conflict c, int v, int vh, bool forA)
+    {
+        if (!IsPlayer(vh)) return false;
+        c.PlayerAsk.Add((v, forA));
+        Note(c, $"봉신 {VassalName(v, vh)}(플레이어)에게 소집이 갔다");
+        int caller = HeadIdx(forA ? c.A.House : c.D.House);
+        string who = caller >= 0 ? Names.Full(Lineage, People.Uid[caller]) : "주군";
+        Chron(vh, $"{who} 쪽에서 소집이 왔다. 분쟁 창에서 답한다");
+        _fork = true;
+        return true;
+    }
+
+    private bool PlayerIn(Conflict c) => _player >= 0 && (c.A.House == PlayerHousehold || c.D.House == PlayerHousehold || c.PlayerAsk.Any(x => x.house == PlayerHousehold));
+
+    /// <summary>플레이어가 낀 진행 중인 분쟁(없으면 null).</summary>
+    public Conflict? PlayerConflict => _player < 0 ? null : _conflicts.FirstOrDefault(c => !c.Over && PlayerIn(c));
+
+    /// <summary>플레이어 진영: A(일으킨 쪽), D(막는 쪽), 진영에 없으면(소집만 받음) null.</summary>
+    public ConflictSide? PlayerSide(Conflict c) => c.A.House == PlayerHousehold ? c.A : c.D.House == PlayerHousehold ? c.D : null;
+
+    public float SidePowerOf(ConflictSide s) => SidePower(s);
+    public int SideCount(ConflictSide s) => s.Fighters.Count(u => FindAlive(u) >= 0);
+    public int SideHouseOf(ConflictSide s) => s.House;
+    public float SeatFort(Conflict c) => 1f + 0.3f * ResidenceOf(c.D.House);
+    public float SeatFoodMonths(Conflict c)
+    {
+        var hh = Households; int seat = c.D.House;
+        if (!hh.IsAlive(seat) || hh.Need[seat] <= 0f) return 0f;
+        return hh.Food[seat] / (2f * hh.Need[seat]);
+    }
+
+    /// <summary>플레이어 진영의 수를 정한다.</summary>
+    public bool SetStance(Conflict c, Stance s)
+    {
+        var me = PlayerSide(c);
+        if (me == null || c.Over) return false;
+        bool att = me == c.A;
+        if (s != Stance.Auto && att != (s is Stance.Assault or Stance.Siege)) return false;
+        me.Stance = s;
+        return true;
+    }
+
+    /// <summary>화의를 청한다. 상대는 힘의 몫이 0.45 아래이거나 사기가 0.4 아래면 받는다. 반년을 넘기면 30%로도 받는다. 한 번 진행에 한 번만.</summary>
+    public bool OfferPeace(Conflict c)
+    {
+        var me = PlayerSide(c);
+        if (me == null || c.Over || c.PeaceTick == c.Ticks) return false;
+        c.PeaceTick = c.Ticks;
+        var them = me == c.A ? c.D : c.A;
+        float mp = SidePower(me), tp = SidePower(them);
+        float share = tp / MathF.Max(0.01f, mp + tp);
+        bool yes = share < 0.45f || them.Morale < 0.4f || (c.Ticks > 12 && _rng.Chance(0.3f));
+        int head = HeadIdx(me.House);
+        if (!yes) { Note(c, "화의를 청했지만 상대가 물리쳤다"); if (head >= 0) Chron(head, "화의를 청했지만 상대가 받지 않았다"); return false; }
+        Stats.PeaceMade++;
+        Note(c, "화의가 이루어졌다");
+        EndConflict(c, null);
+        return true;
+    }
+
+    /// <summary>물러난다: 플레이어 진영이 진다.</summary>
+    public bool GiveUp(Conflict c)
+    {
+        var me = PlayerSide(c);
+        if (me == null || c.Over) return false;
+        Note(c, "플레이어 쪽이 물러났다");
+        EndConflict(c, me != c.A);
+        return true;
+    }
+
+    /// <summary>플레이어 봉신 집이 소집에 답한다. join: 0 나서지 않음, 1 부른 쪽, 2 맞은편.</summary>
+    public bool AnswerLevy(Conflict c, int join)
+    {
+        int k = c.PlayerAsk.FindIndex(x => x.house == PlayerHousehold);
+        if (k < 0 || c.Over) return false;
+        var (h, forA) = c.PlayerAsk[k];
+        c.PlayerAsk.RemoveAt(k);
+        int vh = HeadIdx(h);
+        if (join == 0 || vh < 0)
+        {
+            Note(c, $"봉신 {VassalName(h, Math.Max(0, vh))}(플레이어)은(는) 나서지 않았다");
+            int lord = forA ? c.A.House : c.D.House;
+            if (vh >= 0 && HeadIdx(lord) is int lh && lh >= 0) Social.Add(People, lh, People.Uid[vh], -15f);
+            return true;
+        }
+        var side = (join == 1) == forA ? c.A : c.D;
+        int n0 = side.Fighters.Count;
+        EnlistHouse(c, side, h, true);
+        Stats.LeviesAnswered++;
+        Note(c, $"봉신 {VassalName(h, vh)}(플레이어)이(가) {(side == c.A ? "일으킨 쪽" : "막는 쪽")}에 섰다(+{side.Fighters.Count - n0}명)");
+        Chron(vh, $"{(side == c.A ? "일으킨 쪽" : "막는 쪽")}에 섰다(+{side.Fighters.Count - n0}명)");
+        return true;
+    }
+
+    /// <summary>플레이어 집에 답을 기다리는 소집이 있나.</summary>
+    public bool PlayerLevyPending(Conflict c) => c.PlayerAsk.Any(x => x.house == PlayerHousehold);
+    public bool PlayerLevyForA(Conflict c) => c.PlayerAsk.First(x => x.house == PlayerHousehold).forA;
 
     // 시험용
     public void TickConflicts() => ConflictTick();

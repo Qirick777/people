@@ -1850,6 +1850,81 @@ public partial class SimHost : Node
     public void PlotAbsorb(bool absorb) { if (Ready && _w!.PlayerPlot is { } x) x.Absorb = absorb; }
 
     /// <summary>거사를 일으킨다(true) 또는 접는다(false).</summary>
+    /// <summary>
+    /// 플레이어가 낀 분쟁(C6): 종류, 양쪽 진영(이끄는 사람, 사람 수, 힘, 사기), 거점(방어 배율, 식량 달 수, 버팀), 최근 일, 고를 수 있는 수.
+    /// 소집만 받은 봉신이면 levy 가 true 이고 진영 칸 mine 은 "".
+    /// </summary>
+    public Godot.Collections.Dictionary ConflictInfo()
+    {
+        var e = new Godot.Collections.Dictionary();
+        if (!Ready || _w!.PlayerConflict is not { } c) return e;
+        var w = _w; var p = w.People; var hh = w.Households;
+        string Who(ConflictSide s)
+        {
+            int i = FindAlive(s.LeaderUid);
+            string n = i >= 0 ? Names.Full(w.Lineage, p.Uid[i]) : "(우두머리 없음)";
+            string r = w.RealmName(s.House);
+            return r.Length > 0 ? $"{n}({r})" : n;
+        }
+        Godot.Collections.Dictionary Side(ConflictSide s) => new()
+        {
+            ["who"] = Who(s), ["n"] = w.SideCount(s), ["power"] = w.SidePowerOf(s), ["morale"] = s.Morale, ["stance"] = (int)s.Stance,
+        };
+        e["kind"] = c.Kind switch { ConflictKind.Coup => "거사", ConflictKind.Independence => "독립 진압", _ => "전쟁" };
+        e["tick"] = c.Ticks;
+        e["max"] = c.Kind == ConflictKind.Coup ? 12 : 24;
+        e["a"] = Side(c.A);
+        e["d"] = Side(c.D);
+        e["fort"] = w.SeatFort(c);
+        e["food"] = w.SeatFoodMonths(c);
+        e["holding"] = c.D.Holding;
+        e["deaths"] = c.Deaths; e["wounded"] = c.Wounded; e["deserted"] = c.Deserted; e["battles"] = c.Battles;
+        var me = w.PlayerSide(c);
+        e["mine"] = me == null ? "" : me == c.A ? "a" : "d";
+        e["levy"] = w.PlayerLevyPending(c);
+        e["levyForA"] = w.PlayerLevyPending(c) && w.PlayerLevyForA(c);
+        e["peaceTried"] = c.PeaceTick == c.Ticks;
+        var rec = new Godot.Collections.Array();
+        foreach (var line in c.Recent) rec.Add(line);
+        e["recent"] = rec;
+        return e;
+    }
+
+    /// <summary>분쟁 창의 수: "stance:N", "peace", "giveup", "levy:N"(0 나서지 않음, 1 부른 쪽, 2 맞은편). 한 줄 결과.</summary>
+    public string ConflictAct(string act)
+    {
+        if (!Ready || _w!.PlayerConflict is not { } c) return "";
+        var parts = act.Split(':');
+        switch (parts[0])
+        {
+            case "stance": return _w.SetStance(c, (Stance)int.Parse(parts[1])) ? "수를 정했다. 다음 진행부터 따른다." : "그 수는 쓸 수 없다.";
+            case "peace": return _w.OfferPeace(c) ? "화의가 이루어졌다." : "상대가 화의를 물리쳤다.";
+            case "giveup": return _w.GiveUp(c) ? "물러났다." : "";
+            case "levy": return _w.AnswerLevy(c, int.Parse(parts[1])) ? "소집에 답했다." : "";
+        }
+        return "";
+    }
+
+    /// <summary>자동 시험용: 플레이어 집이 가장 가까운 다른 홀로 선 지배자에게 싸움을 건다. 상대 이름(없으면 "").</summary>
+    public string DebugWar()
+    {
+        if (!Ready) return "";
+        var w = _w!; var hh = w.Households;
+        int me = w.PlayerHousehold;
+        if (me < 0) return "";
+        int best = -1; float bd = float.MaxValue;
+        for (int t = 0; t < hh.HighWater; t++)
+        {
+            if (!hh.IsAlive(t) || t == me || w.PatronOf(t) >= 0 || w.TierOf(t) < 1 || !w.People.IsValid(hh.Head[t])) continue;
+            var (x0, y0) = (hh.X[me] - hh.X[t], hh.Y[me] - hh.Y[t]);
+            float d = x0 * x0 + y0 * y0;
+            if (d < bd) { bd = d; best = t; }
+        }
+        if (best < 0) return "";
+        w.StartWarNow(me, best);
+        return w.RealmName(best);
+    }
+
     public void PlotAct(bool strike)
     {
         if (!Ready || _w!.PlayerPlot is not { } x) return;
