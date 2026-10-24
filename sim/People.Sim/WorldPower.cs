@@ -461,6 +461,7 @@ public sealed partial class World
     // ------------------------------------------------------------------ 지배권 상속
 
     private readonly Dictionary<int, int> _deadHead = new();   // 가장이 죽은 가구 → 죽은 가장 uid(상속자 찾기용)
+    public int DeadHeadOf(int h) => _deadHead.TryGetValue(h, out int u) ? u : -1;
 
     /// <summary>끊긴 지배자 집의 상속자: 죽은 가장과 혈연이 가장 가까운 집. 같은 성이면 더 앞선다.</summary>
     private int FindLordHeir(int h)

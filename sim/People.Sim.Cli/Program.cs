@@ -430,8 +430,14 @@ switch (cmd)
         w.LordHouseEnded = (h, heir, below) =>
         {
             if (below < 20) return;
-            string k = heir < 0 ? "이을 집 없음" : (Fam(heir) >= 0 && p.IsValid(hh.Head[h]) == false ? "혈족 집이 이음" : "혈족 집이 이음");
+            string k = heir < 0 ? "이을 집 없음" : "혈족 집이 이음";
             ends[k] = ends.GetValueOrDefault(k) + 1;
+            int dead = w.DeadHeadOf(h);
+            int sons = 0, sonsAway = 0;
+            for (int i = 0; i < p.HighWater; i++)
+                if (p.IsAliveIndex(i) && p.Male[i] && w.Lineage.Father(p.Uid[i]) == dead && (w.Day - p.BirthDay[i]) / w.Config.DaysPerYear >= 16) { sons++; if (p.Household[i] != h) sonsAway++; }
+            string why = sons == 0 ? "어른 아들 없음" : sonsAway == sons ? "아들이 모두 딴 집" : "아들이 집에 있었음";
+            ends[why] = ends.GetValueOrDefault(why) + 1;
             ends["아래 집 합"] = ends.GetValueOrDefault("아래 집 합") + below;
         };
         for (int y = 1; y <= years; y++)
