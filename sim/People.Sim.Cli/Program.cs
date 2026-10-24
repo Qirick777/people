@@ -422,6 +422,7 @@ switch (cmd)
         var samples = new List<(int year, int h, int founded, int below)>();
         int broken = 0, judged = 0;
         var whyBroken = new Dictionary<string, int>();
+        int brokenBig = 0, judgedBig = 0;
         var flow = new Dictionary<string, long>();
         int Fam(int h) => p.IsValid(hh.Head[h]) ? w.Lineage.FamilyOf(p.Uid[hh.Head[h].Index]) : -1;
         for (int y = 1; y <= years; y++)
@@ -482,12 +483,15 @@ switch (cmd)
                 foreach (var sm in samples.Where(s => s.year == y - 100))
                 {
                     judged++;
+                    bool bigR = sm.below >= 100;
+                    if (bigR) judgedBig++;
                     // 꺾임: 그 가문의 어느 집도 홀로 서서 옛 세력의 절반 넘게 쥐고 있지 않다(같은 가문이 이으면 이어진 것)
                     int fam = sm.founded;
                     bool gone = !Enumerable.Range(0, hh.HighWater).Any(k => hh.IsAlive(k) && Fam(k) == fam && w.PatronOf(k) < 0 && w.BelowOf(k) >= 0.5 * sm.below);
                     if (gone)
                     {
                         broken++;
+                        if (bigR) brokenBig++;
                         // 갈래: 가문 끊김 / 가문 집이 모두 남 아래 / 홀로 선 가문 집이 여럿(나뉨) / 하나뿐인데 줄어듦
                         var famHouses = Enumerable.Range(0, hh.HighWater).Where(k => hh.IsAlive(k) && Fam(k) == fam).ToList();
                         var freeF = famHouses.Where(k => w.PatronOf(k) < 0 && w.BelowOf(k) > 0).ToList();
@@ -522,6 +526,7 @@ switch (cmd)
         double perK = houseYears > 0 ? newLordFams / (houseYears / 1000.0) * 100.0 : 0;
         Console.WriteLine($"새로 영주가 된 가문(50년 뒤): {newLordFams} → 1,000집·100년당 {perK:F2} (목표 1~3)");
         Console.WriteLine($"100년 동안 꺾이거나 쪼개진 독립 세력: {broken}/{judged} = {(judged > 0 ? broken / (double)judged : 0):P0} (목표 15~40%)");
+        Console.WriteLine($"  그중 아래 집 100 넘던 세력: {brokenBig}/{judgedBig} = {(judgedBig > 0 ? brokenBig / (double)judgedBig : 0):P0}, 작은 세력: {broken - brokenBig}/{judged - judgedBig}");
         Console.WriteLine($"  집의 흐름(모두 더함): {string.Join(", ", flow.Select(x => $"{x.Key} {x.Value}"))}");
         Console.WriteLine($"  꺾인 갈래: {string.Join(", ", whyBroken.OrderByDescending(x => x.Value).Select(x => $"{x.Key} {x.Value}"))}");
         Console.WriteLine($"건국: 세움 {natF}, 승인 {natR}, 적대 {natO}, 잃음 {natL}(마을 모자람 해 {natSV}), 지금 {w.Nations.Count()}" + string.Join("", w.Nations.Select(n => $" | {n.Name}")));
