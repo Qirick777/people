@@ -750,11 +750,35 @@ public sealed partial class World
                 int h = p.Household[i];
                 if (h != h0 || !hh.IsAlive(h) || hh.Head[h].Index == i) continue;
                 if (!hasChild[i] && hh.Crowding(h) <= 1.5f) continue;
+                if (SeatHeir(h) == i) { Stats.HeirsStayed++; continue; }   // 지배자 집의 후계자는 본가에 남아 자리를 잇는다(고증)
 
                 if (SplitOff(i, h, list) < 0) continue;
             }
         }
         RecountHouseholds();
+    }
+
+    /// <summary>
+    /// 지배자 집(따르는 집이나 성이 있는 집)의 후계자: 지정 후계자, 없으면 가장의 맏아들(적자 먼저, 어른).
+    /// 후계자는 분가하지 않고 본가에 남는다. 지배자 집이 아니면 -1.
+    /// </summary>
+    private int SeatHeir(int h)
+    {
+        if (ClientCount(h) == 0 && ResidenceOf(h) == 0) return -1;
+        var p = People;
+        int named = HeirOf(h);
+        if (named >= 0 && p.IsAliveIndex(named) && p.Household[named] == h) return named;
+        var head = Households.Head[h];
+        if (!p.IsValid(head)) return -1;
+        var me = head;
+        int best = -1, bs = int.MinValue;
+        foreach (int k in MembersOf(h))
+        {
+            if (!p.Male[k] || p.Father[k] != me || AgeYears(k) < 16 || Lineage.Disowned(p.Uid[k])) continue;
+            int sc = AgeYears(k) + (Lineage.RightOf(p.Uid[k]) == Birthright.Legit ? 200 : 0);
+            if (sc > bs) { bs = sc; best = k; }
+        }
+        return best;
     }
 
     /// <summary>
