@@ -555,7 +555,13 @@ public sealed partial class World
         _legit[to] = (byte)Legitimacy.Inherited;
         _tier[to] = Math.Max(_tier[to], _tier[from]);
         RecountClients();
-        if (moved > 0) ShakeLordship(to, Config.HeirLoss);
+        if (moved > 0)
+        {
+            // 가까운 혈족(형제 0.5, 조카·손자 0.25)이 이으면 정당한 계승이라 덜 떠난다. 먼 친척일수록 흔들린다(고증)
+            float r = 0f;
+            if (_deadHead.TryGetValue(from, out int dead) && People.IsValid(hh.Head[to])) r = Lineage.Relatedness(People.Uid[hh.Head[to].Index], dead);
+            ShakeLordship(to, Config.HeirLoss * Math.Clamp(1f - 2f * r, 0.2f, 1f));
+        }
         return intoCastle;
     }
 
