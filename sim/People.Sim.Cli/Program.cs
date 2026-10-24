@@ -422,6 +422,7 @@ switch (cmd)
         var samples = new List<(int year, int h, int founded, int below)>();
         int broken = 0, judged = 0;
         var whyBroken = new Dictionary<string, int>();
+        var flow = new Dictionary<string, long>();
         int Fam(int h) => p.IsValid(hh.Head[h]) ? w.Lineage.FamilyOf(p.Uid[hh.Head[h].Index]) : -1;
         for (int y = 1; y <= years; y++)
         {
@@ -431,6 +432,10 @@ switch (cmd)
             plots += st.Plots; exposed += st.PlotsExposed; purges += st.Purges; strikes += st.CoupStrikes; wins += st.CoupWins; wars += st.CivilWars; fails += st.CoupFails;
             declared += st.Declared; supp += st.IndepSuppressed; nego += st.IndepNegotiated; letgo += st.IndepLetGo; indep += st.Independences;
             houseYears += hh.AliveCount;
+            flow["저울로 떠남"] = flow.GetValueOrDefault("저울로 떠남") + st.BelongLeft; flow["그중 다른 지배자로"] = flow.GetValueOrDefault("그중 다른 지배자로") + st.BelongSwitched;
+            flow["충성이 낮아 떠남"] = flow.GetValueOrDefault("충성이 낮아 떠남") + st.DisloyalLeft; flow["독립"] = flow.GetValueOrDefault("독립") + st.Independences;
+            flow["전쟁 승리"] = flow.GetValueOrDefault("전쟁 승리") + st.WarWins; flow["새로 따름"] = flow.GetValueOrDefault("새로 따름") + st.NewClients;
+            flow["찬탈 뒤 떠남"] = flow.GetValueOrDefault("찬탈 뒤 떠남") + st.UsurpLeft; flow["분가"] = flow.GetValueOrDefault("분가") + st.Splits;
             for (int h = 0; h < hh.HighWater; h++)
             {
                 if (!hh.IsAlive(h) || w.TierOf(h) < 2) continue;
@@ -517,6 +522,7 @@ switch (cmd)
         double perK = houseYears > 0 ? newLordFams / (houseYears / 1000.0) * 100.0 : 0;
         Console.WriteLine($"새로 영주가 된 가문(50년 뒤): {newLordFams} → 1,000집·100년당 {perK:F2} (목표 1~3)");
         Console.WriteLine($"100년 동안 꺾이거나 쪼개진 독립 세력: {broken}/{judged} = {(judged > 0 ? broken / (double)judged : 0):P0} (목표 15~40%)");
+        Console.WriteLine($"  집의 흐름(모두 더함): {string.Join(", ", flow.Select(x => $"{x.Key} {x.Value}"))}");
         Console.WriteLine($"  꺾인 갈래: {string.Join(", ", whyBroken.OrderByDescending(x => x.Value).Select(x => $"{x.Key} {x.Value}"))}");
         Console.WriteLine($"건국: 세움 {natF}, 승인 {natR}, 적대 {natO}, 잃음 {natL}(마을 모자람 해 {natSV}), 지금 {w.Nations.Count()}" + string.Join("", w.Nations.Select(n => $" | {n.Name}")));
         Console.WriteLine($"쿠데타: 꾸밈 {plots}, 들킴 {exposed}, 숙청 {purges}, 거사 {strikes} (자리 빼앗음 {wins}, 내전 {wars}, 실패 {fails})");
