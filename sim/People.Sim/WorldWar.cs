@@ -14,9 +14,41 @@ public sealed partial class World
         return s;
     }
 
+    /// <summary>
+    /// 싸움에 실제로 모일 힘의 어림(C7): 제 힘 + 봉신마다 (소집에 응할 확률 × 그 힘) + 동맹마다 (올 확률 × 친위대 뺀 군인 절반).
+    /// 막는 쪽이면 아래 보통 집의 향병(0.3 + 0.5 × 충성 확률)과 거점 보정(1 + 0.15 × 큰 집 단계)을 더한다.
+    /// </summary>
+    private float MusterPower(int lord, bool defending)
+    {
+        var p = People; var hh = Households;
+        int head = HeadIdx(lord);
+        float s = LordPower(lord);
+        foreach (int v in DirectClients(lord))
+        {
+            if (!hh.IsAlive(v)) continue;
+            int vh = HeadIdx(v);
+            if (vh < 0) continue;
+            float loy = head >= 0 && p.LoyalUid[vh] == p.Uid[head] ? p.Loyalty[vh] : 0.3f;
+            if (ClientCount(v) > 0)
+            {
+                float answer = Math.Clamp(loy + (IsTitled(v) ? 0.2f : 0f) + (NationOf(lord) != null ? 0.1f : 0f) - 0.3f * MathF.Min(1f, MathF.Sqrt(Dist2(v, lord)) / Config.VassalRange), 0f, 0.95f);
+                s += answer * LordPower(v);
+            }
+            else if (defending && Dist2(v, lord) <= 4f * Config.ProtectRange * Config.ProtectRange)
+                s += (0.3f + 0.5f * loy) * HouseholdPower(v);
+        }
+        foreach (var x in _pacts)
+        {
+            if (x.k != PactKind.Alliance) continue;
+            int o = x.a == lord ? x.b : x.b == lord ? x.a : -1;
+            if (o >= 0 && hh.IsAlive(o)) s += 0.5f * 0.5f * 0.7f * LordPower(o);
+        }
+        return defending ? s * (1f + 0.15f * ResidenceOf(lord)) : s;
+    }
+
     public float WarOdds(int a, int t)
     {
-        float x = RealmPower(a) + PactAllyPower(a), y = RealmPower(t) + PactAllyPower(t);   // 동맹은 힘의 0.3을 보탠다(R14)
+        float x = MusterPower(a, false), y = MusterPower(t, true);
         return x * x / (x * x + y * y + 0.01f);
     }
 
@@ -84,7 +116,7 @@ public sealed partial class World
             if (ah < 0 || IsPlayer(ah)) continue;
             float agg = HeadTrait(a, Trait.Aggression);
             if (agg < 0.6f || !_rng.Chance(0.03f)) continue;
-            int best = -1; float bo = 0.7f;
+            int best = -1; float bo = 0.75f - 0.25f * (agg - 0.6f);   // 거칠수록 덜 확실해도 건다(공격성 1이면 0.65)
             for (int t = 0; t < hh.HighWater; t++)
             {
                 if (!CanWar(a, t)) continue;

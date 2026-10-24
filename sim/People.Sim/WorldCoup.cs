@@ -241,7 +241,7 @@ public sealed partial class World
             // 새어 나감: 아는 사람 한 명당 4%, 신중한 꾸미는 사람은 덜
             float susp = RivalOf(x.Lord, x.PlotterHouse)?.Suspicion ?? 0f;   // 의심하는 지배자는 더 잘 알아챈다
             float eye = EyeShare(LordOrg(x.Lord, false));   // 감찰대가 있으면 더 잘 캔다
-            float leak = MathF.Min(0.5f, 0.025f * x.Known.Count * (1.2f - 0.5f * p.Get(pi, Trait.Caution)) + susp / 1000f + 0.08f * eye);   // 감찰대 몫만큼 더 새어 나간다(많아야 +0.08, C5)
+            float leak = MathF.Min(0.5f, 0.02f * x.Known.Count * (1.2f - 0.5f * p.Get(pi, Trait.Caution)) + susp / 1000f + 0.08f * eye);   // 감찰대 몫만큼 더 새어 나간다(많아야 +0.08, C5)
             if (_rng.Chance(leak)) { Expose(x); continue; }
             if (IsPlayer(pi)) continue;   // 플레이어는 거사할 때를 스스로 고른다
             int years = (Day - x.Since) / Config.DaysPerYear;
@@ -251,7 +251,7 @@ public sealed partial class World
             // 오래 끌수록 새어 나갈 위험이 커진다: 야심가는 덜 확실해도 일으킨다
             float amb = p.Get(pi, Trait.Ambition);
             // 오래 끌면 덜 확실해도 일으키지만, 지는 싸움에 뛰어들지는 않는다(분쟁 C1: 진압군이 실제로 막는다)
-            if (ratio >= need || (years >= 3 && ratio >= 0.5f - 0.05f * amb)) Strike(x);
+            if (ratio >= need || (years >= 2 && ratio >= 0.5f - 0.05f * amb)) Strike(x);   // 두 해 넘게 끌면(C7: 세 해에서 당김)
             else if (years >= 7) { _plots.Remove(x); Chron(pi, $"{SubjName(pi)} 거사를 접었다"); }
         }
         // 3) 독립 선언(NPC 봉신)

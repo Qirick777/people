@@ -421,6 +421,7 @@ switch (cmd)
         // 독립 세력 표본: (해, 집, 세운 날, 아래 집 수)
         var samples = new List<(int year, int h, int founded, int below)>();
         int broken = 0, judged = 0;
+        var whyBroken = new Dictionary<string, int>();
         int Fam(int h) => p.IsValid(hh.Head[h]) ? w.Lineage.FamilyOf(p.Uid[hh.Head[h].Index]) : -1;
         for (int y = 1; y <= years; y++)
         {
@@ -479,7 +480,16 @@ switch (cmd)
                     // 꺾임: 그 가문의 어느 집도 홀로 서서 옛 세력의 절반 넘게 쥐고 있지 않다(같은 가문이 이으면 이어진 것)
                     int fam = sm.founded;
                     bool gone = !Enumerable.Range(0, hh.HighWater).Any(k => hh.IsAlive(k) && Fam(k) == fam && w.PatronOf(k) < 0 && w.BelowOf(k) >= 0.5 * sm.below);
-                    if (gone) broken++;
+                    if (gone)
+                    {
+                        broken++;
+                        // 갈래: 가문 끊김 / 가문 집이 모두 남 아래 / 홀로 선 가문 집이 여럿(나뉨) / 하나뿐인데 줄어듦
+                        var famHouses = Enumerable.Range(0, hh.HighWater).Where(k => hh.IsAlive(k) && Fam(k) == fam).ToList();
+                        var freeF = famHouses.Where(k => w.PatronOf(k) < 0 && w.BelowOf(k) > 0).ToList();
+                        string why = famHouses.Count == 0 ? "끊김" : freeF.Count == 0 ? (famHouses.Any(k => w.BelowOf(k) > 0) ? "봉신됨" : "세력 잃음")
+                                   : freeF.Count > 1 && freeF.Sum(k => w.BelowOf(k)) >= 0.5 * sm.below ? "나뉨" : "줄어듦";
+                        whyBroken[why] = whyBroken.GetValueOrDefault(why) + 1;
+                    }
                 }
                 for (int h = 0; h < hh.HighWater; h++)
                     if (hh.IsAlive(h) && w.TierOf(h) >= 2 && w.PatronOf(h) < 0 && Fam(h) >= 0) samples.Add((y, h, Fam(h), w.BelowOf(h)));   // founded 칸에 가문을 적는다
@@ -507,6 +517,7 @@ switch (cmd)
         double perK = houseYears > 0 ? newLordFams / (houseYears / 1000.0) * 100.0 : 0;
         Console.WriteLine($"새로 영주가 된 가문(50년 뒤): {newLordFams} → 1,000집·100년당 {perK:F2} (목표 1~3)");
         Console.WriteLine($"100년 동안 꺾이거나 쪼개진 독립 세력: {broken}/{judged} = {(judged > 0 ? broken / (double)judged : 0):P0} (목표 15~40%)");
+        Console.WriteLine($"  꺾인 갈래: {string.Join(", ", whyBroken.OrderByDescending(x => x.Value).Select(x => $"{x.Key} {x.Value}"))}");
         Console.WriteLine($"건국: 세움 {natF}, 승인 {natR}, 적대 {natO}, 잃음 {natL}(마을 모자람 해 {natSV}), 지금 {w.Nations.Count()}" + string.Join("", w.Nations.Select(n => $" | {n.Name}")));
         Console.WriteLine($"쿠데타: 꾸밈 {plots}, 들킴 {exposed}, 숙청 {purges}, 거사 {strikes} (자리 빼앗음 {wins}, 내전 {wars}, 실패 {fails})");
         Console.WriteLine($"독립: 선언 {declared}, 진압 {supp}, 협상 {nego}, 체념 {letgo}, 홀로 섬 {indep}");
