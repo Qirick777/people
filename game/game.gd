@@ -979,7 +979,7 @@ func _open_rise() -> void:
 				rise_box.add_child(orow)
 		var wars: Array = lt["wars"]
 		if not wars.is_empty():
-			rise_box.add_child(UI.label("싸움을 걸 수 있는 지배자(이기면 내 봉신이 된다. 두 쪽 다 군인을 잃는다)", 13, UI.MUTED, true))
+			rise_box.add_child(UI.label("싸움을 걸 수 있는 지배자(숫자는 힘의 어림. 걸면 분쟁이 서고 싸움으로 정해진다. 이기면 내 봉신이 된다)", 13, UI.MUTED, true))
 			var wg := GridContainer.new()
 			wg.columns = 2
 			wg.add_theme_constant_override("h_separation", 6)

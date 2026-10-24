@@ -1905,7 +1905,7 @@ public partial class SimHost : Node
         return "";
     }
 
-    /// <summary>자동 시험용: 플레이어 집이 가장 가까운 다른 홀로 선 지배자에게 싸움을 건다. 상대 이름(없으면 "").</summary>
+    /// <summary>자동 시험용: 플레이어 집이 힘이 가장 비슷한(어림이 0.5에 가까운) 다른 홀로 선 지배자에게 싸움을 건다. 상대 이름(없으면 "").</summary>
     public string DebugWar()
     {
         if (!Ready) return "";
@@ -1916,8 +1916,7 @@ public partial class SimHost : Node
         for (int t = 0; t < hh.HighWater; t++)
         {
             if (!hh.IsAlive(t) || t == me || w.PatronOf(t) >= 0 || w.TierOf(t) < 1 || !w.People.IsValid(hh.Head[t])) continue;
-            var (x0, y0) = (hh.X[me] - hh.X[t], hh.Y[me] - hh.Y[t]);
-            float d = x0 * x0 + y0 * y0;
+            float d = MathF.Abs(w.WarOdds(me, t) - 0.5f);
             if (d < bd) { bd = d; best = t; }
         }
         if (best < 0) return "";
