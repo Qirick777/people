@@ -492,6 +492,7 @@ public sealed partial class World
         Timed("해/ProtectionYear", ProtectionYear);
         Timed("해/ArrangeYear", ArrangeYear);
         Timed("해/FamilyYear", FamilyYear);
+        Timed("해/LineageYear", LineageYear);
         Timed("해/GroupYear", GroupYear);
         Timed("해/RiseYear", RiseYear);
         Timed("해/CoupYear", CoupYear);
@@ -1438,6 +1439,8 @@ public sealed partial class World
             if (ClientCount(h) > 0) ShakeLordship(h, Config.HeadChangeLoss);   // 새 가장이 약하면 떠나는 집이 생긴다
             return;
         }
+        // 어린 자식만 남은 지배자 집은 후견인이 맡는다(고증)
+        if (TryRegency(h)) return;
         // 지배자 집이 끊긴다: 가장 가까운 혈족 집이 지배권·땅·성을 잇는다.
         bool keepHouse = false;
         if (ClientCount(h) > 0 || ResidenceOf(h) > 0)

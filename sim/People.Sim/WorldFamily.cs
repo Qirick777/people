@@ -18,6 +18,93 @@ public sealed partial class World
         return -1;
     }
 
+    // ------------------------------------------------------------------ 대 잇기(고증)
+    // - 어린 후계자: 지배자 집에 열두 살 넘은 사람이 없어도 어린 자식이 있으면 집을 없애지 않는다.
+    //   가장 가까운 어른 혈족(제 집 가장이 아닌 사람)이 후견인으로 들어와 가장을 맡고, 아이를 후계자로 세운다. 아이가 열여섯이 되면 자리를 넘긴다.
+    // - 양자: 마흔다섯 넘은 지배자 가장에게 집에 있는 아들도 지정 후계자도 없으면, 가까운 혈족 사내아이·젊은이(8~30세)를 양자로 들여 후계자로 세운다.
+    private readonly Dictionary<int, (int regent, int founded)> _regent = new();   // 집 → 후견인 uid
+
+    private bool LordHouse(int h) => ClientCount(h) > 0 || ResidenceOf(h) > 0;
+
+    /// <summary>child 를 맡을 가장 가까운 어른 혈족(18세 넘고 제 집 가장이 아닌 사람). 없으면 -1.</summary>
+    private int FindGuardian(int child, int exclude)
+    {
+        var p = People;
+        int cu = p.Uid[child], best = -1; float bs = 0.06f;
+        for (int k = 0; k < p.HighWater; k++)
+        {
+            if (!p.IsAliveIndex(k) || AgeYears(k) < 18 || p.Household[k] == exclude || IsHead(k) || IsCaptive(k)) continue;
+            float r = Lineage.Relatedness(p.Uid[k], cu);
+            if (r > bs) { bs = r; best = k; }
+        }
+        return best;
+    }
+
+    /// <summary>끊길 지배자 집을 후견인이 맡는다. 맡았으면 true.</summary>
+    private bool TryRegency(int h)
+    {
+        if (!LordHouse(h)) return false;
+        var p = People; var hh = Households;
+        int child = -1;
+        foreach (int k in MembersOf(h))
+            if (child < 0 || (p.Male[k] && !p.Male[child]) || (p.Male[k] == p.Male[child] && AgeYears(k) > AgeYears(child))) child = k;
+        if (child < 0) return false;
+        int g = FindGuardian(child, h);
+        if (g < 0) return false;
+        MoveTo(g, h);
+        hh.Head[h] = p.IdAt(g);
+        _heir[h] = (p.Uid[child], hh.FoundedDay[h]);
+        _regent[h] = (p.Uid[g], hh.FoundedDay[h]);
+        Stats.Regencies++;
+        Chron(g, $"{SubjName(g)} 어린 {Names.Full(Lineage, p.Uid[child])}의 후견인이 되어 집을 맡았다");
+        return true;
+    }
+
+    /// <summary>해마다: 후견인은 열여섯이 된 후계자에게 자리를 넘기고, 아들 없는 늙은 지배자는 양자를 들인다.</summary>
+    private void LineageYear()
+    {
+        var p = People; var hh = Households;
+        foreach (var (h, r) in _regent.ToList())
+        {
+            if (!hh.IsAlive(h) || hh.FoundedDay[h] != r.founded) { _regent.Remove(h); continue; }
+            int heir = HeirOf(h);
+            if (heir < 0) { _regent.Remove(h); continue; }
+            if (AgeYears(heir) < 16) continue;
+            hh.Head[h] = p.IdAt(heir);
+            _regent.Remove(h);
+            Chron(heir, $"{SubjName(heir)} 열여섯이 되어 후견인에게서 집을 넘겨받았다");
+        }
+        for (int h = 0; h < hh.HighWater; h++)
+        {
+            if (!hh.IsAlive(h) || !LordHouse(h) || !p.IsValid(hh.Head[h])) continue;
+            int head = hh.Head[h].Index;
+            if (AgeYears(head) < 45 || HeirOf(h) >= 0 || SeatHeir(h) >= 0) continue;
+            var me = hh.Head[h];
+            if (MembersOf(h).Any(k => p.Male[k] && p.Father[k] == me)) continue;   // 어린 아들이 있다
+            if (!_rng.Chance(0.3f)) continue;
+            int hu = p.Uid[head], fam = Lineage.FamilyOf(hu);
+            int best = -1; float bs = 0.1f;
+            for (int k = 0; k < p.HighWater; k++)
+            {
+                if (!p.IsAliveIndex(k) || !p.Male[k] || p.Household[k] == h || IsHead(k) || IsCaptive(k)) continue;
+                int age = AgeYears(k);
+                if (age < 8 || age > 30 || LordHouse(p.Household[k])) continue;
+                float r = Lineage.Relatedness(p.Uid[k], hu);
+                if (r < 0.1f) continue;
+                float sc = r + (Lineage.FamilyOf(p.Uid[k]) == fam ? 0.3f : 0f);
+                if (sc > bs) { bs = sc; best = k; }
+            }
+            if (best < 0) continue;
+            // 처자식이 있는 젊은이는 처자식과 함께 들어온다
+            var bid = p.IdAt(best);
+            var bring = MembersOf(p.Household[best]).Where(k => k == best || (!p.Male[k] && p.Husband[k] == bid) || (AgeYears(k) < 16 && p.Father[k] == bid)).ToList();
+            foreach (int k in bring) MoveTo(k, h);
+            _heir[h] = (p.Uid[best], hh.FoundedDay[h]);
+            Stats.Adoptions++;
+            Chron(head, $"{SubjName(head)} {Obj(Names.Full(Lineage, p.Uid[best]))} 양자로 들여 후계자로 세웠다");
+        }
+    }
+
     private bool IsHead(int i) => Households.IsAlive(People.Household[i]) && Households.Head[People.Household[i]].Index == i;
     private bool SameHouse(int a, int b) => People.Household[a] == People.Household[b];
     private bool IsHealer(int i) => People.IsAliveIndex(i) && People.JobOf[i] == (byte)Job.Healer;
