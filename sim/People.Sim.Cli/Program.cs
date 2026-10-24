@@ -427,6 +427,7 @@ switch (cmd)
         var flow = new Dictionary<string, long>();
         int Fam(int h) => p.IsValid(hh.Head[h]) ? w.Lineage.FamilyOf(p.Uid[hh.Head[h].Index]) : -1;
         var ends = new Dictionary<string, int>();
+        var endAges = new List<int>(); var endBorn = new List<int>(); int endKid = 0, endAdult = 0, endAlive = 0, endNoSon = 0;
         w.LordHouseEnded = (h, heir, below) =>
         {
             if (below < 20) return;
@@ -438,6 +439,22 @@ switch (cmd)
                 if (p.IsAliveIndex(i) && p.Male[i] && w.Lineage.Father(p.Uid[i]) == dead && (w.Day - p.BirthDay[i]) / w.Config.DaysPerYear >= 16) { sons++; if (p.Household[i] != h) sonsAway++; }
             string why = sons == 0 ? "어른 아들 없음" : sonsAway == sons ? "아들이 모두 딴 집" : "아들이 집에 있었음";
             ends[why] = ends.GetValueOrDefault(why) + 1;
+            // 대가 끊긴 까닭: 가장의 나이, 낳은 아들, 그 아들들의 끝
+            var L = w.Lineage;
+            int yr = w.Config.DaysPerYear;
+            int born = 0, diedKid = 0, diedAdult = 0, alive = 0, wives = 0;
+            for (int u = 0; u < L.Count; u++)
+            {
+                if (L.Father(u) != dead) continue;
+                if (!L.Male(u)) continue;
+                born++;
+                int dd = L.Death(u);
+                if (dd > 0 && dd >= L.Birth(u)) { if ((dd - L.Birth(u)) / yr < 16) diedKid++; else diedAdult++; }
+                else alive++;
+            }
+            int age = dead >= 0 ? (w.Day - L.Birth(dead)) / yr : -1;
+            endAges.Add(age); endBorn.Add(born); endKid += diedKid; endAdult += diedAdult; endAlive += alive;
+            if (born == 0) endNoSon++;
             ends["아래 집 합"] = ends.GetValueOrDefault("아래 집 합") + below;
         };
         for (int y = 1; y <= years; y++)
@@ -553,6 +570,11 @@ switch (cmd)
         Console.WriteLine($"새로 영주가 된 가문(50년 뒤): {newLordFams} → 1,000집·100년당 {perK:F2} (목표 1~3)");
         Console.WriteLine($"100년 동안 꺾이거나 쪼개진 독립 세력: {broken}/{judged} = {(judged > 0 ? broken / (double)judged : 0):P0} (목표 15~40%)");
         Console.WriteLine($"  그중 아래 집 100 넘던 세력: {brokenBig}/{judgedBig} = {(judgedBig > 0 ? brokenBig / (double)judgedBig : 0):P0}, 작은 세력: {broken - brokenBig}/{judged - judgedBig}");
+        if (endAges.Count > 0)
+        {
+            endAges.Sort();
+            Console.WriteLine($"  끊긴 집의 가장: 죽은 나이 중앙 {endAges[endAges.Count / 2]}(p10 {endAges[endAges.Count / 10]}, p90 {endAges[endAges.Count * 9 / 10]}), 낳은 아들 평균 {endBorn.Average():F2}, 아들 하나도 못 낳음 {endNoSon}/{endAges.Count}, 아들 끝: 어려서 죽음 {endKid}, 커서 죽음 {endAdult}, 살아 있음 {endAlive}");
+        }
         Console.WriteLine($"  아래 20 넘는 지배자 집이 끊김: {string.Join(", ", ends.Select(x => $"{x.Key} {x.Value}"))}");
         Console.WriteLine($"  집의 흐름(모두 더함): {string.Join(", ", flow.Select(x => $"{x.Key} {x.Value}"))}");
         Console.WriteLine($"  꺾인 갈래: {string.Join(", ", whyBroken.OrderByDescending(x => x.Value).Select(x => $"{x.Key} {x.Value}"))}");
