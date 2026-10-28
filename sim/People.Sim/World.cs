@@ -1419,6 +1419,8 @@ public sealed partial class World
     {
         var p = People;
         var hh = Households;
+        // 지정 후계자가 집 밖에 있으면 먼저 부른다(후계 설정)
+        if (HeirOf(h) < 0 && CallOutsideHeir(h)) return;
         int best = -1, bestScore = int.MinValue;
         bool anyAdult = false;
         int named = HeirOf(h);

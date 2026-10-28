@@ -466,6 +466,8 @@ public sealed partial class World
     /// <summary>끊긴 지배자 집의 상속자: 죽은 가장과 혈연이 가장 가까운 집. 같은 성이면 더 앞선다.</summary>
     private int FindLordHeir(int h)
     {
+        // 지정 후계자가 딴 집에 살아 있으면 그 집이 잇는다(후계 설정)
+        if (OutsideHeir(h) is int oh && oh >= 0) return People.Household[oh];
         if (!_deadHead.TryGetValue(h, out int dead) || dead < 0) return -1;
         var hh = Households;
         var p = People;

@@ -105,6 +105,75 @@ public sealed partial class World
         }
     }
 
+    /// <summary>집 h 의 지정 후계자가 집 밖에 살아 있으면 그 사람 번호(없으면 -1).</summary>
+    private int OutsideHeir(int h)
+    {
+        if (!_heir.TryGetValue(h, out var e) || !Households.IsAlive(h) || Households.FoundedDay[h] != e.founded) return -1;
+        int i = FindAlive(e.uid);
+        return i >= 0 && People.Household[i] != h && !IsCaptive(i) ? i : -1;
+    }
+
+    /// <summary>a 의 사위인가(b 의 아내 가운데 a 의 딸이 있다).</summary>
+    private bool SonInLaw(int a, int b)
+    {
+        var p = People;
+        if (!p.Male[b]) return false;
+        var bid = p.IdAt(b);
+        foreach (int k in MembersOf(p.Household[b])) if (!p.Male[k] && p.Husband[k] == bid && Lineage.Father(p.Uid[k]) == p.Uid[a]) return true;
+        return false;
+    }
+
+    /// <summary>후계자로 정할 수 있는 사람: 같은 집 식구, 또는 혈족(1/16 넘게 가까움)이나 사위(딴 집이어도).</summary>
+    private bool HeirCandidate(int head, int t)
+    {
+        var p = People;
+        if (head == t || !p.IsAliveIndex(t) || IsCaptive(t) || Lineage.Disowned(p.Uid[t])) return false;
+        if (SameHouse(head, t)) return true;
+        return Lineage.Relatedness(p.Uid[head], p.Uid[t]) > 0.06f || SonInLaw(head, t);
+    }
+
+    /// <summary>
+    /// 가장이 죽었는데 지정 후계자가 집 밖에 있다(Succession 이 부른다). 제 집 가장이 아니면 처자식과 함께 들어와 가장이 된다.
+    /// 제 집 가장이면(지배자 집일 때) 그 집이 지배권을 잇고 남은 식구가 그 집으로 들어가 본가는 닫힌다. 처리했으면 true.
+    /// </summary>
+    private bool CallOutsideHeir(int h)
+    {
+        var p = People; var hh = Households;
+        int x = OutsideHeir(h);
+        if (x < 0) return false;
+        int xh = p.Household[x];
+        if (!IsHead(x))
+        {
+            var xid = p.IdAt(x);
+            var bring = MembersOf(xh).Where(k => k == x || (!p.Male[k] && p.Husband[k] == xid) || (AgeYears(k) < 16 && p.Father[k] == xid)).ToList();
+            foreach (int k in bring) MoveTo(k, h);
+            hh.Head[h] = p.IdAt(x);
+            _heir.Remove(h);
+            Stats.HeirsCalled++;
+            Chron(x, $"{SubjName(x)} 지정 후계자로 본가에 들어와 집을 이었다");
+            if (ClientCount(h) > 0) ShakeLordship(h, Config.HeadChangeLoss);
+            return true;
+        }
+        if (LordHouse(h))   // 아래 집이 이을 때 생기는 고리는 InheritLordship 이 푼다
+        {
+            // 제 집 가장인 후계자: 그 집이 지배권·땅·성을 잇고, 남은 식구는 새 주인 집으로 들어간다
+            Stats.HeirsCalled++;
+            Chron(x, $"{SubjName(x)} 지정 후계자로 지배권을 이었다");
+            _heir.Remove(h);
+            bool keep = InheritLordship(h, xh);
+            foreach (int k in MembersOf(h)) { Leave(k); Join(k, xh); }
+            if (h == PlayerHousehold) FollowPlayer(xh);
+            RemoveHousehold(h, xh, keep);
+            Stats.Dissolved++;
+            return true;
+        }
+        return false;
+    }
+
+    // 시험용
+    public void DieNow(int i) => Die(i, false);
+    public bool CanNameHeir(int head, int t) => IsHead(head) && HeirCandidate(head, t);
+
     private bool IsHead(int i) => Households.IsAlive(People.Household[i]) && Households.Head[People.Household[i]].Index == i;
     private bool SameHouse(int a, int b) => People.Household[a] == People.Household[b];
     private bool IsHealer(int i) => People.IsAliveIndex(i) && People.JobOf[i] == (byte)Job.Healer;
@@ -215,8 +284,9 @@ public sealed partial class World
         d[(int)InteractionId.NameHeir] = new InteractionDef
         {
             Id = InteractionId.NameHeir, Name = "후계자로 정하기", Category = InteractionCategory.Family,
-            Can = (w, c) => w.IsHead(c.Actor) && w.SameHouse(c.Actor, c.Target) && !w.Lineage.Disowned(w.People.Uid[c.Target])
-                            && w.HeirOf(w.People.Household[c.Actor]) != c.Target,
+            // 같은 집 식구, 또는 딴 집의 혈족·사위(가장이 죽으면 본가로 들어오거나 지배권을 잇는다)
+            Can = (w, c) => w.IsHead(c.Actor) && w.HeirCandidate(c.Actor, c.Target)
+                            && !(w._heir.TryGetValue(w.People.Household[c.Actor], out var e) && e.uid == w.People.Uid[c.Target]),
             Success = (w, c, _) =>
             {
                 var p = w.People;
@@ -224,8 +294,10 @@ public sealed partial class World
                 w._heir[h] = (p.Uid[c.Target], w.Households.FoundedDay[h]);
                 // 건너뛴 형들은 서운해한다
                 int age = w.AgeYears(c.Target);
-                foreach (int k in w.MembersOf(h))
-                    if (k != c.Target && k != c.Actor && p.Male[k] && w.AgeYears(k) > age && w.Lineage.Father(p.Uid[k]) == p.Uid[c.Actor])
+                // 건너뛴 아들(딴 집에 사는 아들도)은 서운해한다
+                bool own = w.Lineage.Father(p.Uid[c.Target]) == p.Uid[c.Actor];
+                for (int k = 0; k < p.HighWater; k++)
+                    if (p.IsAliveIndex(k) && k != c.Target && p.Male[k] && w.AgeYears(k) >= 16 && (!own || w.AgeYears(k) > age) && w.Lineage.Father(p.Uid[k]) == p.Uid[c.Actor] && !w.Lineage.Disowned(p.Uid[k]))
                     {
                         Social.Add(p, k, p.Uid[c.Actor], -15f);
                         Social.Add(p, k, p.Uid[c.Target], -15f);
